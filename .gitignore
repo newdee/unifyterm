@@ -1,0 +1,3 @@
+/target
+# Fetched by tools/fetch-conpty.ps1 (a fixed version, checked by SHA-256), not kept in git.
+/vendor/conpty

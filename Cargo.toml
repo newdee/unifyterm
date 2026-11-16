@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/uni-term"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+
+[profile.dev]
+# GPUI is slow to start unoptimized; keep our own crate fast to rebuild.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

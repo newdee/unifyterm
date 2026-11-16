@@ -1,0 +1,824 @@
+//! One program in a pty and the screen it draws: the part of a terminal
+//! that needs no window, so tests drive it directly.
+//!
+//! Bytes the program prints come out of [`Session::spawn`]'s channel; the
+//! owner hands them to [`Session::feed`], which updates the screen. Keys go
+//! the other way through [`Session::write`]. [`Session::snapshot`] is what
+//! is on screen, in this crate's own types: nothing outside this file knows
+//! which library keeps the screen.
+
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+use alacritty_terminal::event::{Event, EventListener};
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::term::test::TermSize;
+use alacritty_terminal::term::{Config, Term, TermMode, viewport_to_point};
+use alacritty_terminal::vte::ansi::{self, CursorShape as VteCursor, NamedColor, Processor};
+use anyhow::{Context as _, Result, anyhow};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use smol::channel::{Receiver, bounded};
+
+use crate::theme::{Rgb, Theme};
+
+/// Most bytes taken from the pty in one read.
+const READ_CHUNK: usize = 8192;
+/// Reads that may wait for the session's owner. When it is full the reader
+/// waits, and so does the program: a flood of output cannot fill memory.
+const OUTPUT_QUEUE: usize = 256;
+
+/// What the pty's threads tell the session's owner.
+pub enum PtyEvent {
+    /// The program printed these bytes.
+    Output(Vec<u8>),
+    /// The program ended.
+    Exited,
+}
+
+/// What the program asked of the terminal, for the session's owner to do.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Notice {
+    /// The window's title (`None`: back to the default).
+    Title(Option<String>),
+    /// Text for the clipboard (OSC 52).
+    Copy(String),
+}
+
+/// A cell's color before the theme gives it a value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Color {
+    Foreground,
+    Background,
+    /// One of xterm's 256.
+    Indexed(u8),
+    Rgb(Rgb),
+}
+
+/// A cell's attributes, as bits of [`Cell::attrs`].
+pub mod attr {
+    pub const BOLD: u16 = 1;
+    pub const ITALIC: u16 = 1 << 1;
+    pub const UNDERLINE: u16 = 1 << 2;
+    pub const STRIKE: u16 = 1 << 3;
+    pub const DIM: u16 = 1 << 4;
+    pub const INVERSE: u16 = 1 << 5;
+    pub const HIDDEN: u16 = 1 << 6;
+    /// The character takes this cell and the next.
+    pub const WIDE: u16 = 1 << 7;
+    /// The second cell of a wide character: nothing of its own to draw.
+    pub const SPACER: u16 = 1 << 8;
+    pub const SELECTED: u16 = 1 << 9;
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Cell {
+    pub c: char,
+    /// Combining characters on top of `c`.
+    pub combining: Option<String>,
+    pub fg: Color,
+    pub bg: Color,
+    pub attrs: u16,
+}
+
+impl Cell {
+    pub fn has(&self, attribute: u16) -> bool {
+        self.attrs & attribute != 0
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorShape {
+    Block,
+    Beam,
+    Underline,
+    Hollow,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Cursor {
+    pub line: usize,
+    pub column: usize,
+    pub shape: CursorShape,
+}
+
+/// What is on screen: `lines` rows of `columns` cells, top row first.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Snapshot {
+    pub columns: usize,
+    pub lines: usize,
+    pub cells: Vec<Cell>,
+    /// `None` when the program hid it or it is scrolled out of view.
+    pub cursor: Option<Cursor>,
+    /// How many lines of history the view is scrolled back by.
+    pub scrolled: usize,
+}
+
+impl Snapshot {
+    pub fn row(&self, line: usize) -> &[Cell] {
+        &self.cells[line * self.columns..(line + 1) * self.columns]
+    }
+}
+
+/// The modes the program set that change what input the terminal sends.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Modes {
+    /// Arrow keys send `ESC O A`, not `ESC [ A`.
+    pub app_cursor: bool,
+    pub bracketed_paste: bool,
+    /// The program wants mouse clicks.
+    pub mouse: bool,
+    /// ... and movement with a button held.
+    pub mouse_drag: bool,
+    /// ... and all movement.
+    pub mouse_motion: bool,
+    /// Mouse reports in the SGR form, which has no limit on coordinates.
+    pub sgr_mouse: bool,
+    pub alt_screen: bool,
+    /// On the alternate screen the wheel sends arrow keys.
+    pub alternate_scroll: bool,
+    pub focus_events: bool,
+}
+
+/// How much a click selects.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SelectBy {
+    Cell,
+    Word,
+    Line,
+}
+
+type Writer = Arc<Mutex<Box<dyn Write + Send>>>;
+
+/// The terminal library's events. Its answers to the program (where the
+/// cursor is, what a color is) are written back at once: ConPTY asks for
+/// the cursor's position before it passes anything on. The rest waits in
+/// `notices` for [`Session::take_notices`].
+pub struct Listener {
+    /// None for a screen with no program behind it (a replay).
+    writer: Option<Writer>,
+    notices: Arc<Mutex<Vec<Notice>>>,
+    theme: Theme,
+}
+
+impl Listener {
+    fn reply(&self, text: &str) {
+        if let Some(writer) = &self.writer {
+            // A failed write means the program is gone; `PtyEvent::Exited` says so.
+            let _ = writer.lock().unwrap().write_all(text.as_bytes());
+        }
+    }
+}
+
+/// The library's numbers for the colors that are not one of the 256.
+const FOREGROUND_INDEX: usize = NamedColor::Foreground as usize;
+const BACKGROUND_INDEX: usize = NamedColor::Background as usize;
+const CURSOR_INDEX: usize = NamedColor::Cursor as usize;
+const INDEXED_COLORS: usize = 256;
+
+impl EventListener for Listener {
+    fn send_event(&self, event: Event) {
+        let notice = match event {
+            Event::PtyWrite(text) => return self.reply(&text),
+            Event::ColorRequest(index, format) => {
+                let color = match index {
+                    FOREGROUND_INDEX => self.theme.foreground,
+                    BACKGROUND_INDEX => self.theme.background,
+                    CURSOR_INDEX => self.theme.cursor,
+                    i if i < INDEXED_COLORS => self.theme.indexed(i as u8),
+                    _ => return,
+                };
+                return self.reply(&format(ansi::Rgb { r: color.0, g: color.1, b: color.2 }));
+            }
+            Event::Title(title) => Notice::Title(Some(title)),
+            Event::ResetTitle => Notice::Title(None),
+            Event::ClipboardStore(_, text) => Notice::Copy(text),
+            _ => return,
+        };
+        self.notices.lock().unwrap().push(notice);
+    }
+}
+
+/// A terminal's screen: bytes in, cells out. It has no program of its own;
+/// [`Session`] is a screen with one.
+pub struct Screen {
+    term: Term<Listener>,
+    parser: Processor,
+    notices: Arc<Mutex<Vec<Notice>>>,
+    /// Where every byte fed in is also written, when `UNI_TERM_RAW_LOG`
+    /// names a file: what `--replay` reads back.
+    raw_log: Option<std::fs::File>,
+}
+
+/// A program in a pty, and its screen.
+pub struct Session {
+    screen: Screen,
+    writer: Writer,
+    master: Box<dyn MasterPty + Send>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
+}
+
+impl std::ops::Deref for Session {
+    type Target = Screen;
+    fn deref(&self) -> &Screen {
+        &self.screen
+    }
+}
+
+impl std::ops::DerefMut for Session {
+    fn deref_mut(&mut self) -> &mut Screen {
+        &mut self.screen
+    }
+}
+
+/// The environment variable naming the file a session's output is also
+/// written to.
+const RAW_LOG_VARIABLE: &str = "UNI_TERM_RAW_LOG";
+/// How many sessions this process has started.
+static SESSIONS: AtomicUsize = AtomicUsize::new(0);
+
+/// The raw log of the process's `number`th session (from 1): the named
+/// file for the first, the name with `.2`, `.3` added for the rest. Each
+/// session has its own, so that replaying one draws one screen.
+fn raw_log_path(name: &str, number: usize) -> String {
+    if number <= 1 { name.to_owned() } else { format!("{name}.{number}") }
+}
+
+impl Session {
+    /// Starts `command` in a pty of `columns` by `lines`, keeping
+    /// `scrollback` lines of history. The channel carries what the program
+    /// prints, then that it ended.
+    pub fn spawn(
+        command: CommandBuilder,
+        columns: u16,
+        lines: u16,
+        scrollback: usize,
+        theme: Theme,
+    ) -> Result<(Self, Receiver<PtyEvent>)> {
+        let pair = native_pty_system().openpty(pty_size(columns, lines)).map_err(|e| anyhow!("open a pty: {e}"))?;
+        let mut child = pair.slave.spawn_command(command).map_err(|e| anyhow!("start the program: {e}"))?;
+        drop(pair.slave);
+        let killer = child.clone_killer();
+        let mut reader = pair.master.try_clone_reader().map_err(|e| anyhow!("read the pty: {e}"))?;
+        let writer: Writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| anyhow!("write the pty: {e}"))?));
+
+        let (tx, rx) = bounded(OUTPUT_QUEUE);
+        let output = tx.clone();
+        std::thread::Builder::new()
+            .name("pty-reader".into())
+            .spawn(move || {
+                let mut buf = [0u8; READ_CHUNK];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if output.send_blocking(PtyEvent::Output(buf[..n].to_vec())).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            })
+            .context("start the pty reader")?;
+        // ConPTY keeps its output pipe open after the program ends, so the
+        // reader never sees the end: the program's exit is waited for here.
+        std::thread::Builder::new()
+            .name("pty-waiter".into())
+            .spawn(move || {
+                let _ = child.wait();
+                let _ = tx.send_blocking(PtyEvent::Exited);
+            })
+            .context("start the pty waiter")?;
+
+        let mut screen = Screen::new(columns, lines, scrollback, theme, Some(writer.clone()));
+        if let Some(path) = std::env::var_os(RAW_LOG_VARIABLE) {
+            let path = raw_log_path(&path.to_string_lossy(), SESSIONS.fetch_add(1, Ordering::Relaxed) + 1);
+            let file = std::fs::OpenOptions::new().create(true).append(true).open(&path);
+            screen.raw_log = Some(file.with_context(|| format!("open the raw log {path}"))?);
+        }
+        Ok((Self { screen, writer, master: pair.master, killer }, rx))
+    }
+
+    /// Sends bytes to the program, as if typed.
+    pub fn write(&self, bytes: &[u8]) -> Result<()> {
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    /// Sends pasted text: marked as a paste when the program asked for
+    /// that, else with each line end as the Enter key.
+    pub fn paste(&self, text: &str) -> Result<()> {
+        self.write(&paste_bytes(text, self.modes().bracketed_paste))
+    }
+
+    /// Changes the screen's size and tells the program.
+    pub fn resize(&mut self, columns: u16, lines: u16) -> Result<()> {
+        self.master.resize(pty_size(columns, lines)).map_err(|e| anyhow!("resize the pty: {e}"))?;
+        self.screen.set_size(columns, lines);
+        Ok(())
+    }
+
+    /// Tells the program the window gained or lost focus, if it asked to know.
+    pub fn focus(&mut self, focused: bool) -> Result<()> {
+        if self.screen.term.is_focused == focused {
+            return Ok(());
+        }
+        self.screen.term.is_focused = focused;
+        if self.modes().focus_events {
+            self.write(if focused { b"\x1b[I" } else { b"\x1b[O" })?;
+        }
+        Ok(())
+    }
+}
+
+impl Screen {
+    /// An empty screen. `replies`: where its answers to the program's
+    /// questions go; `None` when there is no program.
+    pub fn new(columns: u16, lines: u16, scrollback: usize, theme: Theme, replies: Option<Writer>) -> Self {
+        let notices = Arc::new(Mutex::new(Vec::new()));
+        let listener = Listener { writer: replies, notices: notices.clone(), theme };
+        let config = Config { scrolling_history: scrollback, ..Config::default() };
+        let term = Term::new(config, &TermSize::new(columns.into(), lines.into()), listener);
+        Self { term, parser: Processor::new(), notices, raw_log: None }
+    }
+
+    /// Takes bytes the program printed and updates the screen.
+    pub fn feed(&mut self, bytes: &[u8]) {
+        if let Some(log) = self.raw_log.as_mut() {
+            // A log that cannot be written is given up, not the session.
+            if log.write_all(bytes).is_err() {
+                self.raw_log = None;
+            }
+        }
+        self.parser.advance(&mut self.term, bytes);
+    }
+
+    /// The screen's text, one line of the screen a line, without the
+    /// spaces at each line's end: what `--replay` prints.
+    pub fn text(&self) -> String {
+        let snapshot = self.snapshot();
+        let mut text = String::new();
+        for line in 0..snapshot.lines {
+            let mut row = String::new();
+            for cell in snapshot.row(line).iter().filter(|cell| !cell.has(attr::SPACER)) {
+                row.push(cell.c);
+                row.extend(cell.combining.as_deref());
+            }
+            text.push_str(row.trim_end());
+            text.push('\n');
+        }
+        text
+    }
+
+    /// What the program asked for since the last call.
+    pub fn take_notices(&mut self) -> Vec<Notice> {
+        std::mem::take(&mut *self.notices.lock().unwrap())
+    }
+
+    /// The screen's size as (columns, lines).
+    pub fn size(&self) -> (u16, u16) {
+        (self.term.columns() as u16, self.term.screen_lines() as u16)
+    }
+
+    /// Changes the screen's size. A session's `resize` also tells its program.
+    pub fn set_size(&mut self, columns: u16, lines: u16) {
+        self.term.resize(TermSize::new(columns.into(), lines.into()));
+    }
+
+    pub fn modes(&self) -> Modes {
+        let mode = self.term.mode();
+        Modes {
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+            mouse: mode.intersects(TermMode::MOUSE_MODE),
+            mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
+            mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
+            sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
+            alt_screen: mode.contains(TermMode::ALT_SCREEN),
+            alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
+            focus_events: mode.contains(TermMode::FOCUS_IN_OUT),
+        }
+    }
+
+
+    /// Scrolls the view `lines` back into history (negative: toward now).
+    pub fn scroll(&mut self, lines: i32) {
+        self.term.scroll_display(Scroll::Delta(lines));
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.term.scroll_display(Scroll::Bottom);
+    }
+
+    /// Starts a selection at a cell of the view. `right_half`: the click
+    /// was in the cell's right half, so the cell itself is not yet in.
+    pub fn select(&mut self, line: usize, column: usize, right_half: bool, by: SelectBy) {
+        let kind = match by {
+            SelectBy::Cell => SelectionType::Simple,
+            SelectBy::Word => SelectionType::Semantic,
+            SelectBy::Line => SelectionType::Lines,
+        };
+        self.term.selection = Some(Selection::new(kind, self.point(line, column), side(right_half)));
+    }
+
+    /// Moves the selection's end to a cell of the view.
+    pub fn select_to(&mut self, line: usize, column: usize, right_half: bool) {
+        let point = self.point(line, column);
+        if let Some(selection) = self.term.selection.as_mut() {
+            selection.update(point, side(right_half));
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.term.selection = None;
+    }
+
+    /// The selected text; `None` when nothing is selected.
+    pub fn selection(&self) -> Option<String> {
+        self.term.selection_to_string().filter(|text| !text.is_empty())
+    }
+
+    /// A cell of the view as the library's point, which counts history.
+    fn point(&self, line: usize, column: usize) -> Point {
+        let line = line.min(self.term.screen_lines().saturating_sub(1));
+        let column = column.min(self.term.columns().saturating_sub(1));
+        viewport_to_point(self.term.grid().display_offset(), Point::new(line, Column(column)))
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let (columns, lines) = (self.term.columns(), self.term.screen_lines());
+        let content = self.term.renderable_content();
+        let scrolled = content.display_offset;
+        let blank = Cell { c: ' ', combining: None, fg: Color::Foreground, bg: Color::Background, attrs: 0 };
+        let mut cells = vec![blank; columns * lines];
+        // A line of the grid as a line of the view: history lines are negative.
+        let view_line = |line: Line| usize::try_from(line.0 + scrolled as i32).ok().filter(|&l| l < lines);
+        for indexed in content.display_iter {
+            let Some(line) = view_line(indexed.point.line) else { continue };
+            let Some(slot) = cells.get_mut(line * columns + indexed.point.column.0) else { continue };
+            let cell = indexed.cell;
+            let flags = cell.flags;
+            let mut attrs = 0;
+            for (flag, attribute) in [
+                (Flags::BOLD, attr::BOLD),
+                (Flags::ITALIC, attr::ITALIC),
+                (Flags::ALL_UNDERLINES, attr::UNDERLINE),
+                (Flags::STRIKEOUT, attr::STRIKE),
+                (Flags::DIM, attr::DIM),
+                (Flags::INVERSE, attr::INVERSE),
+                (Flags::HIDDEN, attr::HIDDEN),
+                (Flags::WIDE_CHAR, attr::WIDE),
+                (Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER, attr::SPACER),
+            ] {
+                if flags.intersects(flag) {
+                    attrs |= attribute;
+                }
+            }
+            if content.selection.is_some_and(|range| range.contains(indexed.point)) {
+                attrs |= attr::SELECTED;
+            }
+            let (fg, dim) = color(cell.fg, content.colors);
+            let (bg, _) = color(cell.bg, content.colors);
+            if dim {
+                attrs |= attr::DIM;
+            }
+            *slot = Cell { c: cell.c, combining: cell.zerowidth().map(|chars| chars.iter().collect()), fg, bg, attrs };
+        }
+        let shape = match content.cursor.shape {
+            VteCursor::Block => Some(CursorShape::Block),
+            VteCursor::Beam => Some(CursorShape::Beam),
+            VteCursor::Underline => Some(CursorShape::Underline),
+            VteCursor::HollowBlock => Some(CursorShape::Hollow),
+            VteCursor::Hidden => None,
+        };
+        let cursor = shape.and_then(|shape| {
+            let line = view_line(content.cursor.point.line)?;
+            Some(Cursor { line, column: content.cursor.point.column.0, shape })
+        });
+        Snapshot { columns, lines, cells, cursor, scrolled }
+    }
+
+    /// The screen's text, one string per line, top first, each as wide as the screen.
+    #[cfg(test)]
+    pub fn rows(&self) -> Vec<String> {
+        let snapshot = self.snapshot();
+        (0..snapshot.lines)
+            .map(|line| {
+                let mut text = String::new();
+                for cell in snapshot.row(line).iter().filter(|cell| !cell.has(attr::SPACER)) {
+                    text.push(cell.c);
+                    text.extend(cell.combining.as_deref());
+                }
+                text
+            })
+            .collect()
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        // Already ended is fine: nothing is left to stop.
+        let _ = self.killer.kill();
+    }
+}
+
+fn side(right_half: bool) -> Side {
+    if right_half { Side::Right } else { Side::Left }
+}
+
+/// The first of the eight dim colors in the library's numbering.
+const DIM_START: usize = NamedColor::DimBlack as usize;
+const NAMED_COLORS: usize = 16;
+
+/// A cell's color in this crate's terms, and whether it is a dim one. A
+/// color the program redefined (OSC 4, 10, 11) comes back as its new value.
+fn color(color: ansi::Color, redefined: &alacritty_terminal::term::color::Colors) -> (Color, bool) {
+    let rgb = |c: ansi::Rgb| Color::Rgb(Rgb(c.r, c.g, c.b));
+    match color {
+        ansi::Color::Spec(c) => (rgb(c), false),
+        ansi::Color::Indexed(index) => (redefined[usize::from(index)].map_or(Color::Indexed(index), rgb), false),
+        ansi::Color::Named(name) => {
+            let index = name as usize;
+            if let Some(c) = redefined[index] {
+                return (rgb(c), false);
+            }
+            match index {
+                i if i < NAMED_COLORS => (Color::Indexed(i as u8), false),
+                i if (DIM_START..DIM_START + 8).contains(&i) => (Color::Indexed((i - DIM_START) as u8), true),
+                BACKGROUND_INDEX => (Color::Background, false),
+                _ => (Color::Foreground, name == NamedColor::DimForeground),
+            }
+        }
+    }
+}
+
+const PASTE_START: &[u8] = b"\x1b[200~";
+const PASTE_END: &[u8] = b"\x1b[201~";
+
+/// Pasted text as the bytes to send. Bracketed: between the paste marks,
+/// with any escape character taken out so the text cannot end the paste
+/// itself. Not bracketed: each line end becomes a carriage return (Enter).
+fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
+    if bracketed {
+        let clean = text.replace('\x1b', "");
+        [PASTE_START, clean.as_bytes(), PASTE_END].concat()
+    } else {
+        text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
+    }
+}
+
+fn pty_size(columns: u16, lines: u16) -> PtySize {
+    PtySize { rows: lines, cols: columns, pixel_width: 0, pixel_height: 0 }
+}
+
+/// The program a new tab runs: the configured one, else PowerShell 7 when
+/// it is installed, else Windows PowerShell; `$SHELL` elsewhere. It starts
+/// in the current directory.
+pub fn shell_command(program: Option<&str>, args: &[String]) -> Result<CommandBuilder> {
+    let mut command = CommandBuilder::new(program.map_or_else(default_shell, str::to_owned));
+    command.args(args);
+    command.cwd(std::env::current_dir().context("the current directory")?);
+    // uni-term started from a multiplexer's pane is not in that pane: what
+    // the pane told its shell (which pane, whose history) is not passed on.
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(names_a_pane) {
+            command.env_remove(name);
+        }
+    }
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    command.env("TERM_PROGRAM", "uni-term");
+    command.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    Ok(command)
+}
+
+/// Whether an environment variable says which multiplexer pane a shell is
+/// in: keepane's, tmux's, screen's.
+fn names_a_pane(variable: &str) -> bool {
+    let name = variable.to_ascii_uppercase();
+    name.starts_with("KEEPANE") || matches!(name.as_str(), "TMUX" | "TMUX_PANE" | "STY")
+}
+
+#[cfg(windows)]
+fn default_shell() -> String {
+    let on_path = |name: &str| {
+        std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
+    };
+    if on_path("pwsh.exe") { "pwsh.exe".into() } else { "powershell.exe".into() }
+}
+
+#[cfg(not(windows))]
+fn default_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const WAIT: Duration = Duration::from_secs(15);
+    const HISTORY: usize = 100;
+
+    fn echo(text: &str) -> CommandBuilder {
+        let (program, flag) = if cfg!(windows) { ("cmd.exe", "/c") } else { ("/bin/sh", "-c") };
+        let mut command = CommandBuilder::new(program);
+        command.args([flag, &format!("echo {text}")]);
+        command
+    }
+
+    fn start(command: CommandBuilder) -> (Session, Receiver<PtyEvent>) {
+        Session::spawn(command, 80, 24, HISTORY, Theme::default()).unwrap()
+    }
+
+    /// A screen with no program: what tests feed it is all that is on it.
+    pub fn quiet(columns: u16, lines: u16) -> Screen {
+        Screen::new(columns, lines, HISTORY, Theme::default(), None)
+    }
+
+    /// Feeds the session what arrives until `done` says so; the screen at the end.
+    fn pump(session: &mut Session, events: &Receiver<PtyEvent>, done: impl Fn(&Session) -> bool) -> Vec<String> {
+        let deadline = Instant::now() + WAIT;
+        while Instant::now() < deadline && !done(session) {
+            match events.try_recv() {
+                Ok(PtyEvent::Output(bytes)) => session.feed(&bytes),
+                Ok(PtyEvent::Exited) | Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        session.rows()
+    }
+
+    fn shows(session: &Session, text: &str) -> bool {
+        session.rows().iter().any(|row| row.contains(text))
+    }
+
+    #[test]
+    fn what_a_program_prints_reaches_the_screen() {
+        let (mut session, events) = start(echo("uni-term-ok"));
+        let rows = pump(&mut session, &events, |s| shows(s, "uni-term-ok"));
+        assert!(shows(&session, "uni-term-ok"), "{rows:?}");
+        assert_eq!(rows.len(), 24);
+    }
+
+    #[test]
+    fn the_end_of_the_program_is_reported() {
+        let (mut session, events) = start(echo("bye"));
+        let deadline = Instant::now() + WAIT;
+        loop {
+            match events.try_recv() {
+                Ok(PtyEvent::Exited) => break,
+                // Fed, not dropped: ConPTY holds the program back until its
+                // question about the cursor is answered, which feeding does.
+                Ok(PtyEvent::Output(bytes)) => session.feed(&bytes),
+                Err(_) => {
+                    assert!(Instant::now() < deadline, "no exit reported");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn typed_text_reaches_the_program() {
+        let (mut session, events) = start(shell_command(None, &[]).unwrap());
+        // 6 * 7 is typed, 42 is only ever printed.
+        let line: &[u8] = if cfg!(windows) { b"Write-Output (6*7)\r" } else { b"echo $((6*7))\r" };
+        session.write(line).unwrap();
+        let rows = pump(&mut session, &events, |s| s.rows().iter().any(|row| row.trim() == "42"));
+        assert!(rows.iter().any(|row| row.trim() == "42"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_resize_changes_the_screen() {
+        let (mut session, _events) = start(echo("x"));
+        session.resize(100, 30).unwrap();
+        assert_eq!(session.size(), (100, 30));
+        assert_eq!(session.rows().len(), 30);
+        assert_eq!(session.snapshot().cells.len(), 3000);
+    }
+
+    #[test]
+    fn colors_and_attributes_are_in_the_snapshot() {
+        let mut session = quiet(20, 4);
+        session.feed(b"\x1b[H\x1b[2J\x1b[1;31ma\x1b[0;4;38;5;196mb\x1b[0;7;48;2;1;2;3mc\x1b[0;2;9md\x1b[0;3;8me\x1b[0mf");
+        let snapshot = session.snapshot();
+        let row = snapshot.row(0);
+        assert_eq!((row[0].c, row[0].fg, row[0].attrs), ('a', Color::Indexed(1), attr::BOLD));
+        assert_eq!((row[1].c, row[1].fg, row[1].attrs), ('b', Color::Indexed(196), attr::UNDERLINE));
+        assert_eq!((row[2].c, row[2].bg, row[2].attrs), ('c', Color::Rgb(Rgb(1, 2, 3)), attr::INVERSE));
+        assert_eq!((row[3].c, row[3].attrs), ('d', attr::DIM | attr::STRIKE));
+        assert_eq!((row[4].c, row[4].attrs), ('e', attr::ITALIC | attr::HIDDEN));
+        assert_eq!((row[5].c, row[5].fg, row[5].bg, row[5].attrs), ('f', Color::Foreground, Color::Background, 0));
+        assert_eq!(snapshot.cursor, Some(Cursor { line: 0, column: 6, shape: CursorShape::Block }));
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_cells() {
+        let mut session = quiet(20, 4);
+        session.feed("\x1b[H\x1b[2J中a\u{301}".as_bytes());
+        let snapshot = session.snapshot();
+        let row = snapshot.row(0);
+        assert_eq!((row[0].c, row[0].attrs), ('中', attr::WIDE));
+        assert!(row[1].has(attr::SPACER));
+        assert_eq!((row[2].c, row[2].combining.as_deref()), ('a', Some("\u{301}")));
+        assert_eq!(session.rows()[0].trim_end(), "中a\u{301}");
+    }
+
+    #[test]
+    fn the_view_scrolls_back_into_history() {
+        let mut session = quiet(10, 3);
+        session.feed(b"\x1b[H\x1b[2J1\r\n2\r\n3\r\n4\r\n5");
+        assert_eq!(session.rows(), ["3         ", "4         ", "5         "]);
+        session.scroll(2);
+        let snapshot = session.snapshot();
+        assert_eq!((snapshot.scrolled, snapshot.cursor), (2, None), "the cursor's line is out of view");
+        assert_eq!(session.rows()[0].trim_end(), "1");
+        // No further back than there is history (clearing the screen put a blank line there too).
+        session.scroll(100);
+        let oldest = session.snapshot().scrolled;
+        assert!((2..10).contains(&oldest), "{oldest}");
+        session.scroll(100);
+        assert_eq!(session.snapshot().scrolled, oldest);
+        session.scroll_to_bottom();
+        assert_eq!(session.rows()[2].trim_end(), "5");
+    }
+
+    #[test]
+    fn a_selection_gives_its_text() {
+        let mut session = quiet(20, 3);
+        session.feed(b"\x1b[H\x1b[2Jhello world\r\nsecond line");
+        assert_eq!(session.selection(), None);
+        session.select(0, 6, false, SelectBy::Cell);
+        session.select_to(0, 10, true);
+        assert_eq!(session.selection().as_deref(), Some("world"));
+        let selected: Vec<bool> = session.snapshot().row(0).iter().map(|cell| cell.has(attr::SELECTED)).collect();
+        assert_eq!(selected.iter().filter(|&&on| on).count(), 5);
+        assert!(selected[6] && selected[10] && !selected[5] && !selected[11]);
+
+        session.select(0, 2, false, SelectBy::Word);
+        assert_eq!(session.selection().as_deref(), Some("hello"));
+        session.select(1, 3, false, SelectBy::Line);
+        assert_eq!(session.selection().as_deref(), Some("second line\n"));
+        session.select(0, 0, false, SelectBy::Cell);
+        session.select_to(1, 5, true);
+        assert_eq!(session.selection().as_deref(), Some("hello world\nsecond"));
+        session.clear_selection();
+        assert_eq!(session.selection(), None);
+    }
+
+    #[test]
+    fn the_programs_requests_become_notices() {
+        let mut session = quiet(20, 3);
+        // A title, a bell (which uni-term does nothing with), text for the clipboard, the title reset.
+        session.feed(b"\x1b]0;my title\x07\x07\x1b]52;c;aGk=\x07\x1b]2;\x07");
+        let notices = session.take_notices();
+        assert_eq!(notices[0], Notice::Title(Some("my title".into())));
+        assert!(notices.contains(&Notice::Copy("hi".into())), "{notices:?}");
+        assert!(session.take_notices().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn modes_follow_what_the_program_set() {
+        let mut session = quiet(20, 3);
+        assert_eq!(session.modes(), Modes { alternate_scroll: true, ..Modes::default() });
+        session.feed(b"\x1b[?1h\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[?1049h\x1b[?1004h");
+        let modes = session.modes();
+        assert!(modes.app_cursor && modes.bracketed_paste && modes.mouse && modes.sgr_mouse);
+        assert!(modes.alt_screen && modes.focus_events && !modes.mouse_motion && !modes.mouse_drag);
+        session.feed(b"\x1b[?1002h");
+        assert!(session.modes().mouse_drag);
+    }
+
+    #[test]
+    fn a_panes_variables_are_not_passed_on() {
+        for name in ["KEEPANE", "KEEPANE_PANE", "KEEPANE_SHELL_HISTORY", "keepane_env_file", "TMUX", "TMUX_PANE", "STY"] {
+            assert!(names_a_pane(name), "{name}");
+        }
+        for name in ["PATH", "TERM", "TMUXINATOR_CONFIG", "STYLE", "HOME"] {
+            assert!(!names_a_pane(name), "{name}");
+        }
+        let command = shell_command(Some("sh"), &[]).unwrap();
+        let passed: Vec<_> = command.iter_full_env_as_str().map(|(name, _)| name.to_owned()).collect();
+        assert!(passed.iter().all(|name| !names_a_pane(name)), "{passed:?}");
+        assert!(passed.iter().any(|name| name == "TERM_PROGRAM"));
+    }
+
+    #[test]
+    fn each_session_has_its_own_raw_log() {
+        assert_eq!(raw_log_path("out.raw", 1), "out.raw");
+        assert_eq!(raw_log_path("out.raw", 2), "out.raw.2");
+        assert_eq!(raw_log_path("out.raw", 13), "out.raw.13");
+    }
+
+    #[test]
+    fn pasted_text_is_marked_or_given_enter_keys() {
+        assert_eq!(paste_bytes("a\r\nb\nc", false), b"a\rb\rc");
+        assert_eq!(paste_bytes("a\nb", true), b"\x1b[200~a\nb\x1b[201~");
+        assert_eq!(paste_bytes("x\x1b[201~rm -rf /", true), b"\x1b[200~x[201~rm -rf /\x1b[201~", "the text cannot end the paste");
+    }
+}

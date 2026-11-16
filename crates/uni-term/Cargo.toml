@@ -1,0 +1,22 @@
+[package]
+name = "uni-term"
+description = "One terminal for Windows, macOS and Linux."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The window, text and input (Zed's UI framework).
+gpui = "0.2.2"
+# The terminal's screen: escape sequences in, a grid of cells out.
+alacritty_terminal = "0.26"
+# The shell's pty: ConPTY on Windows, a Unix pty elsewhere.
+portable-pty = "0.9"
+# The channel from the pty's reader thread to the window.
+smol = "2"
+anyhow = "1"
+# The settings file.
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+dirs = "6"
