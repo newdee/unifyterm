@@ -1,12 +1,16 @@
 //! The command directory: one link to this program for every command, so
 //! that a shell with the directory first in its `PATH` finds `cat`, `ls`
 //! and the rest here. `ut --links DIRECTORY [--skip A,B]` makes the
-//! directory match the commands this program has, less the skipped ones.
+//! directory match the commands this program has, less the skipped ones,
+//! and one link named `ut`: the program itself (`ut history`, `ut --list`).
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+
+/// The link to this program under its own name.
+const OWN_NAME: &str = "ut";
 
 /// The file in the directory that lists the links this program made, one
 /// name a line: only those are ever removed.
@@ -121,13 +125,15 @@ pub(crate) fn main(args: &[OsString], commands: &[&str]) -> i32 {
             return 1;
         }
     };
-    match sync(&directory, &program, commands, &skip) {
+    let mut linked = commands.to_vec();
+    linked.push(OWN_NAME);
+    match sync(&directory, &program, &linked, &skip) {
         Ok(summary) => {
             let total = summary.made + summary.kept;
             let Summary { made, kept, removed } = summary;
             let _ = writeln!(
                 io::stdout(),
-                "{total} commands in {} (made {made}, kept {kept}, removed {removed})",
+                "{total} links in {} (made {made}, kept {kept}, removed {removed})",
                 crate::slash::shown(&directory)
             );
             0
@@ -214,6 +220,23 @@ mod tests {
         assert_eq!(summary, Summary { made: 1, kept: 0, removed: 0 });
         assert_eq!(std::fs::read_to_string(bin.join(link_name("cat"))).unwrap(), "the program");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_program_itself_is_linked_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        assert_eq!(main(&[bin.clone().into()], &["cat", "ls"]), 0);
+        for name in ["cat", "ls", OWN_NAME] {
+            assert!(bin.join(link_name(name)).is_file(), "{name} is linked");
+        }
+        let listed = std::fs::read_to_string(bin.join(MANIFEST)).unwrap();
+        assert_eq!(listed, "cat\nls\nut\n");
+        assert_eq!(
+            main(&[bin.into(), "--skip".into(), "ut".into()], &["cat", "ls"]),
+            USAGE_ERROR,
+            "ut is no command to skip"
+        );
     }
 
     #[test]

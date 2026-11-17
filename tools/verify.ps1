@@ -3,19 +3,22 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe"
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $Exe = (Resolve-Path $Exe).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) "uni-term-verify-$PID"
+# uni-term's data (command links, start scripts, history, log) for these checks only:
+# never the user's own. Every uni-term started below inherits it.
+$env:UNI_TERM_DATA_DIR = Join-Path $work 'data'
 New-Item -ItemType Directory -Force $work | Out-Null
 $env:NO_COLOR = $null   # PowerShell drops colors from its output when this is set.
 $script:failed = 0
@@ -50,8 +53,11 @@ $Unsaved = ' # password: not for your history'
 # enough that nothing scrolls away), or with -Screen at the window's size.
 function Run([string]$name, [string]$type, [string]$toml = '', [string]$more = '', [double]$after = 1, [string]$screen = '', [switch]$keep) {
     $config = Join-Path $work "$name.toml"; $log = Join-Path $work "$name.raw"
-    # Another program than the default shell (cmd.exe, nvim) is no PowerShell: nothing to say to it.
-    if ($toml -notmatch '(?m)^program\s*=' -and $more -notmatch '(^|\s)-e\s') { $type = $(if ($keep) { $NoHistoryKeep } else { $NoHistory }) + $type }
+    # Every PowerShell (the default shell, or pwsh / powershell named in the settings) is told
+    # first; another program (cmd.exe, nvim) keeps no PowerShell history: nothing to say to it.
+    $named = [regex]::Match($toml, '(?m)^program\s*=\s*"([^"]*)"').Groups[1].Value
+    $powershell = ($named -eq '' -or $named -match '(^|[\\/])(pwsh|powershell)(\.exe)?$') -and $more -notmatch '(^|\s)-e\s'
+    if ($powershell) { $type = $(if ($keep) { $NoHistoryKeep } else { $NoHistory }) + $type }
     Set-Content $config $toml -Encoding utf8
     Remove-Item "$log*" -ErrorAction SilentlyContinue
     $env:UNI_TERM_RAW_LOG = $log
@@ -271,7 +277,7 @@ if ($Section -in 'all', 'commands') {
     $kind = 'echo "cat=$((Get-Command cat).CommandType) ls=$((Get-Command ls).CommandType)"{ENTER}{WAIT:500}'
     $t = Run 'cmd-on' ($kind + 'echo "from=$((Get-Command cat).Source)"{ENTER}{WAIT:500}' + "cat '$json' | jq -r '.items[].name'{ENTER}{WAIT:900}ls --version{ENTER}{WAIT:700}")
     Report 'cat and ls are uni-term''s programs' ((Count $t 'cat=Application ls=Application') -eq 1) "the shell says: $([regex]::Match($t, 'cat=\w+ ls=\w+').Value)"
-    Report 'they come from uni-term''s command directory' ($t -match 'from=[A-Z]:.*\\uni-term\\bin\\cat\.exe') "$([regex]::Match(($t -replace "`n", ''), 'from=[A-Z]:\\\S+').Value)"
+    Report 'they come from uni-term''s command directory' ($t -match ('from=' + [regex]::Escape("$env:UNI_TERM_DATA_DIR\bin\cat.exe"))) "$([regex]::Match(($t -replace "`n", ''), 'from=[A-Z]:\\\S+').Value)"
     Report 'cat | jq works in PowerShell' ($t -match '(?m)^alpha$' -and $t -match '(?m)^beta$') "'alpha' and 'beta' on lines of their own: $($t -match '(?m)^alpha$'), $($t -match '(?m)^beta$')"
     Report 'ls is the uutils one' ((Count $t 'uutils') -ge 1) "'uutils' in ls --version: $(Count $t 'uutils')"
 
@@ -302,7 +308,7 @@ if ($Section -in 'all', 'commands') {
 
     # The same without a profile, in both PowerShells: the start script alone must install the marking.
     # The start script is the one uni-term wrote for the default settings; it is given by hand, as uni-term would.
-    $start = (Join-Path $env:LOCALAPPDATA 'uni-term\shell\bin.ps1').Replace("'", "''")
+    $start = (Join-Path $env:UNI_TERM_DATA_DIR 'shell\bin.ps1').Replace("'", "''")
     foreach ($shell in 'pwsh.exe', 'powershell.exe') {
         $bare = "[shell]`nprogram = `"$shell`"`nargs = [`"-NoProfile`", `"-NoExit`", `"-Command`", `". '$($start.Replace('\', '\\'))'`"]"
         $t = Run "cmd-bare-$shell" ($NoHistory + "cd '$made\a'{ENTER}{WAIT:700}echo B1 x*.txt `"x*.txt`"{ENTER}{WAIT:1200}") $bare
@@ -318,7 +324,7 @@ if ($Section -in 'all', 'commands') {
 
     $t = Run 'cmd-cmd' "where cat{ENTER}{WAIT:900}cat --version{ENTER}" "[shell]`nprogram = `"cmd.exe`""
     $first = ($t -split "`n" | Where-Object { $_ -match 'cat\.exe' } | Select-Object -First 1)
-    Report 'cmd.exe finds uni-term''s cat first' ($first -match '\\uni-term\\bin\\cat\.exe' -and (Count $t 'uutils') -ge 1) "first match of 'where cat': $first"
+    Report 'cmd.exe finds uni-term''s cat first' ($first -match [regex]::Escape("$env:UNI_TERM_DATA_DIR\bin\cat.exe") -and (Count $t 'uutils') -ge 1) "first match of 'where cat': $first"
 
     # uni-term without ut beside it: it says so and runs without its commands.
     $alone = Join-Path $work 'alone'; New-Item -ItemType Directory -Force $alone | Out-Null
@@ -331,6 +337,75 @@ if ($Section -in 'all', 'commands') {
     Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) uni-term or console-host processes still running"
 }
 
+if ($Section -in 'all', 'history') {
+    "--- history ---"
+    # A data directory of this section's own: the history starts empty, whatever ran before.
+    $keptData = $env:UNI_TERM_DATA_DIR
+    $env:UNI_TERM_DATA_DIR = Join-Path $work 'data-history'
+    $ut = Join-Path (Split-Path $Exe) 'ut.exe'
+    function Read-UtHistory([string[]]$words) { @(& $ut history @words 2>&1 | ForEach-Object { "$_" }) }
+    # The list is drawn over the text, not in it: it is seen in pictures. The same input
+    # with the list turned off is the picture without it. Below the first line, after cls.
+    $noList = "[history]`ncandidates = false"
+    function ListPixels([string]$a, [string]$b) { PixelDiff $a $b 0 ($Row.Y + $Row.H) 900 220 }
+    try {
+        Run 'hist-basic' "echo h-one{ENTER}{WAIT:600}echo h-two{ENTER}{WAIT:600}echo h-three{ENTER}{WAIT:800}" | Out-Null
+        $recent = Read-UtHistory 'recent'
+        Report 'commands that ran are kept, newest first' (($recent -join '|') -eq 'echo h-three|echo h-two|echo h-one') "ut history recent: $($recent -join ' | ')"
+
+        $t = Run 'hist-fail' "ls no-such-dir-x{ENTER}{WAIT:800}cd '$work'{ENTER}{WAIT:600}echo in-work{ENTER}{WAIT:700}echo x --password hunter2{ENTER}{WAIT:700}"
+        $failedLine = (Read-UtHistory 'search', 'no-such-dir-x', '--long') -join ''
+        Report 'a failed command is kept with its exit code' ($failedLine -match '^\s+1\s+2\s+\S+\s+ls no-such-dir-x$') "ut history search --long: '$failedLine'"
+        $here = Read-UtHistory 'recent', '--cwd', ($work -replace '\\', '/')
+        Report 'the directory is kept, with /' (($here -join '|') -eq 'echo in-work') "commands run in $($work -replace '\\', '/'): $($here -join ' | ')"
+        $secret = Read-UtHistory 'search', 'hunter2'
+        Report 'a command with a password is not kept' ($secret.Count -eq 0) "ut history search hunter2: $($secret.Count) found"
+
+        Run 'hist-list' "echo h-{WAIT:1000}" | Out-Null
+        Run 'hist-nolist' "echo h-{WAIT:1000}" $noList | Out-Null
+        $shown = ListPixels 'hist-list' 'hist-nolist'
+        Report 'typing at the prompt shows the list' ($shown -gt 500) "$shown pixels differ below the input line from the same input with the list off"
+        # Three commands begin with "echo h-": with limit = 1 the second and third rows are not drawn.
+        Run 'hist-limit' "echo h-{WAIT:1000}" "[history]`nlimit = 1" | Out-Null
+        $rowsGone = PixelDiff 'hist-list' 'hist-limit' 0 ($Row.Y + 2 * $Row.H) 900 (2 * $Row.H)
+        $firstKept = PixelDiff 'hist-list' 'hist-limit' 0 ($Row.Y + $Row.H) 900 $Row.H
+        Report 'history.limit is how many rows the list has' ($rowsGone -gt 300 -and $firstKept -lt 300) "rows 2-3: $rowsGone pixels differ from limit = 1; row 1: $firstKept"
+
+        $t = Run 'hist-take' "echo h-t{WAIT:1000}{KEY:CTRL+N}{WAIT:300}{TAB}{WAIT:900}"
+        $lines = @($t -split "`n" | Where-Object { $_.Trim() })
+        Report 'Ctrl-N and Tab put the command on the line, not run it' ($lines[-1] -match '> echo h-three$' -and (Count $t 'h-three') -eq 1) "last line: '$($lines[-1])'; 'h-three' seen $(Count $t 'h-three') time(s)"
+        $t = Run 'hist-run' "echo h-t{WAIT:1000}{DOWN}{WAIT:300}{ENTER}{WAIT:700}{ENTER}{WAIT:900}"
+        Report 'Enter on a chosen row fills; a second Enter runs it' ((Count $t 'h-three') -eq 2) "'h-three' seen $(Count $t 'h-three') times (the line, then its output)"
+
+        Run 'hist-esc' "echo h-{WAIT:1000}{ESC}{WAIT:500}" | Out-Null
+        $closed = ListPixels 'hist-esc' 'hist-nolist'
+        Report 'Esc closes the list and leaves the line' ($closed -lt 50) "$closed pixels differ from the same input with the list off"
+
+        Run 'hist-nvim' "nvim --clean{ENTER}{WAIT:1500}iec{WAIT:1000}" | Out-Null
+        Run 'hist-nvim-off' "nvim --clean{ENTER}{WAIT:1500}iec{WAIT:1000}" $noList | Out-Null
+        $inNvim = PixelDiff 'hist-nvim' 'hist-nvim-off' 0 0 900 500
+        Report 'no list in a program that has the whole screen' ($inNvim -lt 50) "$inNvim pixels differ in nvim between the list on and off"
+
+        $before = (Read-UtHistory 'recent', '-n', '100').Count
+        Run 'hist-off' "echo off-test{ENTER}{WAIT:700}echo h-{WAIT:1000}" "[history]`nenabled = false" | Out-Null
+        $off = Read-UtHistory 'search', 'off-test'
+        Run 'hist-off-nolist' "echo off-test{ENTER}{WAIT:700}echo h-{WAIT:1000}" $noList | Out-Null
+        $offList = ListPixels 'hist-off' 'hist-off-nolist'
+        Report 'history.enabled = false: nothing kept, no list' ($off.Count -eq 0 -and $offList -lt 50) "found: $($off.Count); commands before: $before; list pixels: $offList"
+
+        foreach ($shell in 'cmd.exe', 'powershell.exe') {
+            $name = $shell -replace '\.exe$', ''
+            Run "hist-$name" "echo $name-one{ENTER}{WAIT:900}" "[shell]`nprogram = `"$shell`"" | Out-Null
+            $keptLine = (Read-UtHistory 'search', "$name-one", '--long') -join ''
+            Run "hist-$name-list" "echo $name-{WAIT:1100}" "[shell]`nprogram = `"$shell`"" | Out-Null
+            Run "hist-$name-nolist" "echo $name-{WAIT:1100}" "[shell]`nprogram = `"$shell`"`n$noList" | Out-Null
+            $listed = ListPixels "hist-$name-list" "hist-$name-nolist"
+            Report "$($shell): kept, and the list shows" ($keptLine -match "echo $name-one" -and $listed -gt 300) "kept: '$($keptLine.Trim())'; list pixels: $listed"
+        }
+    } finally { $env:UNI_TERM_DATA_DIR = $keptData }
+    $real = Join-Path $env:LOCALAPPDATA 'uni-term\history.db'
+    Report "the user's own history file is not touched" (-not (Test-Path $real)) "$real exists: $(Test-Path $real)"
+}
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 "$script:failed failed"
 exit $script:failed

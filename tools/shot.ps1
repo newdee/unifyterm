@@ -29,6 +29,9 @@ param(
     [string]$App = ''
 )
 
+# uni-term's data for tests, unless the caller chose a directory: never the user's own.
+if (-not $env:UNI_TERM_DATA_DIR) { $env:UNI_TERM_DATA_DIR = Join-Path ([IO.Path]::GetTempPath()) 'uni-term-test-data' }
+
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;

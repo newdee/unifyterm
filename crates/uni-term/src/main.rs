@@ -6,10 +6,14 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod boxdraw;
+mod candidates;
 mod config;
 mod frame;
 mod keys;
 mod logging;
+mod marks;
+mod prompt;
+mod recorder;
 mod session;
 mod shell;
 mod terminal;
@@ -24,7 +28,7 @@ use gpui::{
 };
 
 use config::Config;
-use shell::Commands;
+use shell::{Commands, Hooks};
 use terminal::{Settings, TerminalEvent, TerminalView};
 
 actions!(uni_term, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste]);
@@ -46,6 +50,8 @@ const USAGE: &str = "usage: uni-term [--config FILE] [-e PROGRAM [ARGS...]]
   -h, --help           print this text
 
 Environment:
+  UNI_TERM_DATA_DIR    keep uni-term's data (command links, start scripts, history,
+                       log) in this directory instead of the system's one
   UNI_TERM_RAW_LOG     a file to append every byte the first tab's program prints to;
                        later tabs write to the name with .2, .3 added";
 
@@ -135,12 +141,18 @@ struct Workspace {
     settings: Arc<Settings>,
     /// uni-term's commands, when the settings have them on and they could be made ready.
     commands: Option<Commands>,
+    /// The history file's keeper, when the settings have the history on and the file opened.
+    recorder: Option<recorder::Recorder>,
+    /// The shells' hooks: with the history on.
+    hooks: Option<Hooks>,
 }
 
 /// What the window starts with.
 struct Start {
     settings: Arc<Settings>,
     commands: Option<Commands>,
+    recorder: Option<recorder::Recorder>,
+    hooks: Option<Hooks>,
     /// The first tab's program and its arguments; the shell when `None`.
     command: Option<(String, Vec<String>)>,
     /// Lines to show at the top of the first tab: what is wrong with the settings.
@@ -150,8 +162,8 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, commands, command, notices } = start;
-        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands };
+        let Start { settings, commands, recorder, hooks, command, notices } = start;
+        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks };
         workspace.open(command, window, cx);
         if let (Some(tab), false) = (workspace.tabs.first(), notices.is_empty()) {
             let text: Vec<String> = notices.iter().map(|notice| format!("{APP_NAME}: {notice}")).collect();
@@ -191,7 +203,8 @@ impl Workspace {
             }
         };
         let settings = Arc::clone(&self.settings);
-        let view = cx.new(|cx| TerminalView::new(session, events, settings, cx));
+        let recorder = self.recorder.clone();
+        let view = cx.new(|cx| TerminalView::new(session, events, settings, recorder, cx));
         if let Some(notice) = notice {
             view.update(cx, |view, _| view.announce(&notice));
         }
@@ -207,7 +220,7 @@ impl Workspace {
         program: Option<&str>,
         args: &[String],
     ) -> anyhow::Result<((session::Session, smol::channel::Receiver<session::PtyEvent>), String)> {
-        let command = shell::command(program, args, self.commands.as_ref())?;
+        let command = shell::command(program, args, self.commands.as_ref(), self.hooks.as_ref())?;
         let name = command.get_argv().first().map(|program| tab_name(&program.to_string_lossy())).unwrap_or_default();
         Ok((TerminalView::start(command, &self.settings)?, name))
     }
@@ -254,6 +267,11 @@ impl Workspace {
         let Some(index) = self.tabs.iter().position(|tab| &tab.view == view) else { return };
         match event {
             TerminalEvent::Exited => self.close(index, window, cx),
+            TerminalEvent::Finished(finished) => {
+                if let Some(recorder) = &self.recorder {
+                    recorder.record(finished, &self.tabs[index].name);
+                }
+            }
             TerminalEvent::Title => {
                 if index == self.active {
                     window.set_window_title(&self.title(index, cx));
@@ -464,7 +482,21 @@ fn main() {
     let theme = config.theme().unwrap_or_default();
     let (commands, told) = Commands::prepare(&config.commands);
     notices.extend(told);
-    let start = Start { settings: Arc::new(Settings { config, theme }), commands, command: args.command, notices };
+    // The history and the hooks that feed it go together: one without the other is no use.
+    let (recorder, hooks) = if config.history.enabled {
+        let opened = uni_history::default_path().and_then(|path| recorder::Recorder::start(&path));
+        match opened.and_then(|recorder| Ok((recorder, Hooks::prepare()?))) {
+            Ok((recorder, hooks)) => (Some(recorder), Some(hooks)),
+            Err(error) => {
+                notices.push(format!("the command history is not in use: {error:#}"));
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+    let settings = Arc::new(Settings { config, theme });
+    let start = Start { settings, commands, recorder, hooks, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());

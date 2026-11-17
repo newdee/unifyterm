@@ -24,6 +24,8 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use smol::channel::{Receiver, bounded};
 
 use crate::keys::{CursorKeys, MouseProtocol};
+use crate::marks::Scanner;
+use crate::prompt::{Finished, Phase, Prompt};
 use crate::theme::{Rgb, Theme};
 
 /// Most bytes taken from the pty in one read.
@@ -47,6 +49,20 @@ pub(crate) enum Notice {
     Title(Option<String>),
     /// Text for the clipboard (OSC 52).
     Copy(String),
+    /// A command the shell ran has ended (its hook said so).
+    Finished(Finished),
+}
+
+/// What the user has typed at the shell's prompt so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Input {
+    /// From where the prompt ends to the cursor: not what is right of the
+    /// cursor, which may be the shell's own grey suggestion.
+    pub(crate) text: String,
+    /// The cursor's cell in the view, as (line, column).
+    pub(crate) cursor: (usize, usize),
+    /// The column the input starts at on the cursor's line (0 when it started on a line above).
+    pub(crate) start_column: usize,
 }
 
 /// A cell's color before the theme gives it a value.
@@ -255,6 +271,9 @@ pub(crate) struct Screen {
     /// Where every byte fed in is also written, when `UNI_TERM_RAW_LOG`
     /// names a file: what `--replay` reads back.
     raw_log: Option<std::fs::File>,
+    /// The shell's marks, and what they say it is doing.
+    scanner: Scanner,
+    prompt: Prompt,
 }
 
 /// A program in a pty, and its screen.
@@ -390,10 +409,18 @@ impl Screen {
         let listener = Listener { writer: replies, notices: Arc::clone(&notices), theme };
         let config = Config { scrolling_history: scrollback, ..Config::default() };
         let term = Term::new(config, &TermSize::new(columns.into(), lines.into()), listener);
-        Self { term, parser: Processor::new(), notices, raw_log: None }
+        Self {
+            term,
+            parser: Processor::new(),
+            notices,
+            raw_log: None,
+            scanner: Scanner::default(),
+            prompt: Prompt::default(),
+        }
     }
 
-    /// Takes bytes the program printed and updates the screen.
+    /// Takes bytes the program printed and updates the screen. Where a
+    /// shell's mark ends, the cursor's place is taken for it.
     pub(crate) fn feed(&mut self, bytes: &[u8]) {
         if let Some(log) = self.raw_log.as_mut() {
             // A log that cannot be written is given up, not the session.
@@ -401,7 +428,76 @@ impl Screen {
                 self.raw_log = None;
             }
         }
-        self.parser.advance(&mut self.term, bytes);
+        let mut done = 0;
+        for (end, mark) in self.scanner.scan(bytes) {
+            self.parser.advance(&mut self.term, &bytes[done..end]);
+            done = end;
+            if let Some(finished) = self.prompt.mark(mark, self.cursor_place(), std::time::Instant::now()) {
+                self.notices.lock().expect(LOCK_POISONED).push(Notice::Finished(finished));
+            }
+        }
+        self.parser.advance(&mut self.term, &bytes[done..]);
+    }
+
+    /// The cursor's cell, its line counted from the top of the history.
+    fn cursor_place(&self) -> (usize, usize) {
+        let grid = self.term.grid();
+        let line = usize::try_from(grid.cursor.point.line.0).unwrap_or(0);
+        (grid.history_size() + line, grid.cursor.point.column.0)
+    }
+
+    /// The shell's directory, with `/`, if its hook said it.
+    pub(crate) fn cwd(&self) -> Option<&str> {
+        self.prompt.cwd()
+    }
+
+    /// Which shell runs, if its hook said it.
+    pub(crate) fn shell(&self) -> Option<&str> {
+        self.prompt.shell()
+    }
+
+    /// The user pressed Enter: what was on the input line is the command.
+    pub(crate) fn enter(&mut self) {
+        let typed = self.input().map(|input| input.text);
+        self.prompt.enter(typed, std::time::Instant::now());
+    }
+
+    /// What is typed at the prompt; `None` when the shell is not at its
+    /// input line, a program has the whole screen, the view is scrolled
+    /// back, or the input runs over more than one line.
+    pub(crate) fn input(&self) -> Option<Input> {
+        let Phase::Input((start_line, start_column)) = self.prompt.phase() else { return None };
+        if self.modes().alt_screen || self.term.grid().display_offset() != 0 {
+            return None;
+        }
+        let grid = self.term.grid();
+        let columns = self.term.columns();
+        let (cursor_line, cursor_column) = self.cursor_place();
+        if cursor_line < start_line {
+            return None;
+        }
+        let history = grid.history_size();
+        let mut text = String::new();
+        for line in start_line..=cursor_line {
+            let screen_line = i32::try_from(line.checked_sub(history)?).ok()?;
+            let row = &grid[Line(screen_line)];
+            // A line the input does not run on into is a line break: more than one line of input.
+            if line < cursor_line && !row[Column(columns - 1)].flags.contains(Flags::WRAPLINE) {
+                return None;
+            }
+            let from = if line == start_line { start_column } else { 0 };
+            let to = if line == cursor_line { cursor_column } else { columns };
+            for column in from..to.min(columns) {
+                let cell = &row[Column(column)];
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                text.push(cell.c);
+                text.extend(cell.zerowidth().into_iter().flatten());
+            }
+        }
+        let start_column = if start_line == cursor_line { start_column } else { 0 };
+        Some(Input { text, cursor: (cursor_line - history, cursor_column), start_column })
     }
 
     /// The screen's text, one line of the screen a line, without the
@@ -714,6 +810,49 @@ pub(crate) mod tests {
         Screen::new(columns, lines, HISTORY, Theme::default(), None)
     }
 
+    #[test]
+    fn shell_marks_leave_nothing_on_the_screen() {
+        let mut screen = quiet(40, 3);
+        let marks = "a\x1b]133;A\x07b\x1b]133;B\x1b\\c\x1b]633;E;ls -l\x5cx3b x\x07d\x1b]7;file://h/C:/x\x1b\\e\x1b]9;9;C:\\x\x1b\\f\x1b]133;D;1\x07g\x1b]633;P;Shell=pwsh\x07h";
+        screen.feed(marks.as_bytes());
+        assert_eq!(screen.text().lines().next(), Some("abcdefgh"), "the screen's library passes over them");
+        let notices = screen.take_notices();
+        let [Notice::Finished(finished)] = notices.as_slice() else { panic!("one command ended: {notices:?}") };
+        assert_eq!(
+            (finished.text.as_str(), finished.exit, finished.cwd.as_deref()),
+            ("ls -l; x", Some(1), Some("C:/x")),
+            "the marks were read: the text, how it ended, the last directory said"
+        );
+        assert_eq!(screen.shell(), Some("pwsh"));
+    }
+
+    #[test]
+    fn the_input_is_read_from_the_screen_between_the_prompt_and_the_cursor() {
+        // 30 columns: the suggestion fits on the line, the long input below does not.
+        let mut screen = quiet(30, 4);
+        assert_eq!(screen.input(), None, "no prompt yet");
+        screen.feed(b"\x1b]133;A\x07PS> \x1b]133;B\x07git st");
+        let input = screen.input().unwrap();
+        assert_eq!((input.text.as_str(), input.cursor, input.start_column), ("git st", (0, 10), 4));
+        // A shell's grey suggestion right of the cursor is not input.
+        screen.feed(b"atus\x1b[90m --short\x1b[0m\x1b[8D");
+        assert_eq!(screen.input().unwrap().text, "git status");
+        // Input that runs past the line's end goes on on the next line.
+        screen.feed(b"\x1b[K --porcelain --branch");
+        assert_eq!(screen.input().unwrap().text, "git status --porcelain --branch");
+        // Chinese takes two cells a character, and is read once.
+        screen.feed(b"\r\n\x1b]133;A\x07> \x1b]133;B\x07echo \xe4\xb8\xad\xe6\x96\x87");
+        assert_eq!(screen.input().unwrap().text, "echo 中文");
+        screen.enter();
+        assert_eq!(screen.input(), None, "after Enter a command runs");
+        screen.feed(b"\r\n\x1b]133;D;0\x07");
+        let notices = screen.take_notices();
+        assert!(matches!(notices.as_slice(), [Notice::Finished(f)] if f.text == "echo 中文" && f.exit == Some(0)));
+        // A program with the whole screen: no input line.
+        screen.feed(b"\x1b]133;A\x07> \x1b]133;B\x07vi\x1b[?1049h");
+        assert_eq!(screen.input(), None);
+    }
+
     /// Feeds the session what arrives until `done` says so; the screen at the end.
     fn pump(session: &mut Session, events: &Receiver<PtyEvent>, done: impl Fn(&Session) -> bool) -> Vec<String> {
         let deadline = Instant::now() + WAIT;
@@ -758,9 +897,13 @@ pub(crate) mod tests {
 
     #[test]
     fn typed_text_reaches_the_program() {
-        let (mut session, events) = start(shell_command(None, &[]).unwrap());
+        // Not the user's own shell: PowerShell and bash would keep the typed line in the user's
+        // history file. cmd.exe and sh keep none.
+        let (program, line): (&str, &[u8]) =
+            if cfg!(windows) { ("cmd.exe", b"set /a 6*7\r") } else { ("sh", b"echo $((6*7))\r") };
+        let args = if cfg!(windows) { vec!["/q".to_owned()] } else { Vec::new() };
+        let (mut session, events) = start(shell_command(Some(program), &args).unwrap());
         // 6 * 7 is typed, 42 is only ever printed.
-        let line: &[u8] = if cfg!(windows) { b"Write-Output (6*7)\r" } else { b"echo $((6*7))\r" };
         session.write(line).unwrap();
         let rows = pump(&mut session, &events, |s| s.rows().iter().any(|row| row.trim() == "42"));
         assert!(rows.iter().any(|row| row.trim() == "42"), "{rows:?}");

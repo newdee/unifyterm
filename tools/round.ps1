@@ -25,6 +25,11 @@ $jobs = 8
 # @( ) around the whole: one value alone would otherwise be a string, and splatting a string passes its characters.
 $flag = @(if ($Profile -eq 'release') { '--release' })
 
+# Nothing in a round may write to the user's own PowerShell history: the tests, the live
+# checks and the Linux run are all inside this measurement.
+$history = (Get-PSReadLineOption).HistorySavePath
+$historyBefore = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
+
 "=== 1. format, lints, unit tests ($Profile) ==="
 cargo fmt --all --check *> $null
 Report 'cargo fmt --check' ($LASTEXITCODE -eq 0) "exit $LASTEXITCODE"
@@ -43,6 +48,11 @@ $passed = ($tests | ForEach-Object { [int]([regex]::Match($_, '(\d+) passed').Gr
 $notPassed = ($tests | ForEach-Object { [int]([regex]::Match($_, '(\d+) failed').Groups[1].Value) } | Measure-Object -Sum).Sum
 Report 'cargo test' ($LASTEXITCODE -eq 0 -and $notPassed -eq 0 -and $passed -gt 0) "$passed passed, $notPassed failed, in $($tests.Count) test programs"
 
+"=== 1b. history: a search among 100 000 commands (release) ==="
+$speed = cargo test --release -p uni-history --test speed -j $jobs -- --ignored --nocapture 2>&1
+$line = ($speed | Select-String 'commands;' | Select-Object -First 1)
+Report 'history search p95 < 5 ms' ($LASTEXITCODE -eq 0 -and $line) "$line"
+
 "=== 2. every command starts ==="
 $ut = Join-Path $root "target\$Profile\ut.exe"
 $names = @(& $ut --list)
@@ -57,12 +67,7 @@ Report 'ut COMMAND --help' ($names.Count -gt 0 -and $broken.Count -eq 0) "$($nam
 
 "=== 3. uni-term through its own window ==="
 $exe = Join-Path $root "target\$Profile\uni-term.exe"
-# The checks type into real shells. None of it may reach the user's own history file.
-$history = (Get-PSReadLineOption).HistorySavePath
-$historyBefore = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
 $live = pwsh -NoProfile -File "$PSScriptRoot\verify.ps1" -Section all -Exe $exe
-$historyAfter = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
-Report 'the user''s history is not written' ($historyAfter -eq $historyBefore) "the history file: $historyBefore bytes before the checks, $historyAfter after"
 $livePass = @($live | Where-Object { $_ -match '^PASS' }).Count
 $liveFail = @($live | Where-Object { $_ -match '^FAIL' })
 Report 'tools/verify.ps1' ($liveFail.Count -eq 0 -and $livePass -gt 0) "$livePass passed, $($liveFail.Count) failed"
@@ -79,10 +84,16 @@ if (-not $SkipLinux) {
     $linuxFailed = ($results | ForEach-Object { [int]([regex]::Match($_, '(\d+) failed').Groups[1].Value) } | Measure-Object -Sum).Sum
     $linuxPassed = ($results | ForEach-Object { [int]([regex]::Match($_, '(\d+) passed').Groups[1].Value) } | Measure-Object -Sum).Sum
     Report 'cargo test -p ut on Linux' ($results.Count -gt 0 -and $linuxFailed -eq 0) "$linuxPassed passed, $linuxFailed failed; $(($linux | Where-Object { $_ -match 'cases;' } | Select-Object -First 1))"
+    $hooks = ($linux | Where-Object { $_ -match '^shell hooks:' } | Select-Object -Last 1)
+    Report 'bash, zsh, fish hooks print their marks' ($hooks -match ', 0 missing' -and $hooks -notmatch ': 0 complete') "$hooks"
+    $linux | Where-Object { $_ -match '^MISSING|not installed' } | ForEach-Object { "      $_" }
     $gnu = ($linux | Where-Object { $_ -match 'against GNU grep' } | Select-Object -Last 1)
     Report 'grep against GNU grep' ($linuxExit -eq 0 -and $gnu -match ', 0 differ') "$gnu"
     $linux | Where-Object { $_ -match '^DIFFERS' } | ForEach-Object { "      $_" }
 }
+
+$historyAfter = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
+Report 'the user''s history is not written' ($historyAfter -eq $historyBefore) "the history file: $historyBefore bytes before the round, $historyAfter after"
 
 "$script:failed failed"
 exit $script:failed

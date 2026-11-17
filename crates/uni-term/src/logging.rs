@@ -49,7 +49,7 @@ impl Log for Logger {
 
 /// The log file's path; `None` on a system with no data directory.
 pub(crate) fn path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|dir| dir.join("uni-term").join("uni-term.log"))
+    uni_history::data_directory().ok().map(|dir| dir.join("uni-term.log"))
 }
 
 /// Opens the log file for appending, starting it over when it has grown large.

@@ -179,7 +179,8 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 **召回**：
 - 查询为空：最近的命令，当前目录的优先。
 - 1 到 2 个字符：前缀查询 `text >= ?1 AND text < ?2`（走 UNIQUE 索引）。
-- 3 个字符以上：FTS5 trigram `MATCH`（子串匹配），最多取 200 行。
+- 3 个字符以上：再加 FTS5 trigram `MATCH`（子串匹配），但前缀召回已满 100 行时不做（实测：p95 从 4.5 ms 降到 3.7 ms）。
+- 每一路召回最多 100 行（最新的）。1 到 2 个字符用生成列 `head1`、`head2` 的索引按时间取，不排序（实测：否则 1 个字符要 4 ms）。
 
 **排序**（在 Rust 里对召回的行计算）：
 

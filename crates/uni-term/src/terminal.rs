@@ -11,9 +11,11 @@ use gpui::{
 };
 use smol::channel::Receiver;
 
+use crate::candidates::{self, Candidates, Outcome};
 use crate::config::Config;
 use crate::frame::{self, CursorMark, Frame, StrokeKind};
 use crate::keys::{self, Mods, MouseAction};
+use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
 use crate::theme::{Rgb, Theme};
 use crate::{Copy, Paste, boxdraw};
@@ -32,6 +34,8 @@ pub(crate) enum TerminalEvent {
     Title,
     /// The program ended.
     Exited,
+    /// A command the shell ran has ended.
+    Finished(crate::prompt::Finished),
 }
 
 /// The fewest columns and lines a screen is given, however small the window.
@@ -66,6 +70,8 @@ pub(crate) struct TerminalView {
     composing: String,
     /// Where the text is in the window and one cell's size, as last painted.
     origin: Point<Pixels>,
+    /// Where the view itself is in the window: what is drawn over the text is placed from here.
+    view_origin: Point<Pixels>,
     cell: Size<Pixels>,
     /// The cursor's cell (line, column), for placing the input method's window.
     cursor_cell: (usize, usize),
@@ -75,6 +81,10 @@ pub(crate) struct TerminalView {
     wheel: f32,
     /// The cell last reported to a program that tracks the mouse.
     reported: Option<(usize, usize)>,
+    /// Where the candidate list asks; `None` with the history off.
+    recorder: Option<Recorder>,
+    /// The commands from the history offered under the input line.
+    candidates: Candidates,
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -146,6 +156,7 @@ impl TerminalView {
         session: Session,
         events: Receiver<PtyEvent>,
         settings: Arc<Settings>,
+        recorder: Option<Recorder>,
         cx: &mut Context<'_, Self>,
     ) -> Self {
         cx.spawn(async move |this, cx| {
@@ -178,11 +189,14 @@ impl TerminalView {
             title: None,
             composing: String::new(),
             origin: Point::default(),
+            view_origin: Point::default(),
             cell: size(px(1.), px(1.)),
             cursor_cell: (0, 0),
             selecting: false,
             wheel: 0.0,
             reported: None,
+            recorder,
+            candidates: Candidates::default(),
         }
     }
 
@@ -205,8 +219,52 @@ impl TerminalView {
                     cx.emit(TerminalEvent::Title);
                 }
                 Notice::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+                Notice::Finished(finished) => cx.emit(TerminalEvent::Finished(finished)),
             }
         }
+        self.ask(cx);
+        cx.notify();
+    }
+
+    /// Asks the history about what is on the input line now, if that changed.
+    fn ask(&mut self, cx: &mut Context<'_, Self>) {
+        let history = &self.settings.config.history;
+        let Some(recorder) = self.recorder.clone().filter(|_| history.candidates) else { return };
+        let input = self.session.input();
+        let Some((number, text)) = self.candidates.question(input.as_ref().map(|input| input.text.as_str())) else {
+            return;
+        };
+        let answer = recorder.search(&text, self.session.cwd().unwrap_or_default(), history.limit);
+        cx.spawn(async move |this, cx| {
+            if let Ok(rows) = answer.recv().await {
+                // The tab may be closed by now: nobody to show it to.
+                let _ = this.update(cx, |view, cx| {
+                    view.candidates.answer(number, rows);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Puts a command on the shell's input line in place of what is there,
+    /// without running it. The keys that empty the line are the shell's
+    /// own; for a shell that did not say what it is, nothing is done.
+    fn fill(&mut self, text: &str, cx: &mut Context<'_, Self>) {
+        let empty_line: &[u8] = match self.session.shell() {
+            // PowerShell's line editor and cmd.exe: Escape empties the line.
+            Some("pwsh" | "powershell" | "cmd") => b"\x1b",
+            // Emacs keys: to the end, then everything before.
+            Some("bash" | "zsh" | "fish") => b"\x05\x15",
+            _ => return,
+        };
+        // A line break would run it.
+        if text.contains(['\n', '\r']) {
+            return;
+        }
+        logged(self.session.write(empty_line));
+        logged(self.session.paste(text));
+        self.session.scroll_to_bottom();
         cx.notify();
     }
 
@@ -269,7 +327,7 @@ impl TerminalView {
         let focus = if has_keyboard { Focus::Focused } else { Focus::Unfocused };
         logged(self.session.focus(focus));
         let frame = frame::layout(&self.session.snapshot(), &self.settings.theme, focus);
-        (self.origin, self.cell) = (origin, cell);
+        (self.origin, self.view_origin, self.cell) = (origin, bounds.origin, cell);
         if let Some(cursor) = &frame.cursor {
             self.cursor_cell = (cursor.line, cursor.column);
         }
@@ -331,6 +389,37 @@ impl TerminalView {
             cx.notify();
             cx.stop_propagation();
             return;
+        }
+        let plain = !held.control && !held.shift && !held.alt;
+        let list_key = match key.key.as_str() {
+            "n" if held.control && !held.shift && !held.alt => Some(candidates::Key::Next),
+            "p" if held.control && !held.shift && !held.alt => Some(candidates::Key::Previous),
+            "down" if plain => Some(candidates::Key::Next),
+            "up" if plain => Some(candidates::Key::Previous),
+            "tab" | "right" if plain => Some(candidates::Key::Take),
+            "enter" if plain => Some(candidates::Key::Enter),
+            "escape" if plain => Some(candidates::Key::Close),
+            _ => None,
+        };
+        if let Some(list_key) = list_key {
+            match self.candidates.key(list_key) {
+                Outcome::Passed => {}
+                Outcome::Taken => {
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
+                Outcome::Fill(text) => {
+                    self.fill(&text, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+            }
+        }
+        if key.key == "enter" && plain {
+            // What is on the input line now is the command the shell is about to run.
+            self.session.enter();
+            self.candidates.question(None);
         }
         let mods = Mods { shift: held.shift, control: held.control, alt: held.alt };
         let cursor_keys = self.session.modes().cursor_keys;
@@ -563,6 +652,82 @@ impl Render for TerminalView {
                 )
                 .size_full(),
             )
+            .children(self.candidate_list())
+    }
+}
+
+/// `text` cut into what comes before the part that matches `typed`, that
+/// part, and what comes after; case aside. No match: all of it before.
+fn split_match<'a>(text: &'a str, typed: &str) -> (&'a str, &'a str, &'a str) {
+    let found = text.to_lowercase().find(&typed.to_lowercase()).filter(|_| text.len() == text.to_lowercase().len());
+    match found {
+        Some(at) if text.is_char_boundary(at) && text.is_char_boundary(at + typed.len()) => {
+            (&text[..at], &text[at..at + typed.len()], &text[at + typed.len()..])
+        }
+        _ => (text, "", ""),
+    }
+}
+
+impl TerminalView {
+    /// The list of commands from the history, under the input line (over
+    /// it when there is no room below); `None` when it is closed.
+    fn candidate_list(&self) -> Option<impl IntoElement> {
+        let (rows, chosen, typed) = self.candidates.visible()?;
+        let input = self.session.input()?;
+        let theme = &self.settings.theme;
+        let (columns, lines) = self.session.size();
+        let count = rows.len();
+        let below = input.cursor.0 + 1;
+        let first_line = if below + count <= usize::from(lines) { below } else { input.cursor.0.saturating_sub(count) };
+        let widest = rows.iter().map(|row| row.text.chars().count()).max().unwrap_or(0) + 10;
+        let width = widest.min(usize::from(columns).saturating_sub(input.start_column)).max(10);
+        // Placed in the view, which starts below the tab bar, not in the window.
+        let text_origin = self.origin - self.view_origin;
+        let at =
+            text_origin + point(self.cell.width * factor(input.start_column), self.cell.height * factor(first_line));
+        let now = uni_history::now_ms();
+        let dim = theme.foreground.toward(theme.background, 0.45);
+        let accent = theme.indexed(12);
+        let list = div()
+            .absolute()
+            .left(at.x)
+            .top(at.y)
+            .w(self.cell.width * factor(width))
+            .bg(hsla(theme.background.toward(theme.foreground, 0.08)))
+            .border_1()
+            .border_color(hsla(dim))
+            .font_family(SharedString::from(self.settings.config.font.family.clone()))
+            .text_size(self.font_size())
+            .line_height(self.cell.height)
+            .children(rows.iter().enumerate().map(|(index, row)| {
+                let (before, matched, after) = split_match(&row.text, typed);
+                let failed = row.last_exit.is_some_and(|exit| exit != 0);
+                let info = format!(
+                    "{}×{} {}",
+                    if failed { "✗ " } else { "" },
+                    row.count,
+                    uni_history::ago(row.last_at_ms, now)
+                );
+                let line = div()
+                    .flex()
+                    .flex_row()
+                    .justify_between()
+                    .px(px(6.))
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_color(hsla(theme.foreground))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .child(SharedString::from(before.to_owned()))
+                            .child(div().text_color(hsla(accent)).child(SharedString::from(matched.to_owned())))
+                            .child(SharedString::from(after.to_owned())),
+                    )
+                    .child(div().pl(px(12.)).text_color(hsla(dim)).child(SharedString::from(info)));
+                if chosen == Some(index) { line.bg(hsla(theme.selection)) } else { line }
+            }));
+        Some(list)
     }
 }
 
@@ -744,6 +909,15 @@ impl Painter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_typed_part_is_found_case_aside() {
+        assert_eq!(split_match("git status", "git"), ("", "git", " status"));
+        assert_eq!(split_match("echo Commit", "comm"), ("echo ", "Comm", "it"));
+        assert_eq!(split_match("ls", "zz"), ("ls", "", ""));
+        assert_eq!(split_match("echo 中文 x", "文"), ("echo 中", "文", " x"));
+        assert_eq!(split_match("İstanbul", "i"), ("İstanbul", "", ""), "where lower case changes the length: no part");
+    }
 
     #[test]
     fn an_announcement_cannot_drive_the_screen() {

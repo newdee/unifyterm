@@ -14,6 +14,7 @@ const FONT_SIZES: std::ops::RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: std::ops::RangeInclusive<f32> = 1.0..=2.0;
 const MAX_SCROLLBACK: usize = 1_000_000;
 const MAX_PADDING: f32 = 64.0;
+const CANDIDATE_LIMITS: std::ops::RangeInclusive<usize> = 1..=20;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -23,6 +24,7 @@ pub(crate) struct Config {
     pub(crate) terminal: TerminalConfig,
     pub(crate) theme: ThemeConfig,
     pub(crate) commands: CommandsConfig,
+    pub(crate) history: HistoryConfig,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -98,6 +100,25 @@ impl Default for CommandsConfig {
     }
 }
 
+/// The command history (one SQLite file in uni-term's data directory) and
+/// the list of commands from it shown while typing.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct HistoryConfig {
+    /// Keep the commands shells run. Off: no shell hook, no history file is written.
+    pub(crate) enabled: bool,
+    /// Show the list while typing at a prompt.
+    pub(crate) candidates: bool,
+    /// The most commands the list shows.
+    pub(crate) limit: usize,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self { enabled: true, candidates: true, limit: 8 }
+    }
+}
+
 /// Colors as `#rrggbb`. Any left out keep the built-in theme's value.
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -145,6 +166,10 @@ impl Config {
         if !(0.0..=MAX_PADDING).contains(&config.terminal.padding) {
             bail!("terminal.padding is {}: it must be from 0 to {MAX_PADDING}", config.terminal.padding);
         }
+        if !CANDIDATE_LIMITS.contains(&config.history.limit) {
+            let (low, high) = (CANDIDATE_LIMITS.start(), CANDIDATE_LIMITS.end());
+            bail!("history.limit is {}: it must be from {low} to {high}", config.history.limit);
+        }
         config.theme()?;
         Ok(config)
     }
@@ -190,6 +215,7 @@ mod tests {
         assert_eq!((config.font.size, config.font.ligatures, config.terminal.scrollback), (14.0, true, 10_000));
         assert_eq!(config.shell.program, None);
         assert_eq!(config.commands, CommandsConfig { builtin: true, system: Vec::new() }, "uni-term's commands are on");
+        assert_eq!(config.history, HistoryConfig { enabled: true, candidates: true, limit: 8 }, "and the history");
     }
 
     #[test]
@@ -211,6 +237,9 @@ mod tests {
             [commands]
             builtin = false
             system = ["curl", "tar"]
+            [history]
+            candidates = false
+            limit = 3
             "##,
         )
         .unwrap();
@@ -225,6 +254,7 @@ mod tests {
         );
         assert_eq!(config.terminal.scrollback, 500);
         assert_eq!(config.commands, CommandsConfig { builtin: false, system: vec!["curl".into(), "tar".into()] });
+        assert_eq!(config.history, HistoryConfig { enabled: true, candidates: false, limit: 3 });
         let theme = config.theme().unwrap();
         assert_eq!((theme.background, theme.foreground), (Rgb(0, 0, 0), Theme::default().foreground));
     }
@@ -243,6 +273,8 @@ mod tests {
         assert!(error("[font]\nsise = 12").contains("sise"), "a misspelt key is named");
         assert!(error("[fonts]").contains("fonts"));
         assert!(error("[commands]\nbuiltin = \"yes\"").contains("builtin"), "a switch is true or false");
+        assert!(error("[history]\nlimit = 0").contains("history.limit is 0"));
+        assert!(error("[history]\nlimit = 21").contains("history.limit"));
     }
 
     #[test]

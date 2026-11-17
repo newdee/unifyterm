@@ -1,0 +1,21 @@
+[package]
+name = "uni-history"
+description = "uni-term's command history: one SQLite file, searched as the user types."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+regex = "1"
+# The SQLite library is built in: the same version, with FTS5 and its trigram tokenizer, on every system.
+rusqlite = { version = "0.43", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"

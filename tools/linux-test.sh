@@ -21,6 +21,45 @@ cargo test -p ut --quiet -- --nocapture every_command 2>&1 | grep -E "cases;" ||
 ut="$CARGO_TARGET_DIR/debug/ut"
 echo "--- $("$ut" --version) ---"
 
+# The shells' hooks (crates/uni-term/src/hooks): each shell, run interactively in
+# a pty by `script` with a clean environment (no user start files; PATH without
+# the Windows directories WSL adds, whose spaces would break the command line),
+# types two commands; the marks it prints are checked.
+hooks="$root/crates/uni-term/src/hooks"
+marks_ok=0
+marks_missing=0
+expect_marks() { # shell name, output file
+    local shell=$1 out=$2 missing=""
+    for mark in "633;P;Shell=$shell" "133;A" "133;B" "633;E;echo hook-one" "133;D;0" "633;E;false" "133;D;1" "633;P;Cwd=$work_hooks"; do
+        grep -qF "$mark" "$out" || missing="$missing [$mark]"
+    done
+    if [ -z "$missing" ]; then
+        marks_ok=$((marks_ok + 1)); echo "$shell: all 8 marks"
+    else
+        marks_missing=$((marks_missing + 1)); echo "MISSING ($shell):$missing"
+    fi
+}
+work_hooks="$(mktemp -d)"
+lines='echo hook-one\nfalse\nexit\n'
+( cd "$work_hooks" && printf "$lines" | script -qfec "env -i HOME=$work_hooks TERM=xterm PATH=/usr/local/bin:/usr/bin:/bin bash --rcfile $hooks/bashrc -i" /dev/null > "$work_hooks/bash.out" 2>&1 ) || true
+expect_marks bash "$work_hooks/bash.out"
+if command -v zsh >/dev/null; then
+    mkdir -p "$work_hooks/zdot"
+    cp "$hooks/zshenv" "$work_hooks/zdot/.zshenv"; cp "$hooks/zprofile" "$work_hooks/zdot/.zprofile"; cp "$hooks/zshrc" "$work_hooks/zdot/.zshrc"
+    ( cd "$work_hooks" && printf "$lines" | script -qfec "env -i HOME=$work_hooks TERM=xterm PATH=/usr/local/bin:/usr/bin:/bin UNI_TERM_ZDOTDIR=$work_hooks ZDOTDIR=$work_hooks/zdot zsh -i" /dev/null > "$work_hooks/zsh.out" 2>&1 ) || true
+    expect_marks zsh "$work_hooks/zsh.out"
+else
+    echo "zsh is not installed: not checked"
+fi
+if command -v fish >/dev/null; then
+    ( cd "$work_hooks" && printf "$lines" | script -qfec "env -i HOME=$work_hooks TERM=xterm PATH=/usr/local/bin:/usr/bin:/bin fish --init-command 'source $hooks/hook.fish' -i" /dev/null > "$work_hooks/fish.out" 2>&1 ) || true
+    expect_marks fish "$work_hooks/fish.out"
+else
+    echo "fish is not installed: not checked"
+fi
+echo "shell hooks: $marks_ok complete, $marks_missing missing marks"
+rm -rf "$work_hooks"
+
 if ! command -v grep >/dev/null || ! grep --version 2>/dev/null | grep -q "GNU grep"; then
     echo "GNU grep is not installed: no comparison"
     exit 0
@@ -196,4 +235,4 @@ piped 'x\n' -H x
 piped 'one\ntwo\n' -n two - left.txt
 piped '' x
 echo "grep against GNU grep $(grep --version | head -1 | awk '{print $NF}'): $same the same, $differ differ"
-[ "$differ" -eq 0 ]
+[ "$differ" -eq 0 ] && [ "$marks_missing" -eq 0 ]

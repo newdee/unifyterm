@@ -108,6 +108,8 @@ findutils = "0.11.0"
 sed = "0.3.0"
 diffutils = "0.6.0"
 same-file = "1"
+uni-history = { path = "../history" }
+anyhow = "1"
 # jq: the jaq interpreter and its formats; jaq's own command line is repeated in src/jq.
 jaq-all = { version = "0.4.0", default-features = false, features = ["formats", "std-all"] }
 env_logger = { version = "0.10", default-features = false }

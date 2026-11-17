@@ -1,5 +1,62 @@
 # 验收记录
 
+## 2026-11-18 · M3 shell 钩子、命令历史、候选列表
+
+范围：
+- `crates/history`（新库 `uni-history`）：SQLite 历史库、密钥过滤、数据目录 `UNI_TERM_DATA_DIR`。
+- `crates/uni-term`：`marks.rs`（标记扫描器）、`prompt.rs`（提示符状态）、`recorder.rs`（写库线程）、`candidates.rs`（候选列表）、`hooks/`（pwsh、bash、zsh、fish 的钩子和 cmd 的 `PROMPT`）、`[history]` 配置。
+- `crates/ut`：`ut history`；`ut` 自己进入命令目录。
+- `tools/verify.ps1` 的 `history` 一节、`tools/linux-test.sh` 的钩子检查、`crates/history/tests/speed.rs`。
+
+检查手段：
+- 测试 148 项，其中密钥测试集 100 行（50 行含密钥、50 行不含）。
+- 性能测试：10 万条命令、1000 次查询，用固定的生成器。
+- 实机检查 73 项，其中 history 一节 15 项。
+- WSL 里 bash、zsh、fish 各自在 pty 中运行，检查 8 个标记。
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 性能 | 10 万条历史下 p95 83 ms（要求 5 ms），每次写入 3.8 ms。 | 结构：每次提交都刷盘；按时间排序要逐行回表；对每个候选单独查询 | `synchronous=NORMAL`；`(text, last_at)` 覆盖索引；FTS 按 rowid 倒序取；用一条 `json_each` 查询"在当前目录跑过"；`last_exit` 存进表。p95 降到 7.7 ms。 |
+| 2 | 性能（实测定位） | 1 个字符的前缀（"c" 匹配 2.5 万行）要 4 ms；短前缀全排序是瓶颈。我先后猜了两个原因（IN 子查询全表扫描、WAL 未检查点），都被测量否定。 | 结构 | 生成列 `head1`、`head2` 加 `(head, last_at)` 索引；内存映射；每路召回 100 行。p95 降到 3.8 到 4.8 ms。 |
+| 3 | 性能余量 | 有一轮 p95 测到 5.10 ms：余量太小，会时过时不过。 | 结构：3 个字符以上总要再跑一次 FTS | 前缀召回已满 100 行时不做 FTS。p95 降到 2.9 到 3.7 ms，中位数 1.1 到 1.3 ms。 |
+| 4 | 正确性 | 密钥漏了两种：`npm_` 开头的 token，`--pass=x` 这个选项。 | 边界遗漏 | 补上这两种形状。 |
+| 5 | 误伤 | `auth` 会匹配 `--author=`，正常的 `git commit --author=...` 不入库。 | 边界遗漏 | 改为 `auth\b` 加单列 `authorization`；测试证明 `MY_AUTH=x` 仍会被拒绝。 |
+| 6 | 机制通路存活 | PowerShell 启动时执行的 `-Command ". 'bin.ps1'; . 'hook.ps1'"` 被记成一条命令。 | 边界遗漏：这条命令进入历史，晚于钩子记下历史编号 | 第一个提示符只记下编号，不报告命令。 |
+| 7 | 界面 | 候选列表偏下约 2 行：用窗口坐标，去定位终端区域里的元素。 | 边界遗漏 | 改用终端区域的坐标。 |
+| 8 | 机制通路存活 | cmd.exe 的钩子从未生效：只在 `PROMPT` 未设置时才设置它，而 Windows 的环境里默认就有 `PROMPT=$P$G`。 | 边界遗漏：前提不成立 | 包住用户已有的提示符，在前后加标记。 |
+| 9 | 一致性 | `history.limit` 没有实机检查。 | 检查缺口 | 补上：`limit = 1` 时第 2、3 行区域差 7018 像素，第 1 行 0 像素。 |
+| 10 | 一致性 | `ago()`、`now_ms()` 在两个程序里各有一份。 | 结构：重复实现 | 合并到 `uni-history`。 |
+| 11 | **用户数据** | **测试写进了用户的 PowerShell 历史文件**，有两处来源：(a) M1 起就有的单元测试 `typed_text_reaches_the_program` 启动用户的 pwsh 并敲入 `Write-Output (6*7)`，每跑一次 `cargo test` 写一行；(b) 实机检查的规则是"指定了 `program` 就不是 PowerShell"，而 `powershell.exe` 那项检查恰好指定了它。 | 共性，结构缺陷：两个假设都不成立；验收脚本又只在实机检查前后比较字节数，覆盖不到 `cargo test` | (a) 测试改用 cmd.exe 和 sh；(b) 按程序名判断是否是 PowerShell；(c) 验收脚本改为在整轮前后比较字节数。用户历史里已有 4 行测试命令（2 行 `Write-Output (6*7)`、2 行 `echo powershell-one`），没有擅自删除。 |
+
+检查工具自身的问题（同样记账）：
+- 排序测试的期望顺序是我手算错的；改为写死按公式算出的分数：8.18、5.27、4.18、3.27、2.68、0.72。
+- `History` 是 PowerShell 自带的别名，覆盖了检查脚本里同名的函数。
+- 检查脚本里的变量 `$failed` 正是统计失败数用的变量，被我赋成了字符串；如果没有报错，失败数会被悄悄清掉。
+- WSL 的钩子检查把含空格和括号的 `PATH` 拼进命令串，导致 3 种 shell 全部"缺标记"；改用固定的 `PATH`。
+- 第 3 轮第一次做时，有两项检查本身没有验证到东西：一项比较时去掉了命令文本，一项用 1 个字符查到空结果。已修正，第 3 轮整轮重做。
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | 实机 | 其他数字 |
+|---|---|---|---|---|---|
+| 1 | 机制通路存活 + 边界输入 | debug | 148/148 | 73/73 | p95 2.91 ms（p50 1.08）；99/99 个命令启动；Linux 36/36；bash、zsh、fish 各 8/8 标记；GNU grep 104/104；用户历史文件 87243 → 87243 字节 |
+| 2 | 静态一致性 | release | 148/148 | 73/73 | 非测试代码 `unwrap` 0、`allow` 0；两个程序里 `pub` 0；`unsafe` 5 处全部带 SAFETY；19 个配置项全部被读取、全部有实机检查；4 个环境变量都在帮助里；6 个钩子文件都会写出；p95 3.22 ms |
+| 3 | 可复现性 | release | 3 次结果相同 | — | 同样的命令在两个新数据目录里历史相同（3 条，次数、退出码、文本都相同）；钩子文件两次写出哈希相同；同一历史文件查询 3 次结果相同；性能测试两轮都是 7712 个候选；第 1、2 轮实机 23 行数字 0 处不同 |
+
+### 已知限制
+
+- keepane 里的候选列表没做：要改 keepane（wmux 仓库），需要用户确认。
+- **PowerShell 的 Tab 补全仍给出 `\` 路径。** M2 记录里说要在 M3 处理，但 M3 计划里没有列这一项，这次也没有做。要做的话，需要改写 PSReadLine 的 Tab 键处理，有误改字符串内容的风险，留待以后。
+- 候选列表显示时，↑、↓ 归列表，不再交给 shell 翻历史（这是需求本身的规定）。
+- 不知道是哪种 shell 时（钩子没有说），能显示列表，但不能填入。
+- 回滚区已满时，如果输入过程中屏幕滚动，读到的输入位置可能有偏差。
+- bash 的 `PROMPT_COMMAND` 是数组时（bash 5.1 起支持），钩子只会接上数组的第一个元素。
+- 两个 uni-term 同时启动时会同时写钩子文件，没有加锁。
+- PowerShell 的退出码：cmdlet 失败时记为 1；`$LASTEXITCODE` 可能是更早那条原生命令留下的值。
+- GUI 只在 Windows 上实测；bash、zsh、fish 只在 WSL 里验证了标记输出，没有验证 GUI。
+
 ## 2026-11-17 · M2 命令集
 
 范围：`crates/ut`（multi-call 程序：uutils coreutils 0.12 的 90 个命令，Unix 上另加 15 个；findutils、sed、diffutils；基于 ripgrep 搜索库的 GNU 兼容 `grep`；基于 jaq 的 `jq`；`which`；`--links`；Windows 上的 `/` 路径和通配符展开），`crates/uni-term/src/shell.rs` 与 `start.ps1`（命令目录放在 PATH 最前；PowerShell 启动脚本；`[commands]` 配置），`tools/round.ps1`、`tools/linux-test.sh`、`tools/verify.ps1` 的 commands 部分。命令数：Windows 99 个，Linux 114 个。
