@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 # What every uutils command shares: arguments, messages, exit codes.
 uucore = "0.12.0"
@@ -118,6 +121,11 @@ globset = "0.4"
 walkdir = "2"
 
 # These 15 need Unix: owners, modes, devices, logins.
+# Wildcards in arguments: on Windows no shell replaces them (src/expand.rs).
+[target.'cfg(windows)'.dependencies]
+glob = "0.3"
+wild = "2.2"
+
 [target.'cfg(unix)'.dependencies]
 uu_chgrp = "0.12.0"
 uu_chmod = "0.12.0"

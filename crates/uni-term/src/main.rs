@@ -9,7 +9,9 @@ mod boxdraw;
 mod config;
 mod frame;
 mod keys;
+mod logging;
 mod session;
+mod shell;
 mod terminal;
 mod theme;
 
@@ -22,6 +24,7 @@ use gpui::{
 };
 
 use config::Config;
+use shell::Commands;
 use terminal::{Settings, TerminalEvent, TerminalView};
 
 actions!(uni_term, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste]);
@@ -105,7 +108,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Early> {
             }
             "--size" => {
                 let size = args.next().ok_or_else(|| Early::Usage("--size needs a size like 100x30".into()))?;
-                parsed.size = Some(parse_size(&size).ok_or_else(|| Early::Usage(format!("--size {size}: not a size like 100x30")))?);
+                parsed.size = Some(
+                    parse_size(&size).ok_or_else(|| Early::Usage(format!("--size {size}: not a size like 100x30")))?,
+                );
             }
             "-e" => {
                 let program = args.next().ok_or_else(|| Early::Usage("-e needs a program".into()))?;
@@ -128,22 +133,29 @@ struct Workspace {
     tabs: Vec<Tab>,
     active: usize,
     settings: Arc<Settings>,
+    /// uni-term's commands, when the settings have them on and they could be made ready.
+    commands: Option<Commands>,
+}
+
+/// What the window starts with.
+struct Start {
+    settings: Arc<Settings>,
+    commands: Option<Commands>,
+    /// The first tab's program and its arguments; the shell when `None`.
+    command: Option<(String, Vec<String>)>,
+    /// Lines to show at the top of the first tab: what is wrong with the settings.
+    notices: Vec<String>,
 }
 
 impl Workspace {
-    /// A window with one tab running `command` (the shell when `None`).
-    /// `notice`: a line to show at the top of that tab.
-    fn new(
-        settings: Arc<Settings>,
-        command: Option<(String, Vec<String>)>,
-        notice: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let mut workspace = Self { tabs: Vec::new(), active: 0, settings };
+    /// A window with one tab.
+    fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
+        let Start { settings, commands, command, notices } = start;
+        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands };
         workspace.open(command, window, cx);
-        if let (Some(tab), Some(notice)) = (workspace.tabs.first(), notice) {
-            tab.view.update(cx, |view, _| view.announce(&notice));
+        if let (Some(tab), false) = (workspace.tabs.first(), notices.is_empty()) {
+            let text: Vec<String> = notices.iter().map(|notice| format!("{APP_NAME}: {notice}")).collect();
+            tab.view.update(cx, |view, _| view.announce(&text.join("\n")));
         }
         workspace
     }
@@ -154,10 +166,11 @@ impl Workspace {
     /// one, with a line in the tab saying so: a mistake in the settings
     /// must not leave the user without a terminal. A `command` that does
     /// not start is reported; with no tab open, uni-term then ends in failure.
-    fn open(&mut self, command: Option<(String, Vec<String>)>, window: &mut Window, cx: &mut Context<Self>) {
+    fn open(&mut self, command: Option<(String, Vec<String>)>, window: &mut Window, cx: &mut Context<'_, Self>) {
         let shell = &self.settings.config.shell;
         let asked = command.is_some();
-        let (program, args) = command.unwrap_or_else(|| (shell.program.clone().unwrap_or_default(), shell.args.clone()));
+        let (program, args) =
+            command.unwrap_or_else(|| (shell.program.clone().unwrap_or_default(), shell.args.clone()));
         let program = (!program.is_empty()).then_some(program);
         let mut notice = None;
         let started = match self.start(program.as_deref(), &args) {
@@ -170,14 +183,14 @@ impl Workspace {
         let ((session, events), name) = match started {
             Ok(started) => started,
             Err(error) => {
-                eprintln!("{APP_NAME}: {error:#}");
+                log::error!("{error:#}");
                 if self.tabs.is_empty() {
                     std::process::exit(1);
                 }
                 return;
             }
         };
-        let settings = self.settings.clone();
+        let settings = Arc::clone(&self.settings);
         let view = cx.new(|cx| TerminalView::new(session, events, settings, cx));
         if let Some(notice) = notice {
             view.update(cx, |view, _| view.announce(&notice));
@@ -189,12 +202,16 @@ impl Workspace {
 
     /// Starts `program` (the default shell when `None`) in a session; the
     /// session, and the tab's name.
-    fn start(&self, program: Option<&str>, args: &[String]) -> anyhow::Result<((session::Session, smol::channel::Receiver<session::PtyEvent>), String)> {
-        let command = session::shell_command(program, args)?;
+    fn start(
+        &self,
+        program: Option<&str>,
+        args: &[String],
+    ) -> anyhow::Result<((session::Session, smol::channel::Receiver<session::PtyEvent>), String)> {
+        let command = shell::command(program, args, self.commands.as_ref())?;
         let name = command.get_argv().first().map(|program| tab_name(&program.to_string_lossy())).unwrap_or_default();
         Ok((TerminalView::start(command, &self.settings)?, name))
     }
-    fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<'_, Self>) {
         let Some(tab) = self.tabs.get(index) else { return };
         self.active = index;
         window.focus(&tab.view.read(cx).focus);
@@ -203,7 +220,7 @@ impl Workspace {
     }
 
     /// Closes a tab; with the last one, the window and the app.
-    fn close(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn close(&mut self, index: usize, window: &mut Window, cx: &mut Context<'_, Self>) {
         if index >= self.tabs.len() {
             return;
         }
@@ -221,13 +238,19 @@ impl Workspace {
         let tab = &self.tabs[index];
         match tab.view.read(cx).title() {
             // ConPTY's first title is the program's whole path: its name says as much.
-            Some(title) if title.ends_with(".exe") => tab_name(title),
+            Some(title) if names_a_program(title) => tab_name(title),
             Some(title) => title.to_owned(),
             None => tab.name.clone(),
         }
     }
 
-    fn terminal_event(&mut self, view: &Entity<TerminalView>, event: &TerminalEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn terminal_event(
+        &mut self,
+        view: &Entity<TerminalView>,
+        event: &TerminalEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(index) = self.tabs.iter().position(|tab| &tab.view == view) else { return };
         match event {
             TerminalEvent::Exited => self.close(index, window, cx),
@@ -240,17 +263,43 @@ impl Workspace {
         }
     }
 
-    fn step(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// Goes to the tab beside the active one, around the ends.
+    fn step(&mut self, step: Step, window: &mut Window, cx: &mut Context<'_, Self>) {
         let count = self.tabs.len();
-        let next = if forward { (self.active + 1) % count } else { (self.active + count - 1) % count };
+        let next = match step {
+            Step::Next => (self.active + 1) % count,
+            Step::Previous => (self.active + count - 1) % count,
+        };
         self.activate(next, window, cx);
     }
+}
+
+/// Which neighbor of the active tab to go to.
+#[derive(Clone, Copy, Debug)]
+enum Step {
+    Next,
+    Previous,
+}
+
+/// What follows the last dot of a Windows program's file name, in any case.
+const PROGRAM_EXTENSION: &str = "exe";
+
+/// A file name without `.exe` (in any case of letters), if it ends in that.
+fn without_program_extension(file: &str) -> Option<&str> {
+    file.rsplit_once('.')
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case(PROGRAM_EXTENSION))
+        .map(|(stem, _)| stem)
+}
+
+/// Whether a title is a program's file name or path (`...\nvim.EXE`).
+fn names_a_program(title: &str) -> bool {
+    without_program_extension(title).is_some()
 }
 
 /// A program's path as a tab's name: the file's name without `.exe`.
 fn tab_name(program: &str) -> String {
     let file = program.rsplit(['/', '\\']).next().unwrap_or(program);
-    file.strip_suffix(".exe").unwrap_or(file).to_owned()
+    without_program_extension(file).unwrap_or(file).to_owned()
 }
 
 /// A title cut to what a tab has room for.
@@ -263,7 +312,7 @@ fn tab_title(title: &str) -> String {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = &self.settings.theme;
         let (background, foreground) = (theme.background, theme.foreground);
         let bar = background.toward(theme::Rgb(0, 0, 0), 0.35);
@@ -280,7 +329,10 @@ impl Render for Workspace {
                 .text_color(rgb(if active { foreground.hex() } else { dim.hex() }))
                 .when(active, |tab| tab.bg(rgb(background.hex())))
                 .on_click(cx.listener(move |this, _, window, cx| this.activate(index, window, cx)))
-                .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.close(index, window, cx)))
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(move |this, _, window, cx| this.close(index, window, cx)),
+                )
                 .child(SharedString::from(tab_title(&self.title(index, cx))))
                 .child(
                     div()
@@ -312,8 +364,8 @@ impl Render for Workspace {
             .text_size(px(13.))
             .on_action(cx.listener(|this, _: &NewTab, window, cx| this.open(None, window, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)))
-            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(true, window, cx)))
-            .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(false, window, cx)))
+            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(Step::Next, window, cx)))
+            .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(Step::Previous, window, cx)))
             .child(div().flex().flex_none().h(px(TAB_BAR_HEIGHT)).children(tabs).child(add))
             .children(self.tabs.get(self.active).map(|tab| div().flex_1().min_h_0().child(tab.view.clone())))
     }
@@ -325,7 +377,8 @@ fn key_bindings() -> Vec<KeyBinding> {
     #[cfg(target_os = "macos")]
     let keys = [("cmd-t", 0), ("cmd-w", 1), ("cmd-c", 4), ("cmd-v", 5)];
     #[cfg(not(target_os = "macos"))]
-    let keys = [("ctrl-shift-t", 0), ("ctrl-shift-w", 1), ("ctrl-shift-c", 4), ("ctrl-shift-v", 5), ("shift-insert", 5)];
+    let keys =
+        [("ctrl-shift-t", 0), ("ctrl-shift-w", 1), ("ctrl-shift-c", 4), ("ctrl-shift-v", 5), ("shift-insert", 5)];
     let common = [("ctrl-tab", 2), ("ctrl-shift-tab", 3)];
     keys.into_iter()
         .chain(common)
@@ -399,17 +452,19 @@ fn main() {
         }
         return;
     }
+    logging::init();
     // A settings file with a mistake does not keep the terminal from
     // opening: it opens with the defaults and says what is wrong.
     let path = args.config.or_else(Config::default_path);
-    let (config, notice) = match path.as_deref().map(Config::load) {
-        Some(Ok(config)) => (config, None),
-        Some(Err(error)) => (Config::default(), Some(format!("{APP_NAME}: settings not used: {error:#}"))),
-        None => (Config::default(), None),
+    let (config, mut notices) = match path.as_deref().map(Config::load) {
+        Some(Err(error)) => (Config::default(), vec![format!("settings not used: {error:#}")]),
+        Some(Ok(config)) => (config, Vec::new()),
+        None => (Config::default(), Vec::new()),
     };
     let theme = config.theme().unwrap_or_default();
-    let settings = Arc::new(Settings { config, theme });
-    let command = args.command;
+    let (commands, told) = Commands::prepare(&config.commands);
+    notices.extend(told);
+    let start = Start { settings: Arc::new(Settings { config, theme }), commands, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());
@@ -419,8 +474,7 @@ fn main() {
             titlebar: Some(TitlebarOptions { title: Some(APP_NAME.into()), ..Default::default() }),
             ..Default::default()
         };
-        cx.open_window(options, |window, cx| cx.new(|cx| Workspace::new(settings, command, notice, window, cx)))
-            .expect("open the window");
+        cx.open_window(options, |window, cx| cx.new(|cx| Workspace::new(start, window, cx))).expect("open the window");
         cx.on_window_closed(|cx| cx.quit()).detach();
         cx.activate(true);
     });
@@ -431,7 +485,7 @@ mod tests {
     use super::*;
 
     fn args(list: &[&str]) -> Result<Args, Early> {
-        parse_args(list.iter().map(|arg| arg.to_string()))
+        parse_args(list.iter().map(ToString::to_string))
     }
 
     #[test]
@@ -476,6 +530,10 @@ mod tests {
     fn a_tab_is_named_after_its_program() {
         assert_eq!(tab_name(r"C:\Program Files\PowerShell\7\pwsh.exe"), "pwsh");
         assert_eq!(tab_name("/bin/zsh"), "zsh");
+        assert_eq!(tab_name(r"C:\Program Files\Neovim\bin\nvim.EXE"), "nvim", "whatever the letters' case");
+        assert_eq!(tab_name("notes.exe.txt"), "notes.exe.txt", "only a last .exe is the program's");
+        assert!(names_a_program(r"C:\Windows\System32\cmd.exe") && names_a_program("nvim.EXE"));
+        assert!(!names_a_program("vim README.md") && !names_a_program("pwsh"));
         assert_eq!(tab_name("nvim"), "nvim");
     }
 

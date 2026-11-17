@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use grep_matcher::Matcher as _;
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
-use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
+use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch};
 use walkdir::WalkDir;
 
 /// grep's exit codes: a line was selected, none was, something went wrong.
@@ -25,7 +25,7 @@ const NONE_SELECTED: i32 = 1;
 const TROUBLE: i32 = 2;
 
 /// How much of a file's start is looked at to decide whether it is text, as GNU grep does.
-const BINARY_PROBE: usize = 32 * 1024;
+const BINARY_PROBE: u64 = 32 * 1024;
 /// What standard input is called in output.
 const STDIN_LABEL: &str = "(standard input)";
 
@@ -52,16 +52,20 @@ Files:        -r, -R recursive   --include=GLOB   --exclude=GLOB   --exclude-dir
 
 Exit status: 0 a line was selected, 1 none was, 2 an error.";
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Syntax {
+    #[default]
     Basic,
     Extended,
     Fixed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "one field for each of grep's flags, which are independent")]
 struct Options {
     patterns: Vec<String>,
+    /// A pattern came from `-e` or `-f`: the first operand is then a file.
+    pattern_given: bool,
     syntax: Syntax,
     ignore_case: bool,
     invert: bool,
@@ -102,59 +106,172 @@ enum Early {
     Usage(String),
 }
 
-fn parse_number(option: &str, text: &str) -> Result<usize, Early> {
+/// A number given as an option's value.
+fn parse_number<T: std::str::FromStr>(option: &str, text: &str) -> Result<T, Early> {
     text.parse().map_err(|_| Early::Usage(format!("{text}: invalid number for {option}")))
 }
 
+/// An option's value: what follows `=` or the option's letter, else the next argument.
+fn value(option: &str, inline: Option<String>, rest: &mut impl Iterator<Item = OsString>) -> Result<String, Early> {
+    match inline {
+        Some(value) => Ok(value),
+        None => rest
+            .next()
+            .map(|next| next.to_string_lossy().into_owned())
+            .ok_or_else(|| Early::Usage(format!("option {option} requires an argument"))),
+    }
+}
+
+/// The patterns in a file, one a line (`-f`).
+fn patterns_from_file(file: &str) -> Result<Vec<String>, Early> {
+    let text = std::fs::read_to_string(file).map_err(|error| Early::Usage(format!("{file}: {}", message(&error))))?;
+    Ok(text.lines().map(str::to_owned).collect())
+}
+
+fn version() -> Early {
+    Early::Print(format!("grep (ut {})", env!("CARGO_PKG_VERSION")))
+}
+
+impl Options {
+    /// Takes one long option: `long` is what follows the `--`, with its
+    /// value after a `=` if it has one there.
+    fn long(&mut self, long: &str, args: &mut impl Iterator<Item = OsString>) -> Result<(), Early> {
+        let (name, inline) = match long.split_once('=') {
+            Some((name, value)) => (name, Some(value.to_owned())),
+            None => (long, None),
+        };
+        let option = format!("--{name}");
+        match name {
+            "help" => return Err(Early::Print(USAGE.into())),
+            "version" => return Err(version()),
+            "extended-regexp" => self.syntax = Syntax::Extended,
+            "fixed-strings" => self.syntax = Syntax::Fixed,
+            "basic-regexp" => self.syntax = Syntax::Basic,
+            "regexp" => self.pattern(value(&option, inline, args)?),
+            "file" => self.patterns_in(&value(&option, inline, args)?)?,
+            "ignore-case" => self.ignore_case = true,
+            "no-ignore-case" => self.ignore_case = false,
+            "invert-match" => self.invert = true,
+            "word-regexp" => self.word = true,
+            "line-regexp" => self.whole_line = true,
+            "count" => self.count = true,
+            "files-with-matches" => self.files_with_matches = true,
+            "files-without-match" => self.files_without_match = true,
+            "quiet" | "silent" => self.quiet = true,
+            "no-messages" => self.no_messages = true,
+            "only-matching" => self.only_matching = true,
+            "line-number" => self.line_number = true,
+            "byte-offset" => self.byte_offset = true,
+            "with-filename" => self.with_filename = Some(true),
+            "no-filename" => self.with_filename = Some(false),
+            "null" => self.null_after_name = true,
+            "max-count" => self.max_count = Some(parse_number(&option, &value(&option, inline, args)?)?),
+            "after-context" => self.after = parse_number(&option, &value(&option, inline, args)?)?,
+            "before-context" => self.before = parse_number(&option, &value(&option, inline, args)?)?,
+            "context" => self.context(parse_number(&option, &value(&option, inline, args)?)?),
+            "recursive" => self.recursive = true,
+            "dereference-recursive" => (self.recursive, self.follow_links) = (true, true),
+            "text" => self.text = true,
+            "line-buffered" => self.line_buffered = true,
+            "include" => self.include.push(value(&option, inline, args)?),
+            "exclude" => self.exclude.push(value(&option, inline, args)?),
+            "exclude-dir" => self.exclude_dir.push(value(&option, inline, args)?),
+            "color" | "colour" => {
+                self.color = match inline.as_deref() {
+                    None | Some("always") => true,
+                    Some("never") => false,
+                    Some("auto") => io::stdout().is_terminal(),
+                    Some(other) => return Err(Early::Usage(format!("{other}: invalid argument for {option}"))),
+                };
+            }
+            "perl-regexp" | "null-data" => return Err(Early::Usage(format!("{option} is not supported"))),
+            _ => return Err(Early::Usage(format!("unrecognized option '{option}'"))),
+        }
+        Ok(())
+    }
+
+    /// Takes the letters of one short-option argument (`rni` of `-rni`). A
+    /// letter that takes a value takes the rest of the argument (`-A3`),
+    /// else the next argument (`-A 3`).
+    fn short(&mut self, letters: &str, args: &mut impl Iterator<Item = OsString>) -> Result<(), Early> {
+        let mut letters = letters.chars();
+        while let Some(letter) = letters.next() {
+            let option = format!("-{letter}");
+            // Called by the letters that take a value: the rest of the argument is theirs.
+            let mut given = || -> Result<String, Early> {
+                let rest: String = letters.by_ref().collect();
+                value(&option, (!rest.is_empty()).then_some(rest), args)
+            };
+            match letter {
+                'E' => self.syntax = Syntax::Extended,
+                'F' => self.syntax = Syntax::Fixed,
+                'G' => self.syntax = Syntax::Basic,
+                'e' => {
+                    let pattern = given()?;
+                    self.pattern(pattern);
+                }
+                'f' => {
+                    let file = given()?;
+                    self.patterns_in(&file)?;
+                }
+                'i' | 'y' => self.ignore_case = true,
+                'v' => self.invert = true,
+                'w' => self.word = true,
+                'x' => self.whole_line = true,
+                'c' => self.count = true,
+                'l' => self.files_with_matches = true,
+                'L' => self.files_without_match = true,
+                'q' => self.quiet = true,
+                's' => self.no_messages = true,
+                'o' => self.only_matching = true,
+                'n' => self.line_number = true,
+                'b' => self.byte_offset = true,
+                'H' => self.with_filename = Some(true),
+                'h' => self.with_filename = Some(false),
+                'Z' => self.null_after_name = true,
+                'm' => self.max_count = Some(parse_number(&option, &given()?)?),
+                'A' => self.after = parse_number(&option, &given()?)?,
+                'B' => self.before = parse_number(&option, &given()?)?,
+                'C' => {
+                    let lines = parse_number(&option, &given()?)?;
+                    self.context(lines);
+                }
+                'r' => self.recursive = true,
+                'R' => (self.recursive, self.follow_links) = (true, true),
+                'a' => self.text = true,
+                'I' => self.skip_binary = true,
+                'V' => return Err(version()),
+                'P' | 'z' => return Err(Early::Usage(format!("{option} is not supported"))),
+                _ => return Err(Early::Usage(format!("invalid option -- '{letter}'"))),
+            }
+        }
+        Ok(())
+    }
+
+    /// A pattern given by `-e`: the first operand is then a file, not a pattern.
+    fn pattern(&mut self, pattern: String) {
+        self.patterns.push(pattern);
+        self.pattern_given = true;
+    }
+
+    /// The patterns of a file given by `-f`.
+    fn patterns_in(&mut self, file: &str) -> Result<(), Early> {
+        self.patterns.extend(patterns_from_file(file)?);
+        self.pattern_given = true;
+        Ok(())
+    }
+
+    /// `-C NUM`: that many lines before and after.
+    fn context(&mut self, lines: usize) {
+        (self.after, self.before) = (lines, lines);
+    }
+}
+
+/// grep's arguments (its own name first) as options, patterns and files.
 fn parse(args: Vec<OsString>) -> Result<Options, Early> {
-    let mut o = Options {
-        patterns: Vec::new(),
-        syntax: Syntax::Basic,
-        ignore_case: false,
-        invert: false,
-        word: false,
-        whole_line: false,
-        count: false,
-        files_with_matches: false,
-        files_without_match: false,
-        quiet: false,
-        no_messages: false,
-        only_matching: false,
-        line_number: false,
-        byte_offset: false,
-        with_filename: None,
-        null_after_name: false,
-        max_count: None,
-        after: 0,
-        before: 0,
-        recursive: false,
-        follow_links: false,
-        text: false,
-        skip_binary: false,
-        color: false,
-        line_buffered: false,
-        include: Vec::new(),
-        exclude: Vec::new(),
-        exclude_dir: Vec::new(),
-        files: Vec::new(),
-    };
-    let mut pattern_given = false;
+    let mut options = Options::default();
     let mut operands: Vec<OsString> = Vec::new();
     let mut args = args.into_iter().skip(1);
-    // An option's value: what follows `=` or the option's letter, else the next argument.
-    fn value(option: &str, inline: Option<String>, rest: &mut impl Iterator<Item = OsString>) -> Result<String, Early> {
-        match inline {
-            Some(value) => Ok(value),
-            None => rest
-                .next()
-                .map(|v| v.to_string_lossy().into_owned())
-                .ok_or_else(|| Early::Usage(format!("option {option} requires an argument"))),
-        }
-    }
-    let patterns_from_file = |file: &str| -> Result<Vec<String>, Early> {
-        let text = std::fs::read_to_string(file).map_err(|e| Early::Usage(format!("{file}: {}", message(&e))))?;
-        Ok(text.lines().map(str::to_owned).collect())
-    };
     while let Some(arg) = args.next() {
         let text = arg.to_string_lossy().into_owned();
         if text == "--" {
@@ -162,137 +279,21 @@ fn parse(args: Vec<OsString>) -> Result<Options, Early> {
             break;
         }
         if let Some(long) = text.strip_prefix("--") {
-            let (name, inline) = match long.split_once('=') {
-                Some((name, value)) => (name, Some(value.to_owned())),
-                None => (long, None),
-            };
-            let option = format!("--{name}");
-            match name {
-                "help" => return Err(Early::Print(USAGE.into())),
-                "version" => return Err(Early::Print(format!("grep (ut {})", env!("CARGO_PKG_VERSION")))),
-                "extended-regexp" => o.syntax = Syntax::Extended,
-                "fixed-strings" => o.syntax = Syntax::Fixed,
-                "basic-regexp" => o.syntax = Syntax::Basic,
-                "regexp" => {
-                    o.patterns.push(value(&option, inline, &mut args)?);
-                    pattern_given = true;
-                }
-                "file" => {
-                    o.patterns.extend(patterns_from_file(&value(&option, inline, &mut args)?)?);
-                    pattern_given = true;
-                }
-                "ignore-case" => o.ignore_case = true,
-                "no-ignore-case" => o.ignore_case = false,
-                "invert-match" => o.invert = true,
-                "word-regexp" => o.word = true,
-                "line-regexp" => o.whole_line = true,
-                "count" => o.count = true,
-                "files-with-matches" => o.files_with_matches = true,
-                "files-without-match" => o.files_without_match = true,
-                "quiet" | "silent" => o.quiet = true,
-                "no-messages" => o.no_messages = true,
-                "only-matching" => o.only_matching = true,
-                "line-number" => o.line_number = true,
-                "byte-offset" => o.byte_offset = true,
-                "with-filename" => o.with_filename = Some(true),
-                "no-filename" => o.with_filename = Some(false),
-                "null" => o.null_after_name = true,
-                "max-count" => o.max_count = Some(parse_number(&option, &value(&option, inline, &mut args)?)? as u64),
-                "after-context" => o.after = parse_number(&option, &value(&option, inline, &mut args)?)?,
-                "before-context" => o.before = parse_number(&option, &value(&option, inline, &mut args)?)?,
-                "context" => {
-                    let lines = parse_number(&option, &value(&option, inline, &mut args)?)?;
-                    (o.after, o.before) = (lines, lines);
-                }
-                "recursive" => o.recursive = true,
-                "dereference-recursive" => (o.recursive, o.follow_links) = (true, true),
-                "text" => o.text = true,
-                "line-buffered" => o.line_buffered = true,
-                "include" => o.include.push(value(&option, inline, &mut args)?),
-                "exclude" => o.exclude.push(value(&option, inline, &mut args)?),
-                "exclude-dir" => o.exclude_dir.push(value(&option, inline, &mut args)?),
-                "color" | "colour" => {
-                    o.color = match inline.as_deref() {
-                        None | Some("always") => true,
-                        Some("never") => false,
-                        Some("auto") => io::stdout().is_terminal(),
-                        Some(other) => return Err(Early::Usage(format!("{other}: invalid argument for {option}"))),
-                    }
-                }
-                "perl-regexp" | "null-data" => return Err(Early::Usage(format!("{option} is not supported"))),
-                _ => return Err(Early::Usage(format!("unrecognized option '{option}'"))),
-            }
-            continue;
+            options.long(long, &mut args)?;
+        } else if text.len() > 1 && text.starts_with('-') {
+            options.short(&text[1..], &mut args)?;
+        } else {
+            operands.push(arg);
         }
-        if text.len() > 1 && text.starts_with('-') {
-            let letters: Vec<char> = text[1..].chars().collect();
-            let mut at = 0;
-            while at < letters.len() {
-                let letter = letters[at];
-                at += 1;
-                // For a letter that takes a value: the rest of this argument, if any.
-                let mut inline = || {
-                    let rest: String = letters[at..].iter().collect();
-                    at = letters.len();
-                    (!rest.is_empty()).then_some(rest)
-                };
-                let option = format!("-{letter}");
-                match letter {
-                    'E' => o.syntax = Syntax::Extended,
-                    'F' => o.syntax = Syntax::Fixed,
-                    'G' => o.syntax = Syntax::Basic,
-                    'e' => {
-                        o.patterns.push(value(&option, inline(), &mut args)?);
-                        pattern_given = true;
-                    }
-                    'f' => {
-                        o.patterns.extend(patterns_from_file(&value(&option, inline(), &mut args)?)?);
-                        pattern_given = true;
-                    }
-                    'i' | 'y' => o.ignore_case = true,
-                    'v' => o.invert = true,
-                    'w' => o.word = true,
-                    'x' => o.whole_line = true,
-                    'c' => o.count = true,
-                    'l' => o.files_with_matches = true,
-                    'L' => o.files_without_match = true,
-                    'q' => o.quiet = true,
-                    's' => o.no_messages = true,
-                    'o' => o.only_matching = true,
-                    'n' => o.line_number = true,
-                    'b' => o.byte_offset = true,
-                    'H' => o.with_filename = Some(true),
-                    'h' => o.with_filename = Some(false),
-                    'Z' => o.null_after_name = true,
-                    'm' => o.max_count = Some(parse_number(&option, &value(&option, inline(), &mut args)?)? as u64),
-                    'A' => o.after = parse_number(&option, &value(&option, inline(), &mut args)?)?,
-                    'B' => o.before = parse_number(&option, &value(&option, inline(), &mut args)?)?,
-                    'C' => {
-                        let lines = parse_number(&option, &value(&option, inline(), &mut args)?)?;
-                        (o.after, o.before) = (lines, lines);
-                    }
-                    'r' => o.recursive = true,
-                    'R' => (o.recursive, o.follow_links) = (true, true),
-                    'a' => o.text = true,
-                    'I' => o.skip_binary = true,
-                    'V' => return Err(Early::Print(format!("grep (ut {})", env!("CARGO_PKG_VERSION")))),
-                    'P' | 'z' => return Err(Early::Usage(format!("{option} is not supported"))),
-                    _ => return Err(Early::Usage(format!("invalid option -- '{letter}'"))),
-                }
-            }
-            continue;
-        }
-        operands.push(arg);
     }
     let mut operands = operands.into_iter();
-    if !pattern_given {
+    if !options.pattern_given {
         let pattern = operands.next().ok_or_else(|| Early::Usage("no pattern given".into()))?;
-        o.patterns.push(pattern.to_string_lossy().into_owned());
+        options.patterns.push(pattern.to_string_lossy().into_owned());
     }
-    o.files = operands.collect();
-    Ok(o)
+    options.files = operands.collect();
+    Ok(options)
 }
-
 /// A basic regular expression as an extended one. In a basic expression
 /// `( ) { } | + ?` are ordinary characters and become operators with a
 /// backslash before them; in an extended one it is the other way around.
@@ -303,6 +304,8 @@ fn basic_to_extended(pattern: &str) -> String {
     let mut chars = pattern.chars().peekable();
     let mut at_start = true;
     while let Some(c) = chars.next() {
+        // A `^` that anchors (first in the pattern or in a group) leaves what follows at a start.
+        let anchors = at_start && c == '^';
         match c {
             '\\' => match chars.next() {
                 Some(next) if SWAPPED.contains(next) => out.push(next),
@@ -342,8 +345,9 @@ fn basic_to_extended(pattern: &str) -> String {
             c if SWAPPED.contains(c) => out.extend(['\\', c]),
             c => out.push(c),
         }
-        // After a group's opening or an alternation a star is again at a start.
-        at_start = out.ends_with('(') && !out.ends_with("\\(") || out.ends_with('|') && !out.ends_with("\\|");
+        // After an anchor, a group's opening or an alternation a star is again at a start.
+        at_start =
+            anchors || out.ends_with('(') && !out.ends_with("\\(") || out.ends_with('|') && !out.ends_with("\\|");
     }
     out
 }
@@ -381,7 +385,7 @@ fn message(error: &io::Error) -> String {
     }
 }
 
-/// What is searched: a file, or standard input.
+/// What is result: a file, or standard input.
 enum Source {
     File(PathBuf),
     Stdin,
@@ -399,6 +403,8 @@ struct Printer<'a, W: Write> {
     selected: u64,
     /// Bytes that are not text were met (standard input, which is not probed first).
     binary: bool,
+    /// `-m NUM` lines were selected: how many lines of context after the last one are still to print.
+    after_limit: Option<usize>,
 }
 
 impl<W: Write> Printer<'_, W> {
@@ -434,7 +440,7 @@ impl<W: Write> Printer<'_, W> {
     /// The places in `line` that match, as byte ranges.
     fn matches(&self, line: &[u8]) -> Vec<(usize, usize)> {
         let mut found = Vec::new();
-        // The matcher cannot fail on a line it has already searched.
+        // The matcher cannot fail on a line it has already result.
         let _ = self.matcher.find_iter(line, |m| {
             // An empty match selects a line but is nothing to show.
             if m.start() < m.end() {
@@ -463,10 +469,17 @@ impl<W: Write> Printer<'_, W> {
         self.out.write_all(b"\n")?;
         if self.o.line_buffered { self.out.flush() } else { Ok(()) }
     }
+}
 
-    /// Whether the search goes on after a line was selected.
-    fn more(&self) -> bool {
-        self.o.max_count.is_none_or(|most| self.selected < most)
+impl<W: Write> Printer<'_, W> {
+    /// A line after the last selected one, once `-m NUM` lines were
+    /// selected: printed as context while `-A` has lines left. Whether the
+    /// search goes on.
+    fn trailing(&mut self, number: Option<u64>, offset: u64, bytes: &[u8]) -> io::Result<bool> {
+        let Some(left) = self.after_limit.filter(|left| *left > 0) else { return Ok(false) };
+        self.line(b'-', number, offset, bytes)?;
+        self.after_limit = Some(left - 1);
+        Ok(left > 1)
     }
 }
 
@@ -474,27 +487,43 @@ impl<W: Write> Sink for Printer<'_, W> {
     type Error = io::Error;
 
     fn matched(&mut self, _: &Searcher, found: &SinkMatch<'_>) -> io::Result<bool> {
+        let (bytes, offset) = (found.bytes(), found.absolute_byte_offset());
+        if self.after_limit.is_some() {
+            // Past `-m NUM`: a line that would be selected is context after the last one.
+            return self.trailing(found.line_number(), offset, bytes);
+        }
         self.selected += 1;
+        let at_limit = self.o.max_count.is_some_and(|most| self.selected >= most);
         if self.silent {
             // One selected line is all that `-q`, `-l` and `-L` need to know.
             let one_is_enough = self.o.quiet || self.o.files_with_matches || self.o.files_without_match;
-            return Ok(!one_is_enough && self.more());
+            return Ok(!one_is_enough && !at_limit);
         }
-        let (bytes, offset) = (found.bytes(), found.absolute_byte_offset());
         if self.o.only_matching {
             // With `-v` the selected lines have no match in them: nothing is printed.
             for (start, end) in self.matches(bytes.strip_suffix(b"\n").unwrap_or(bytes)) {
-                self.prefix(b':', found.line_number(), offset + start as u64)?;
+                self.prefix(b':', found.line_number(), offset + u64::try_from(start).unwrap_or(u64::MAX))?;
                 self.colored(COLOR_MATCH, &bytes[start..end])?;
                 self.out.write_all(b"\n")?;
             }
         } else {
             self.line(b':', found.line_number(), offset, bytes)?;
         }
-        Ok(self.more())
+        if at_limit {
+            self.after_limit = Some(self.o.after);
+            return Ok(self.o.after > 0 && !self.o.only_matching);
+        }
+        Ok(true)
     }
 
     fn context(&mut self, _: &Searcher, context: &SinkContext<'_>) -> io::Result<bool> {
+        if self.after_limit.is_some() {
+            // Past `-m NUM` only what follows the last selected line is printed.
+            if *context.kind() != SinkContextKind::After {
+                return Ok(false);
+            }
+            return self.trailing(context.line_number(), context.absolute_byte_offset(), context.bytes());
+        }
         if !self.silent && !self.o.only_matching {
             self.line(b'-', context.line_number(), context.absolute_byte_offset(), context.bytes())?;
         }
@@ -502,6 +531,9 @@ impl<W: Write> Sink for Printer<'_, W> {
     }
 
     fn context_break(&mut self, _: &Searcher) -> io::Result<bool> {
+        if self.after_limit.is_some() {
+            return Ok(false);
+        }
         if !self.silent && !self.o.only_matching {
             self.colored(COLOR_SEPARATOR, b"--")?;
             self.out.write_all(b"\n")?;
@@ -518,8 +550,8 @@ impl<W: Write> Sink for Printer<'_, W> {
 /// Whether the file's start has a NUL in it, which is how GNU grep tells a
 /// binary file from text.
 fn is_binary(file: &Path) -> io::Result<bool> {
-    let mut start = Vec::with_capacity(BINARY_PROBE);
-    std::fs::File::open(file)?.take(BINARY_PROBE as u64).read_to_end(&mut start)?;
+    let mut start = Vec::new();
+    std::fs::File::open(file)?.take(BINARY_PROBE).read_to_end(&mut start)?;
     Ok(start.contains(&0))
 }
 
@@ -546,15 +578,20 @@ impl<W: Write> Grep<'_, W> {
         }
     }
 
+    /// A piece of text in a color, if colors are on.
+    fn colored(&mut self, color: &str, text: &[u8]) -> io::Result<()> {
+        if self.o.color {
+            self.out.write_all(color.as_bytes())?;
+            self.out.write_all(text)?;
+            self.out.write_all(COLOR_END.as_bytes())
+        } else {
+            self.out.write_all(text)
+        }
+    }
+
     /// A file's name alone on a line (`-l`, `-L`), ended as `-Z` says.
     fn name_line(&mut self, name: &[u8]) -> io::Result<()> {
-        if self.o.color {
-            self.out.write_all(COLOR_FILE.as_bytes())?;
-            self.out.write_all(name)?;
-            self.out.write_all(COLOR_END.as_bytes())?;
-        } else {
-            self.out.write_all(name)?;
-        }
+        self.colored(COLOR_FILE, name)?;
         self.out.write_all(if self.o.null_after_name { b"\0" } else { b"\n" })
     }
 
@@ -570,7 +607,8 @@ impl<W: Write> Grep<'_, W> {
             },
             _ => false,
         };
-        if binary_file && self.o.skip_binary {
+        // `-I` passes a binary file by; `-m 0` asks for no line at all.
+        if binary_file && self.o.skip_binary || self.o.max_count == Some(0) && !self.o.count {
             return Ok(());
         }
         let summary = self.o.count || self.o.files_with_matches || self.o.files_without_match || self.o.quiet;
@@ -594,13 +632,14 @@ impl<W: Write> Grep<'_, W> {
             silent: summary || binary_file,
             selected: 0,
             binary: false,
+            after_limit: None,
         };
-        let searched = match source {
+        let result = match source {
             Source::File(file) => searcher.search_path(&self.matcher, file, &mut printer),
             Source::Stdin => searcher.search_reader(&self.matcher, io::stdin().lock(), &mut printer),
         };
         let (selected, binary) = (printer.selected, binary_file || printer.binary);
-        if let Err(error) = searched {
+        if let Err(error) = result {
             if error.kind() == io::ErrorKind::BrokenPipe {
                 return Err(error);
             }
@@ -617,8 +656,8 @@ impl<W: Write> Grep<'_, W> {
             }
         } else if self.o.count {
             if self.with_filename {
-                self.out.write_all(name_bytes)?;
-                self.out.write_all(if self.o.null_after_name { b"\0" } else { b":" })?;
+                self.colored(COLOR_FILE, name_bytes)?;
+                if self.o.null_after_name { self.out.write_all(b"\0")? } else { self.colored(COLOR_SEPARATOR, b":")? }
             }
             writeln!(self.out, "{selected}")?;
         } else if binary && selected > 0 {
@@ -643,7 +682,7 @@ fn globs(patterns: &[String]) -> Result<Option<GlobSet>, String> {
 /// The name of a file found under a directory: the directory as it was
 /// typed, then the way down with `/` between the parts on every system, so
 /// that the same search prints the same bytes on Windows and on Linux.
-/// `root`: `None` for the directory that is searched when none is named,
+/// `root`: `None` for the directory that is result when none is named,
 /// whose files are named without a `./`.
 fn found_name(root: Option<&str>, below: &Path) -> String {
     let below: Vec<_> = below.components().map(|part| part.as_os_str().to_string_lossy()).collect();
@@ -656,7 +695,9 @@ fn found_name(root: Option<&str>, below: &Path) -> String {
 
 fn run(o: &Options, out: &mut impl Write) -> Result<Outcome, String> {
     let (include, exclude, exclude_dir) = (globs(&o.include)?, globs(&o.exclude)?, globs(&o.exclude_dir)?);
-    let wanted = |name: &OsStr| include.as_ref().is_none_or(|g| g.is_match(name)) && !exclude.as_ref().is_some_and(|g| g.is_match(name));
+    let wanted = |name: &OsStr| {
+        include.as_ref().is_none_or(|g| g.is_match(name)) && !exclude.as_ref().is_some_and(|g| g.is_match(name))
+    };
     // No file named: the current directory with `-r`, else standard input.
     let dot = OsString::from(".");
     let implied_dot = o.recursive && o.files.is_empty();
@@ -685,7 +726,10 @@ fn run(o: &Options, out: &mut impl Write) -> Result<Outcome, String> {
         // A file the user named is called what the user typed.
         let typed = operand.to_string_lossy();
         if !path.is_dir() {
-            if !finish(grep.search(&Source::File(path.to_path_buf()), &typed))? {
+            // As GNU grep does: `--exclude` also drops a file named on the
+            // command line; `--include` is for files found under a directory.
+            let excluded = path.file_name().is_some_and(|name| exclude.as_ref().is_some_and(|g| g.is_match(name)));
+            if !excluded && !finish(grep.search(&Source::File(path.to_path_buf()), &typed))? {
                 break;
             }
             continue;
@@ -697,13 +741,20 @@ fn run(o: &Options, out: &mut impl Write) -> Result<Outcome, String> {
         // In name order, so that the output is the same on every system and every run.
         let walk = WalkDir::new(path).follow_links(o.follow_links).sort_by_file_name().into_iter();
         let walk = walk.filter_entry(|entry| {
-            entry.depth() == 0 || !(entry.file_type().is_dir() && exclude_dir.as_ref().is_some_and(|g| g.is_match(entry.file_name())))
+            entry.depth() == 0
+                || !(entry.file_type().is_dir() && exclude_dir.as_ref().is_some_and(|g| g.is_match(entry.file_name())))
         });
         for entry in walk {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(error) => {
-                    let name = error.path().map(|path| path.to_string_lossy().into_owned()).unwrap_or_default();
+                    // Named as a file found below is named; the directory itself as typed.
+                    let name = error.path().map_or_else(String::new, |failed| match failed.strip_prefix(path) {
+                        Ok(below) if !below.as_os_str().is_empty() => {
+                            found_name((!implied_dot).then_some(&*typed), below)
+                        }
+                        _ => typed.clone().into_owned(),
+                    });
                     let problem = error.io_error().map_or_else(|| error.to_string(), message);
                     grep.complain(&name, &problem);
                     continue;
@@ -722,7 +773,7 @@ fn run(o: &Options, out: &mut impl Write) -> Result<Outcome, String> {
     Ok(grep.outcome)
 }
 
-pub fn main(args: Vec<OsString>) -> i32 {
+pub(crate) fn main(args: Vec<OsString>) -> i32 {
     let options = match parse(args) {
         Ok(options) => options,
         Err(Early::Print(text)) => {
@@ -736,8 +787,11 @@ pub fn main(args: Vec<OsString>) -> i32 {
     };
     let stdout = io::stdout();
     // To a terminal each line is written as it is found; to a file or a pipe, in blocks.
-    let mut out: Box<dyn Write> =
-        if stdout.is_terminal() { Box::new(io::LineWriter::new(stdout.lock())) } else { Box::new(io::BufWriter::new(stdout.lock())) };
+    let mut out: Box<dyn Write> = if stdout.is_terminal() {
+        Box::new(io::LineWriter::new(stdout.lock()))
+    } else {
+        Box::new(io::BufWriter::new(stdout.lock()))
+    };
     let outcome = match run(&options, &mut out) {
         Ok(outcome) => outcome,
         Err(problem) => {
@@ -781,7 +835,11 @@ mod tests {
         for arg in args {
             let path = dir.join(arg);
             // An argument that names something in the directory is that path.
-            full.push(if !arg.is_empty() && !arg.starts_with('-') && path.exists() { path.into_os_string() } else { OsString::from(arg) });
+            full.push(if !arg.is_empty() && !arg.starts_with('-') && path.exists() {
+                path.into_os_string()
+            } else {
+                OsString::from(arg)
+            });
         }
         let options = parse(full).map_err(|_| "bad arguments").unwrap();
         let mut out = Vec::new();
@@ -795,7 +853,10 @@ mod tests {
         };
         // The directory's own path is not part of what is checked.
         let dir = dir.to_string_lossy();
-        let text = String::from_utf8(out).unwrap().replace(&format!("{dir}{}", std::path::MAIN_SEPARATOR), "").replace(&format!("{dir}/"), "");
+        let text = String::from_utf8(out)
+            .unwrap()
+            .replace(&format!("{dir}{}", std::path::MAIN_SEPARATOR), "")
+            .replace(&format!("{dir}/"), "");
         (text, code)
     }
 
@@ -860,7 +921,11 @@ mod tests {
         std::fs::write(dir.join("n.txt"), "1\n2\nhit\n4\n5\n6\n7\nhit\n9\n").unwrap();
         assert_eq!(grep(&dir, &["-n", "-A1", "hit", "n.txt"]), ("3:hit\n4-4\n--\n8:hit\n9-9\n".into(), 0));
         assert_eq!(grep(&dir, &["-B1", "hit", "n.txt"]), ("2\nhit\n--\n7\nhit\n".into(), 0));
-        assert_eq!(grep(&dir, &["-C", "3", "hit", "n.txt"]), ("1\n2\nhit\n4\n5\n6\n7\nhit\n9\n".into(), 0), "groups that touch are one");
+        assert_eq!(
+            grep(&dir, &["-C", "3", "hit", "n.txt"]),
+            ("1\n2\nhit\n4\n5\n6\n7\nhit\n9\n".into(), 0),
+            "groups that touch are one"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -868,7 +933,11 @@ mod tests {
     fn kinds_of_pattern() {
         let dir = scratch("patterns");
         assert_eq!(grep(&dir, &["-E", "alpha|gamma", "sub/c.txt"]), ("gamma\nalpha in sub\n".into(), 0));
-        assert_eq!(grep(&dir, &["alpha\\|gamma", "sub/c.txt"]), ("gamma\nalpha in sub\n".into(), 0), "basic: \\| is or");
+        assert_eq!(
+            grep(&dir, &["alpha\\|gamma", "sub/c.txt"]),
+            ("gamma\nalpha in sub\n".into(), 0),
+            "basic: \\| is or"
+        );
         assert_eq!(grep(&dir, &["alpha|gamma", "sub/c.txt"]), (String::new(), 1), "basic: | is itself");
         assert_eq!(grep(&dir, &["-F", "a.", "a.txt"]), (String::new(), 1), "fixed: the dot is a dot");
         assert_eq!(grep(&dir, &["-w", "alph", "a.txt"]), (String::new(), 1));
@@ -896,7 +965,11 @@ mod tests {
     fn found_files_are_named_with_slashes() {
         assert_eq!(found_name(Some("src"), Path::new("a.rs")), "src/a.rs");
         assert_eq!(found_name(Some("src/"), &Path::new("sub").join("deep").join("a.rs")), "src/sub/deep/a.rs");
-        assert_eq!(found_name(Some(r"C:\work\"), &Path::new("sub").join("a.rs")), r"C:\work/sub/a.rs", "the typed part stays as typed");
+        assert_eq!(
+            found_name(Some(r"C:\work\"), &Path::new("sub").join("a.rs")),
+            r"C:\work/sub/a.rs",
+            "the typed part stays as typed"
+        );
         assert_eq!(found_name(Some("."), Path::new("a.rs")), "./a.rs");
         assert_eq!(found_name(None, &Path::new("sub").join("a.rs")), "sub/a.rs", "no directory named: no ./");
     }
@@ -904,7 +977,11 @@ mod tests {
     #[test]
     fn binary_files_and_missing_files() {
         let dir = scratch("binary");
-        assert_eq!(grep(&dir, &["alpha", "bin.dat"]), (String::new(), 0), "a match, said on stderr, and no line printed");
+        assert_eq!(
+            grep(&dir, &["alpha", "bin.dat"]),
+            (String::new(), 0),
+            "a match, said on stderr, and no line printed"
+        );
         assert_eq!(grep(&dir, &["-c", "alpha", "bin.dat"]), ("1\n".into(), 0));
         assert_eq!(grep(&dir, &["-a", "-c", "binary", "bin.dat"]), ("1\n".into(), 0));
         assert_eq!(grep(&dir, &["-I", "alpha", "bin.dat"]), (String::new(), 1), "skipped");
@@ -926,8 +1003,44 @@ mod tests {
     }
 
     #[test]
+    fn counts_and_names_are_colored_as_gnu_grep_colors_them() {
+        let dir = scratch("color-summary");
+        let (text, _) = grep(&dir, &["--color=always", "-c", "beta", "a.txt", "b.log"]);
+        let named = |name: &str| format!("\x1b[35m\x1b[K{name}\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K1\n");
+        assert_eq!(text, format!("{}{}", named("a.txt"), named("b.log")));
+        let (text, _) = grep(&dir, &["--color=always", "-l", "gamma", "a.txt", "b.log"]);
+        assert_eq!(text, "\x1b[35m\x1b[Ka.txt\x1b[m\x1b[K\n");
+        let (text, _) = grep(&dir, &["--color=always", "-c", "beta", "a.txt"]);
+        assert_eq!(text, "1\n", "one file: no name, nothing to color");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn details_that_gnu_grep_has() {
+        for (basic, extended) in [("^*a", r"^\*a"), (r"\(^*a\)", r"(^\*a)"), ("a^*", "a^*")] {
+            assert_eq!(basic_to_extended(basic), extended, "a star after an anchor is a star: {basic}");
+        }
+        let dir = scratch("gnu-details");
+        std::fs::write(dir.join("n.txt"), "1\n2\nhit\n4\n5\n6\n7\nhit\n9\n").unwrap();
+        assert_eq!(
+            grep(&dir, &["-m1", "-A1", "hit", "n.txt"]),
+            ("hit\n4\n".into(), 0),
+            "the last match still has its context"
+        );
+        assert_eq!(grep(&dir, &["-c", "-m2", "a", "a.txt"]), ("2\n".into(), 0), "the count stops with the search");
+        assert_eq!(grep(&dir, &["^*", "a.txt"]), (String::new(), 1), "no line starts with a star");
+        let (text, _) = grep(&dir, &["--exclude=*.log", "beta", "a.txt", "b.log"]);
+        assert_eq!(text, "a.txt:beta gamma\n", "--exclude also drops a file named outright");
+        let (text, _) = grep(&dir, &["--include=*.log", "beta", "a.txt", "b.log"]);
+        assert_eq!(text, "a.txt:beta gamma\nb.log:beta\n", "--include is only for files found under a directory");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mistakes_in_the_options_are_named() {
-        let problem = |args: &[&str]| match parse(std::iter::once("grep").chain(args.iter().copied()).map(OsString::from).collect()) {
+        let problem = |args: &[&str]| match parse(
+            std::iter::once("grep").chain(args.iter().copied()).map(OsString::from).collect(),
+        ) {
             Err(Early::Usage(problem)) => problem,
             _ => panic!("no usage error for {args:?}"),
         };
@@ -937,7 +1050,9 @@ mod tests {
         assert_eq!(problem(&["--nope", "p"]), "unrecognized option '--nope'");
         assert_eq!(problem(&["-P", "p"]), "-P is not supported");
         assert_eq!(problem(&["-Q", "p"]), "invalid option -- 'Q'");
-        let options = parse(["grep", "-rniA2", "--", "-pattern", "f1", "f2"].map(OsString::from).to_vec()).map_err(|_| ()).unwrap();
+        let options = parse(["grep", "-rniA2", "--", "-pattern", "f1", "f2"].map(OsString::from).to_vec())
+            .map_err(|_| ())
+            .unwrap();
         assert!(options.recursive && options.line_number && options.ignore_case && options.after == 2);
         assert_eq!((options.patterns, options.files.len()), (vec!["-pattern".to_owned()], 2));
     }

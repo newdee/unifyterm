@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 # The window, text and input (Zed's UI framework).
 gpui = "0.2.2"
@@ -16,6 +19,8 @@ portable-pty = "0.9"
 # The channel from the pty's reader thread to the window.
 smol = "2"
 anyhow = "1"
+# What went wrong while running: to stderr and the log file.
+log = "0.4"
 # The settings file.
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"

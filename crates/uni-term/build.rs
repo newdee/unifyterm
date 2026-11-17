@@ -24,7 +24,9 @@ fn main() {
     for name in FILES {
         let source = vendor.join(name);
         if !source.is_file() {
-            println!("cargo:warning=vendor/conpty/{arch}/{name} is missing: Windows' own ConPTY will be used. Run tools/fetch-conpty.ps1.");
+            println!(
+                "cargo:warning=vendor/conpty/{arch}/{name} is missing: Windows' own ConPTY will be used. Run tools/fetch-conpty.ps1."
+            );
             return;
         }
         // Beside the program, and beside the test programs (target/<profile>/deps).

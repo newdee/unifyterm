@@ -17,25 +17,26 @@ const MAX_PADDING: f32 = 64.0;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct Config {
-    pub font: FontConfig,
-    pub shell: ShellConfig,
-    pub terminal: TerminalConfig,
-    pub theme: ThemeConfig,
+pub(crate) struct Config {
+    pub(crate) font: FontConfig,
+    pub(crate) shell: ShellConfig,
+    pub(crate) terminal: TerminalConfig,
+    pub(crate) theme: ThemeConfig,
+    pub(crate) commands: CommandsConfig,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
-pub struct FontConfig {
-    pub family: String,
+pub(crate) struct FontConfig {
+    pub(crate) family: String,
     /// In pixels.
-    pub size: f32,
+    pub(crate) size: f32,
     /// A line's height as a multiple of `size`.
-    pub line_height: f32,
+    pub(crate) line_height: f32,
     /// `->`, `!=` and the like drawn as one shape, where the font has them.
-    pub ligatures: bool,
+    pub(crate) ligatures: bool,
     /// Fonts tried, in order, for characters `family` lacks.
-    pub fallbacks: Vec<String>,
+    pub(crate) fallbacks: Vec<String>,
 }
 
 impl Default for FontConfig {
@@ -59,19 +60,19 @@ impl Default for FontConfig {
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct ShellConfig {
+pub(crate) struct ShellConfig {
     /// The program a new tab runs. Not set: PowerShell on Windows, `$SHELL` elsewhere.
-    pub program: Option<String>,
-    pub args: Vec<String>,
+    pub(crate) program: Option<String>,
+    pub(crate) args: Vec<String>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
-pub struct TerminalConfig {
+pub(crate) struct TerminalConfig {
     /// Lines of history kept for each tab.
-    pub scrollback: usize,
+    pub(crate) scrollback: usize,
     /// Pixels between the window's edge and the text.
-    pub padding: f32,
+    pub(crate) padding: f32,
 }
 
 impl Default for TerminalConfig {
@@ -80,27 +81,44 @@ impl Default for TerminalConfig {
     }
 }
 
+/// uni-term's own commands (`cat`, `ls`, `grep`, `jq`, ...): the same ones
+/// on Windows, macOS and Linux.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct CommandsConfig {
+    /// Put uni-term's commands before the system's in each shell's `PATH`.
+    pub(crate) builtin: bool,
+    /// Commands that stay the system's although `builtin` is on.
+    pub(crate) system: Vec<String>,
+}
+
+impl Default for CommandsConfig {
+    fn default() -> Self {
+        Self { builtin: true, system: Vec::new() }
+    }
+}
+
 /// Colors as `#rrggbb`. Any left out keep the built-in theme's value.
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct ThemeConfig {
-    pub foreground: Option<String>,
-    pub background: Option<String>,
-    pub cursor: Option<String>,
-    pub selection: Option<String>,
+pub(crate) struct ThemeConfig {
+    pub(crate) foreground: Option<String>,
+    pub(crate) background: Option<String>,
+    pub(crate) cursor: Option<String>,
+    pub(crate) selection: Option<String>,
     /// The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight.
-    pub ansi: Option<Vec<String>>,
+    pub(crate) ansi: Option<Vec<String>>,
 }
 
 impl Config {
     /// Where the settings file is unless `--config` names another.
-    pub fn default_path() -> Option<PathBuf> {
+    pub(crate) fn default_path() -> Option<PathBuf> {
         dirs::config_dir().map(|dir| dir.join("uni-term").join("config.toml"))
     }
 
     /// The settings in `path`. A file that is not there gives the defaults;
     /// one that cannot be read or is wrong is an error.
-    pub fn load(path: &Path) -> Result<Self> {
+    pub(crate) fn load(path: &Path) -> Result<Self> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
@@ -109,7 +127,7 @@ impl Config {
         Self::parse(&text).with_context(|| format!("in {}", path.display()))
     }
 
-    pub fn parse(text: &str) -> Result<Self> {
+    pub(crate) fn parse(text: &str) -> Result<Self> {
         let config: Self = toml::from_str(text)?;
         if !FONT_SIZES.contains(&config.font.size) {
             bail!("font.size is {}: it must be from {} to {}", config.font.size, FONT_SIZES.start(), FONT_SIZES.end());
@@ -132,9 +150,11 @@ impl Config {
     }
 
     /// The built-in theme with this file's colors over it.
-    pub fn theme(&self) -> Result<Theme> {
+    pub(crate) fn theme(&self) -> Result<Theme> {
         let mut theme = Theme::default();
-        let color = |key: &str, text: &str| Rgb::parse(text).with_context(|| format!("theme.{key} is \"{text}\": not a color like #1a2b3c"));
+        let color = |key: &str, text: &str| {
+            Rgb::parse(text).with_context(|| format!("theme.{key} is \"{text}\": not a color like #1a2b3c"))
+        };
         let named = [
             ("foreground", &self.theme.foreground, &mut theme.foreground),
             ("background", &self.theme.background, &mut theme.background),
@@ -169,9 +189,11 @@ mod tests {
         assert_eq!(config.theme().unwrap(), Theme::default());
         assert_eq!((config.font.size, config.font.ligatures, config.terminal.scrollback), (14.0, true, 10_000));
         assert_eq!(config.shell.program, None);
+        assert_eq!(config.commands, CommandsConfig { builtin: true, system: Vec::new() }, "uni-term's commands are on");
     }
 
     #[test]
+    #[expect(clippy::float_cmp, reason = "a size read from text is the same bits as the literal it is compared with")]
     fn set_keys_replace_the_defaults() {
         let config = Config::parse(
             r##"
@@ -186,13 +208,23 @@ mod tests {
             scrollback = 500
             [theme]
             background = "#000000"
+            [commands]
+            builtin = false
+            system = ["curl", "tar"]
             "##,
         )
         .unwrap();
-        assert_eq!((config.font.family.as_str(), config.font.size, config.font.ligatures), ("JetBrains Mono", 16.0, false));
+        assert_eq!(
+            (config.font.family.as_str(), config.font.size, config.font.ligatures),
+            ("JetBrains Mono", 16.0, false)
+        );
         assert_eq!(config.font.line_height, FontConfig::default().line_height, "not set: the default");
-        assert_eq!((config.shell.program.as_deref(), config.shell.args.as_slice()), (Some("nu"), &["-l".to_string()][..]));
+        assert_eq!(
+            (config.shell.program.as_deref(), config.shell.args.as_slice()),
+            (Some("nu"), &["-l".to_string()][..])
+        );
         assert_eq!(config.terminal.scrollback, 500);
+        assert_eq!(config.commands, CommandsConfig { builtin: false, system: vec!["curl".into(), "tar".into()] });
         let theme = config.theme().unwrap();
         assert_eq!((theme.background, theme.foreground), (Rgb(0, 0, 0), Theme::default().foreground));
     }
@@ -210,6 +242,7 @@ mod tests {
         assert!(error("[theme]\nansi = [\"#000000\"]").contains("theme.ansi has 1 colors"));
         assert!(error("[font]\nsise = 12").contains("sise"), "a misspelt key is named");
         assert!(error("[fonts]").contains("fonts"));
+        assert!(error("[commands]\nbuiltin = \"yes\"").contains("builtin"), "a switch is true or false");
     }
 
     #[test]

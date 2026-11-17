@@ -8,6 +8,55 @@ edition = "2024"
 rust-version = "1.93"
 license = "MIT"
 
+# Lints for every crate: BeautifulRust's set (https://github.com/morganlinton/BeautifulRust,
+# lints/lints.toml), without the ones it marks as for libraries only (missing_docs, the
+# doc-section lints, exhaustive_enums, print_stdout, print_stderr): both crates are programs.
+# CI and the acceptance rounds run clippy with `-D warnings`.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Panics: return errors, and give every intentional panic a reason.
+unwrap_used = "warn"
+expect_used = "allow"
+panic_in_result_fn = "warn"
+missing_assert_message = "warn"
+# Suppressions must explain themselves and expire when no longer needed.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Unsafe must be justified.
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+# API shape.
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+clone_on_ref_ptr = "warn"
+redundant_clone = "warn"
+rc_buffer = "warn"
+# Idioms.
+string_add = "warn"
+wildcard_imports = "warn"
+# Debugging leftovers.
+dbg_macro = "warn"
+todo = "warn"
+# Casts that silently lose information.
+as_conversions = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+# Pedantic lints that are mostly noise in practice, or that the skill disagrees with.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+module_inception = "allow"
+enum_glob_use = "allow"
+# Not from BeautifulRust: these two pedantic lints ask for # Errors and # Panics
+# sections, which it lists as for libraries.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 [profile.dev]
 # GPUI is slow to start unoptimized; keep our own crate fast to rebuild.
 opt-level = 1

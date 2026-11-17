@@ -13,13 +13,13 @@ use std::path::{Path, PathBuf};
 const MANIFEST: &str = ".ut-links";
 
 #[derive(Debug, PartialEq, Eq, Default)]
-pub struct Summary {
+pub(crate) struct Summary {
     /// Links that were made or made again.
-    pub made: usize,
+    pub(crate) made: usize,
     /// Links that already led to this program.
-    pub kept: usize,
+    pub(crate) kept: usize,
     /// Links to commands that are now skipped or gone.
-    pub removed: usize,
+    pub(crate) removed: usize,
 }
 
 /// A command's file in the directory: its name, with `.exe` on Windows.
@@ -43,7 +43,7 @@ fn leads_to(at: &Path, program: &Path) -> bool {
 
 /// Makes `directory` hold a link to `program` for each of `commands` not in
 /// `skip`, and no link of an earlier run for anything else.
-pub fn sync(directory: &Path, program: &Path, commands: &[&str], skip: &[String]) -> io::Result<Summary> {
+pub(crate) fn sync(directory: &Path, program: &Path, commands: &[&str], skip: &[String]) -> io::Result<Summary> {
     std::fs::create_dir_all(directory)?;
     let wanted: BTreeSet<&str> = commands.iter().copied().filter(|name| !skip.iter().any(|s| s == name)).collect();
     let manifest = directory.join(MANIFEST);
@@ -74,7 +74,11 @@ pub fn sync(directory: &Path, program: &Path, commands: &[&str], skip: &[String]
         link(program, &at)?;
         summary.made += 1;
     }
-    let listed: String = wanted.iter().map(|name| format!("{name}\n")).collect();
+    let mut listed = String::new();
+    for name in &wanted {
+        listed.push_str(name);
+        listed.push('\n');
+    }
     std::fs::write(manifest, listed)?;
     Ok(summary)
 }
@@ -83,7 +87,7 @@ const USAGE: &str = "usage: ut --links DIRECTORY [--skip COMMAND,COMMAND...]";
 const USAGE_ERROR: i32 = 2;
 
 /// `ut --links`: `args` starts after `--links`. `commands`: every command's name.
-pub fn main(args: &[OsString], commands: &[&str]) -> i32 {
+pub(crate) fn main(args: &[OsString], commands: &[&str]) -> i32 {
     let mut err = io::stderr().lock();
     let mut directory: Option<PathBuf> = None;
     let mut skip: Vec<String> = Vec::new();
@@ -121,11 +125,15 @@ pub fn main(args: &[OsString], commands: &[&str]) -> i32 {
         Ok(summary) => {
             let total = summary.made + summary.kept;
             let Summary { made, kept, removed } = summary;
-            let _ = writeln!(io::stdout(), "{total} commands in {} (made {made}, kept {kept}, removed {removed})", directory.display());
+            let _ = writeln!(
+                io::stdout(),
+                "{total} commands in {} (made {made}, kept {kept}, removed {removed})",
+                crate::slash::shown(&directory)
+            );
             0
         }
         Err(error) => {
-            let _ = writeln!(err, "ut: {}: {error}", directory.display());
+            let _ = writeln!(err, "ut: {}: {error}", crate::slash::shown(&directory));
             1
         }
     }
@@ -146,7 +154,10 @@ mod tests {
     }
 
     fn names(directory: &Path) -> Vec<String> {
-        let mut names: Vec<_> = std::fs::read_dir(directory).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        let mut names: Vec<_> = std::fs::read_dir(directory)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
         names.sort();
         names
     }
@@ -158,7 +169,11 @@ mod tests {
         let first = sync(&bin, &program, &["cat", "ls", "jq"], &[]).unwrap();
         assert_eq!(first, Summary { made: 3, kept: 0, removed: 0 });
         assert_eq!(names(&bin), [MANIFEST.to_owned(), link_name("cat"), link_name("jq"), link_name("ls")]);
-        assert_eq!(std::fs::read_to_string(bin.join(link_name("cat"))).unwrap(), "the program", "the link leads to the program");
+        assert_eq!(
+            std::fs::read_to_string(bin.join(link_name("cat"))).unwrap(),
+            "the program",
+            "the link leads to the program"
+        );
 
         let again = sync(&bin, &program, &["cat", "ls", "jq"], &[]).unwrap();
         assert_eq!(again, Summary { made: 0, kept: 3, removed: 0 }, "nothing to do the second time");
@@ -180,7 +195,11 @@ mod tests {
         std::fs::write(bin.join("notes.txt"), "mine").unwrap();
         sync(&bin, &program, &["cat"], &[]).unwrap();
         sync(&bin, &program, &[], &[]).unwrap();
-        assert_eq!(names(&bin), [MANIFEST.to_owned(), "notes.txt".to_owned()], "only what the manifest lists is removed");
+        assert_eq!(
+            names(&bin),
+            [MANIFEST.to_owned(), "notes.txt".to_owned()],
+            "only what the manifest lists is removed"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -203,6 +222,10 @@ mod tests {
         assert_eq!(main(&[], &commands), USAGE_ERROR);
         assert_eq!(main(&["dir".into(), "--skip".into()], &commands), USAGE_ERROR);
         assert_eq!(main(&["dir".into(), "extra".into()], &commands), USAGE_ERROR);
-        assert_eq!(main(&["dir".into(), "--skip".into(), "nope".into()], &commands), USAGE_ERROR, "an unknown command to skip is a typo");
+        assert_eq!(
+            main(&["dir".into(), "--skip".into(), "nope".into()], &commands),
+            USAGE_ERROR,
+            "an unknown command to skip is a typo"
+        );
     }
 }

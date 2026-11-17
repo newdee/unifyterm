@@ -33,7 +33,7 @@ const RUNTIME: i32 = 5;
 /// What a shell reports for a command ended by a closed pipe.
 const BROKEN_PIPE: i32 = 141;
 
-pub fn main(args: Vec<OsString>) -> i32 {
+pub(crate) fn main(args: Vec<OsString>) -> i32 {
     use env_logger::Env;
     // jaq writes what the `debug` and `stderr` filters print through a logger.
     // `try_init`: a logger set earlier in this process stays.
@@ -48,7 +48,8 @@ pub fn main(args: Vec<OsString>) -> i32 {
 
     // last line of defense against I/O errors that happen during printing,
     // e.g. catching broken pipes during error printing
-    main_io(args, &mut io::stdin(), &mut io::stdout(), &mut io::stderr()).unwrap_or_else(|e: io::Error| Error::from(e).code())
+    main_io(args, &mut io::stdin(), &mut io::stdout(), &mut io::stderr())
+        .unwrap_or_else(|e: io::Error| Error::from(e).code())
 }
 
 fn main_io(args: Vec<OsString>, inp: &mut io::Stdin, out: &mut io::Stdout, err: &mut io::Stderr) -> io::Result<i32> {
@@ -68,7 +69,8 @@ fn main_io(args: Vec<OsString>, inp: &mut io::Stdin, out: &mut io::Stdout, err: 
         Ok(OK)
     } else {
         real_main(&cli, inp, out).or_else(|e| {
-            write!(err, "{}", ErrorColor::new(&e, cli.color_errors()))?;
+            let shown = if cli.color_errors() { ErrorColor::colored(&e) } else { ErrorColor::plain(&e) };
+            write!(err, "{shown}")?;
             Ok(e.code())
         })
     }
@@ -182,12 +184,12 @@ fn binds(cli: &Cli) -> Result<Vec<(String, Val)>, Error> {
         Ok((k.to_owned(), read::json::parse_single(s).map_err(err)?))
     });
     let rawfile = cli.rawfile.iter().map(|(k, path)| {
-        let err = |e| Error::Io(Some(format!("{path:?}")), e);
+        let err = |e| Error::Io(Some(Path::new(path).display().to_string()), e);
         let s = read::load_file(path).map_err(err)?;
         Ok((k.to_owned(), Val::utf8_str(s)))
     });
     let slurpfile = cli.slurpfile.iter().map(|(k, path)| {
-        let err = |e| Error::Io(Some(format!("{path:?}")), e);
+        let err = |e| Error::Io(Some(Path::new(path).display().to_string()), e);
         Ok((k.to_owned(), read::json_array(path).map_err(err)?))
     });
 
@@ -226,18 +228,22 @@ enum Error {
 struct ErrorColor<'e>(&'e Error, Paint);
 
 impl<'e> ErrorColor<'e> {
-    fn new(e: &'e Error, color: bool) -> Self {
-        let with_color = |f: &mut Formatter, c: &Option<Color>, d: &dyn Display| match c {
+    /// The error with jaq's colors.
+    fn colored(e: &'e Error) -> Self {
+        Self(e, |f: &mut Formatter<'_>, c: &Option<Color>, d: &dyn Display| match c {
             Some(color) => color.ansi(f, d),
             None => d.fmt(f),
-        };
-        let without_color = |f: &mut Formatter, _c: &_, d: &dyn Display| d.fmt(f);
-        Self(e, if color { with_color } else { without_color })
+        })
+    }
+
+    /// The error as plain text.
+    fn plain(e: &'e Error) -> Self {
+        Self(e, |f: &mut Formatter<'_>, _c: &_, d: &dyn Display| d.fmt(f))
     }
 }
 
 impl fmt::Display for ErrorColor<'_> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Self(error, color) = self;
         match error {
             Error::FalseOrNull | Error::NoOutput | Error::Halt(_) => Ok(()),
@@ -249,9 +255,9 @@ impl fmt::Display for ErrorColor<'_> {
                 }
                 writeln!(f, "{e}")
             }
-            Error::Report(reports) => reports
-                .iter()
-                .try_for_each(|fr| FileReportsDisp::new(fr).with_paint(*color).with_path(|p| format!("[{}]", p.display())).fmt(f)),
+            Error::Report(reports) => reports.iter().try_for_each(|fr| {
+                FileReportsDisp::new(fr).with_paint(*color).with_path(|p| format!("[{}]", p.display())).fmt(f)
+            }),
             Error::Parse(e) => writeln!(f, "Error: failed to parse: {e}"),
             Error::Jaq(e) => writeln!(f, "Error: {e}"),
         }

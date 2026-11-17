@@ -30,7 +30,7 @@ fn runs(file: &Path) -> bool {
 /// `path`: the directories to look in. `extensions`: what may follow the
 /// name (Windows' `PATHEXT`); empty on Unix, where the name is the whole
 /// file name. A `command` with a directory in it is looked for there only.
-pub fn find(command: &OsStr, path: &[PathBuf], extensions: &[String]) -> Vec<PathBuf> {
+pub(crate) fn find(command: &OsStr, path: &[PathBuf], extensions: &[String]) -> Vec<PathBuf> {
     let names = |base: &Path| -> Vec<PathBuf> {
         let mut names = vec![base.to_path_buf()];
         names.extend(extensions.iter().map(|extension| {
@@ -46,9 +46,9 @@ pub fn find(command: &OsStr, path: &[PathBuf], extensions: &[String]) -> Vec<Pat
     for directory in directories {
         for candidate in names(&directory.join(given)) {
             if runs(&candidate) {
-                let named = as_named(candidate);
-                if !found.contains(&named) {
-                    found.push(named);
+                let program = as_named(candidate);
+                if !found.contains(&program) {
+                    found.push(program);
                 }
             }
         }
@@ -80,7 +80,7 @@ fn extensions(pathext: &str) -> Vec<String> {
     pathext.split(';').filter(|e| !e.is_empty()).map(str::to_owned).collect()
 }
 
-pub fn main(args: Vec<OsString>) -> i32 {
+pub(crate) fn main(args: Vec<OsString>) -> i32 {
     let mut out = std::io::stdout().lock();
     let mut err = std::io::stderr().lock();
     let (mut all, mut commands) = (false, Vec::new());
@@ -104,15 +104,19 @@ pub fn main(args: Vec<OsString>) -> i32 {
         let _ = writeln!(err, "{USAGE}");
         return USAGE_ERROR;
     }
-    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|path| std::env::split_paths(&path).collect()).unwrap_or_default();
-    let extensions =
-        if cfg!(windows) { extensions(&std::env::var("PATHEXT").unwrap_or_else(|_| DEFAULT_EXTENSIONS.into())) } else { Vec::new() };
+    let path: Vec<PathBuf> =
+        std::env::var_os("PATH").map(|path| std::env::split_paths(&path).collect()).unwrap_or_default();
+    let extensions = if cfg!(windows) {
+        extensions(&std::env::var("PATHEXT").unwrap_or_else(|_| DEFAULT_EXTENSIONS.into()))
+    } else {
+        Vec::new()
+    };
     let mut missing = false;
     for command in &commands {
         let found = find(command, &path, &extensions);
         missing |= found.is_empty();
         for program in found.iter().take(if all { usize::MAX } else { 1 }) {
-            if writeln!(out, "{}", program.display()).is_err() {
+            if writeln!(out, "{}", crate::slash::shown(program)).is_err() {
                 return 0; // The reader stopped reading.
             }
         }

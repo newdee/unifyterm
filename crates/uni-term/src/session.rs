@@ -23,6 +23,7 @@ use anyhow::{Context as _, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use smol::channel::{Receiver, bounded};
 
+use crate::keys::{CursorKeys, MouseProtocol};
 use crate::theme::{Rgb, Theme};
 
 /// Most bytes taken from the pty in one read.
@@ -32,7 +33,7 @@ const READ_CHUNK: usize = 8192;
 const OUTPUT_QUEUE: usize = 256;
 
 /// What the pty's threads tell the session's owner.
-pub enum PtyEvent {
+pub(crate) enum PtyEvent {
     /// The program printed these bytes.
     Output(Vec<u8>),
     /// The program ended.
@@ -41,7 +42,7 @@ pub enum PtyEvent {
 
 /// What the program asked of the terminal, for the session's owner to do.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Notice {
+pub(crate) enum Notice {
     /// The window's title (`None`: back to the default).
     Title(Option<String>),
     /// Text for the clipboard (OSC 52).
@@ -50,7 +51,7 @@ pub enum Notice {
 
 /// A cell's color before the theme gives it a value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Color {
+pub(crate) enum Color {
     Foreground,
     Background,
     /// One of xterm's 256.
@@ -59,39 +60,39 @@ pub enum Color {
 }
 
 /// A cell's attributes, as bits of [`Cell::attrs`].
-pub mod attr {
-    pub const BOLD: u16 = 1;
-    pub const ITALIC: u16 = 1 << 1;
-    pub const UNDERLINE: u16 = 1 << 2;
-    pub const STRIKE: u16 = 1 << 3;
-    pub const DIM: u16 = 1 << 4;
-    pub const INVERSE: u16 = 1 << 5;
-    pub const HIDDEN: u16 = 1 << 6;
+pub(crate) mod attr {
+    pub(crate) const BOLD: u16 = 1;
+    pub(crate) const ITALIC: u16 = 1 << 1;
+    pub(crate) const UNDERLINE: u16 = 1 << 2;
+    pub(crate) const STRIKE: u16 = 1 << 3;
+    pub(crate) const DIM: u16 = 1 << 4;
+    pub(crate) const INVERSE: u16 = 1 << 5;
+    pub(crate) const HIDDEN: u16 = 1 << 6;
     /// The character takes this cell and the next.
-    pub const WIDE: u16 = 1 << 7;
+    pub(crate) const WIDE: u16 = 1 << 7;
     /// The second cell of a wide character: nothing of its own to draw.
-    pub const SPACER: u16 = 1 << 8;
-    pub const SELECTED: u16 = 1 << 9;
+    pub(crate) const SPACER: u16 = 1 << 8;
+    pub(crate) const SELECTED: u16 = 1 << 9;
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct Cell {
-    pub c: char,
+pub(crate) struct Cell {
+    pub(crate) c: char,
     /// Combining characters on top of `c`.
-    pub combining: Option<String>,
-    pub fg: Color,
-    pub bg: Color,
-    pub attrs: u16,
+    pub(crate) combining: Option<String>,
+    pub(crate) fg: Color,
+    pub(crate) bg: Color,
+    pub(crate) attrs: u16,
 }
 
 impl Cell {
-    pub fn has(&self, attribute: u16) -> bool {
+    pub(crate) fn has(&self, attribute: u16) -> bool {
         self.attrs & attribute != 0
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CursorShape {
+pub(crate) enum CursorShape {
     Block,
     Beam,
     Underline,
@@ -99,53 +100,84 @@ pub enum CursorShape {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Cursor {
-    pub line: usize,
-    pub column: usize,
-    pub shape: CursorShape,
+pub(crate) struct Cursor {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) shape: CursorShape,
 }
 
 /// What is on screen: `lines` rows of `columns` cells, top row first.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Snapshot {
-    pub columns: usize,
-    pub lines: usize,
-    pub cells: Vec<Cell>,
+pub(crate) struct Snapshot {
+    pub(crate) columns: usize,
+    pub(crate) lines: usize,
+    pub(crate) cells: Vec<Cell>,
     /// `None` when the program hid it or it is scrolled out of view.
-    pub cursor: Option<Cursor>,
+    pub(crate) cursor: Option<Cursor>,
     /// How many lines of history the view is scrolled back by.
-    pub scrolled: usize,
+    pub(crate) scrolled: usize,
 }
 
 impl Snapshot {
-    pub fn row(&self, line: usize) -> &[Cell] {
+    pub(crate) fn row(&self, line: usize) -> &[Cell] {
         &self.cells[line * self.columns..(line + 1) * self.columns]
     }
 }
 
+/// How pasted text is sent to the program.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum Paste {
+    /// As if typed: each line end is the Enter key.
+    #[default]
+    Typed,
+    /// Between the marks that tell the program "this is a paste".
+    Bracketed,
+}
+
+/// How much of the mouse the program asked to be told about.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum MouseTracking {
+    #[default]
+    Off,
+    /// Presses and releases.
+    Clicks,
+    /// ... and movement while a button is held.
+    Drags,
+    /// ... and all movement.
+    Motion,
+}
+
+/// Whether the window has the keyboard.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Focus {
+    Focused,
+    Unfocused,
+}
+
+/// Which half of a cell a point is in. A selection that starts in a cell's
+/// right half starts after that cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Half {
+    Left,
+    Right,
+}
+
 /// The modes the program set that change what input the terminal sends.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Modes {
-    /// Arrow keys send `ESC O A`, not `ESC [ A`.
-    pub app_cursor: bool,
-    pub bracketed_paste: bool,
-    /// The program wants mouse clicks.
-    pub mouse: bool,
-    /// ... and movement with a button held.
-    pub mouse_drag: bool,
-    /// ... and all movement.
-    pub mouse_motion: bool,
-    /// Mouse reports in the SGR form, which has no limit on coordinates.
-    pub sgr_mouse: bool,
-    pub alt_screen: bool,
+pub(crate) struct Modes {
+    pub(crate) cursor_keys: CursorKeys,
+    pub(crate) paste: Paste,
+    pub(crate) mouse: MouseTracking,
+    pub(crate) mouse_protocol: MouseProtocol,
+    pub(crate) alt_screen: bool,
     /// On the alternate screen the wheel sends arrow keys.
-    pub alternate_scroll: bool,
-    pub focus_events: bool,
+    pub(crate) alternate_scroll: bool,
+    pub(crate) focus_events: bool,
 }
 
 /// How much a click selects.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SelectBy {
+pub(crate) enum SelectBy {
     Cell,
     Word,
     Line,
@@ -157,7 +189,7 @@ type Writer = Arc<Mutex<Box<dyn Write + Send>>>;
 /// cursor is, what a color is) are written back at once: ConPTY asks for
 /// the cursor's position before it passes anything on. The rest waits in
 /// `notices` for [`Session::take_notices`].
-pub struct Listener {
+pub(crate) struct Listener {
     /// None for a screen with no program behind it (a replay).
     writer: Option<Writer>,
     notices: Arc<Mutex<Vec<Notice>>>,
@@ -168,16 +200,25 @@ impl Listener {
     fn reply(&self, text: &str) {
         if let Some(writer) = &self.writer {
             // A failed write means the program is gone; `PtyEvent::Exited` says so.
-            let _ = writer.lock().unwrap().write_all(text.as_bytes());
+            let _ = writer.lock().expect(LOCK_POISONED).write_all(text.as_bytes());
         }
     }
 }
 
+/// Why a lock cannot be taken: a thread panicked while holding it, and
+/// what it guards may be half written. There is nothing to carry on with.
+const LOCK_POISONED: &str = "lock poisoned";
+
+/// The library's number for a color it knows by name.
+#[expect(clippy::as_conversions, reason = "the discriminant of a fieldless enum, which has no `From`")]
+const fn number(name: NamedColor) -> usize {
+    name as usize
+}
+
 /// The library's numbers for the colors that are not one of the 256.
-const FOREGROUND_INDEX: usize = NamedColor::Foreground as usize;
-const BACKGROUND_INDEX: usize = NamedColor::Background as usize;
-const CURSOR_INDEX: usize = NamedColor::Cursor as usize;
-const INDEXED_COLORS: usize = 256;
+const FOREGROUND_INDEX: usize = number(NamedColor::Foreground);
+const BACKGROUND_INDEX: usize = number(NamedColor::Background);
+const CURSOR_INDEX: usize = number(NamedColor::Cursor);
 
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {
@@ -188,8 +229,11 @@ impl EventListener for Listener {
                     FOREGROUND_INDEX => self.theme.foreground,
                     BACKGROUND_INDEX => self.theme.background,
                     CURSOR_INDEX => self.theme.cursor,
-                    i if i < INDEXED_COLORS => self.theme.indexed(i as u8),
-                    _ => return,
+                    // One of the 256. A larger number is no color.
+                    other => match u8::try_from(other) {
+                        Ok(indexed) => self.theme.indexed(indexed),
+                        Err(_) => return,
+                    },
                 };
                 return self.reply(&format(ansi::Rgb { r: color.0, g: color.1, b: color.2 }));
             }
@@ -198,13 +242,13 @@ impl EventListener for Listener {
             Event::ClipboardStore(_, text) => Notice::Copy(text),
             _ => return,
         };
-        self.notices.lock().unwrap().push(notice);
+        self.notices.lock().expect(LOCK_POISONED).push(notice);
     }
 }
 
 /// A terminal's screen: bytes in, cells out. It has no program of its own;
 /// [`Session`] is a screen with one.
-pub struct Screen {
+pub(crate) struct Screen {
     term: Term<Listener>,
     parser: Processor,
     notices: Arc<Mutex<Vec<Notice>>>,
@@ -214,7 +258,7 @@ pub struct Screen {
 }
 
 /// A program in a pty, and its screen.
-pub struct Session {
+pub(crate) struct Session {
     screen: Screen,
     writer: Writer,
     master: Box<dyn MasterPty + Send>,
@@ -251,7 +295,7 @@ impl Session {
     /// Starts `command` in a pty of `columns` by `lines`, keeping
     /// `scrollback` lines of history. The channel carries what the program
     /// prints, then that it ended.
-    pub fn spawn(
+    pub(crate) fn spawn(
         command: CommandBuilder,
         columns: u16,
         lines: u16,
@@ -263,7 +307,8 @@ impl Session {
         drop(pair.slave);
         let killer = child.clone_killer();
         let mut reader = pair.master.try_clone_reader().map_err(|e| anyhow!("read the pty: {e}"))?;
-        let writer: Writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| anyhow!("write the pty: {e}"))?));
+        let writer: Writer =
+            Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| anyhow!("write the pty: {e}"))?));
 
         let (tx, rx) = bounded(OUTPUT_QUEUE);
         let output = tx.clone();
@@ -293,7 +338,7 @@ impl Session {
             })
             .context("start the pty waiter")?;
 
-        let mut screen = Screen::new(columns, lines, scrollback, theme, Some(writer.clone()));
+        let mut screen = Screen::new(columns, lines, scrollback, theme, Some(Arc::clone(&writer)));
         if let Some(path) = std::env::var_os(RAW_LOG_VARIABLE) {
             let path = raw_log_path(&path.to_string_lossy(), SESSIONS.fetch_add(1, Ordering::Relaxed) + 1);
             let file = std::fs::OpenOptions::new().create(true).append(true).open(&path);
@@ -303,8 +348,8 @@ impl Session {
     }
 
     /// Sends bytes to the program, as if typed.
-    pub fn write(&self, bytes: &[u8]) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
+    pub(crate) fn write(&self, bytes: &[u8]) -> Result<()> {
+        let mut writer = self.writer.lock().expect(LOCK_POISONED);
         writer.write_all(bytes)?;
         writer.flush()?;
         Ok(())
@@ -312,19 +357,20 @@ impl Session {
 
     /// Sends pasted text: marked as a paste when the program asked for
     /// that, else with each line end as the Enter key.
-    pub fn paste(&self, text: &str) -> Result<()> {
-        self.write(&paste_bytes(text, self.modes().bracketed_paste))
+    pub(crate) fn paste(&self, text: &str) -> Result<()> {
+        self.write(&paste_bytes(text, self.modes().paste))
     }
 
     /// Changes the screen's size and tells the program.
-    pub fn resize(&mut self, columns: u16, lines: u16) -> Result<()> {
+    pub(crate) fn resize(&mut self, columns: u16, lines: u16) -> Result<()> {
         self.master.resize(pty_size(columns, lines)).map_err(|e| anyhow!("resize the pty: {e}"))?;
         self.screen.set_size(columns, lines);
         Ok(())
     }
 
     /// Tells the program the window gained or lost focus, if it asked to know.
-    pub fn focus(&mut self, focused: bool) -> Result<()> {
+    pub(crate) fn focus(&mut self, focus: Focus) -> Result<()> {
+        let focused = focus == Focus::Focused;
         if self.screen.term.is_focused == focused {
             return Ok(());
         }
@@ -339,16 +385,16 @@ impl Session {
 impl Screen {
     /// An empty screen. `replies`: where its answers to the program's
     /// questions go; `None` when there is no program.
-    pub fn new(columns: u16, lines: u16, scrollback: usize, theme: Theme, replies: Option<Writer>) -> Self {
+    pub(crate) fn new(columns: u16, lines: u16, scrollback: usize, theme: Theme, replies: Option<Writer>) -> Self {
         let notices = Arc::new(Mutex::new(Vec::new()));
-        let listener = Listener { writer: replies, notices: notices.clone(), theme };
+        let listener = Listener { writer: replies, notices: Arc::clone(&notices), theme };
         let config = Config { scrolling_history: scrollback, ..Config::default() };
         let term = Term::new(config, &TermSize::new(columns.into(), lines.into()), listener);
         Self { term, parser: Processor::new(), notices, raw_log: None }
     }
 
     /// Takes bytes the program printed and updates the screen.
-    pub fn feed(&mut self, bytes: &[u8]) {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) {
         if let Some(log) = self.raw_log.as_mut() {
             // A log that cannot be written is given up, not the session.
             if log.write_all(bytes).is_err() {
@@ -360,7 +406,7 @@ impl Screen {
 
     /// The screen's text, one line of the screen a line, without the
     /// spaces at each line's end: what `--replay` prints.
-    pub fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         let snapshot = self.snapshot();
         let mut text = String::new();
         for line in 0..snapshot.lines {
@@ -376,70 +422,78 @@ impl Screen {
     }
 
     /// What the program asked for since the last call.
-    pub fn take_notices(&mut self) -> Vec<Notice> {
-        std::mem::take(&mut *self.notices.lock().unwrap())
+    pub(crate) fn take_notices(&mut self) -> Vec<Notice> {
+        std::mem::take(&mut *self.notices.lock().expect(LOCK_POISONED))
     }
 
     /// The screen's size as (columns, lines).
-    pub fn size(&self) -> (u16, u16) {
-        (self.term.columns() as u16, self.term.screen_lines() as u16)
+    pub(crate) fn size(&self) -> (u16, u16) {
+        (narrow(self.term.columns()), narrow(self.term.screen_lines()))
     }
 
     /// Changes the screen's size. A session's `resize` also tells its program.
-    pub fn set_size(&mut self, columns: u16, lines: u16) {
+    pub(crate) fn set_size(&mut self, columns: u16, lines: u16) {
         self.term.resize(TermSize::new(columns.into(), lines.into()));
     }
 
-    pub fn modes(&self) -> Modes {
+    pub(crate) fn modes(&self) -> Modes {
         let mode = self.term.mode();
+        let has = |flag: TermMode| mode.contains(flag);
+        // The widest of the mouse modes that is on.
+        let mouse = if has(TermMode::MOUSE_MOTION) {
+            MouseTracking::Motion
+        } else if has(TermMode::MOUSE_DRAG) {
+            MouseTracking::Drags
+        } else if has(TermMode::MOUSE_REPORT_CLICK) {
+            MouseTracking::Clicks
+        } else {
+            MouseTracking::Off
+        };
         Modes {
-            app_cursor: mode.contains(TermMode::APP_CURSOR),
-            bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
-            mouse: mode.intersects(TermMode::MOUSE_MODE),
-            mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
-            mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
-            sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
+            cursor_keys: if has(TermMode::APP_CURSOR) { CursorKeys::Application } else { CursorKeys::Normal },
+            paste: if has(TermMode::BRACKETED_PASTE) { Paste::Bracketed } else { Paste::Typed },
+            mouse,
+            mouse_protocol: if has(TermMode::SGR_MOUSE) { MouseProtocol::Sgr } else { MouseProtocol::Legacy },
             alt_screen: mode.contains(TermMode::ALT_SCREEN),
             alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
             focus_events: mode.contains(TermMode::FOCUS_IN_OUT),
         }
     }
 
-
     /// Scrolls the view `lines` back into history (negative: toward now).
-    pub fn scroll(&mut self, lines: i32) {
+    pub(crate) fn scroll(&mut self, lines: i32) {
         self.term.scroll_display(Scroll::Delta(lines));
     }
 
-    pub fn scroll_to_bottom(&mut self) {
+    pub(crate) fn scroll_to_bottom(&mut self) {
         self.term.scroll_display(Scroll::Bottom);
     }
 
-    /// Starts a selection at a cell of the view. `right_half`: the click
-    /// was in the cell's right half, so the cell itself is not yet in.
-    pub fn select(&mut self, line: usize, column: usize, right_half: bool, by: SelectBy) {
+    /// Starts a selection at a cell of the view, in the half of it that
+    /// was clicked: in the right half, the cell itself is not yet in.
+    pub(crate) fn select(&mut self, line: usize, column: usize, half: Half, by: SelectBy) {
         let kind = match by {
             SelectBy::Cell => SelectionType::Simple,
             SelectBy::Word => SelectionType::Semantic,
             SelectBy::Line => SelectionType::Lines,
         };
-        self.term.selection = Some(Selection::new(kind, self.point(line, column), side(right_half)));
+        self.term.selection = Some(Selection::new(kind, self.point(line, column), side(half)));
     }
 
     /// Moves the selection's end to a cell of the view.
-    pub fn select_to(&mut self, line: usize, column: usize, right_half: bool) {
+    pub(crate) fn select_to(&mut self, line: usize, column: usize, half: Half) {
         let point = self.point(line, column);
         if let Some(selection) = self.term.selection.as_mut() {
-            selection.update(point, side(right_half));
+            selection.update(point, side(half));
         }
     }
 
-    pub fn clear_selection(&mut self) {
+    pub(crate) fn clear_selection(&mut self) {
         self.term.selection = None;
     }
 
     /// The selected text; `None` when nothing is selected.
-    pub fn selection(&self) -> Option<String> {
+    pub(crate) fn selection(&self) -> Option<String> {
         self.term.selection_to_string().filter(|text| !text.is_empty())
     }
 
@@ -450,14 +504,15 @@ impl Screen {
         viewport_to_point(self.term.grid().display_offset(), Point::new(line, Column(column)))
     }
 
-    pub fn snapshot(&self) -> Snapshot {
+    pub(crate) fn snapshot(&self) -> Snapshot {
         let (columns, lines) = (self.term.columns(), self.term.screen_lines());
         let content = self.term.renderable_content();
         let scrolled = content.display_offset;
         let blank = Cell { c: ' ', combining: None, fg: Color::Foreground, bg: Color::Background, attrs: 0 };
         let mut cells = vec![blank; columns * lines];
         // A line of the grid as a line of the view: history lines are negative.
-        let view_line = |line: Line| usize::try_from(line.0 + scrolled as i32).ok().filter(|&l| l < lines);
+        let scrolled_lines = i32::try_from(scrolled).unwrap_or(i32::MAX);
+        let view_line = |line: Line| usize::try_from(line.0.saturating_add(scrolled_lines)).ok().filter(|&l| l < lines);
         for indexed in content.display_iter {
             let Some(line) = view_line(indexed.point.line) else { continue };
             let Some(slot) = cells.get_mut(line * columns + indexed.point.column.0) else { continue };
@@ -505,7 +560,7 @@ impl Screen {
 
     /// The screen's text, one string per line, top first, each as wide as the screen.
     #[cfg(test)]
-    pub fn rows(&self) -> Vec<String> {
+    pub(crate) fn rows(&self) -> Vec<String> {
         let snapshot = self.snapshot();
         (0..snapshot.lines)
             .map(|line| {
@@ -527,13 +582,24 @@ impl Drop for Session {
     }
 }
 
-fn side(right_half: bool) -> Side {
-    if right_half { Side::Right } else { Side::Left }
+fn side(half: Half) -> Side {
+    match half {
+        Half::Left => Side::Left,
+        Half::Right => Side::Right,
+    }
+}
+
+/// A screen's width or height in cells as the pty takes it. No screen is
+/// 65 536 cells a side; one that claimed to be is cut to the most there is.
+fn narrow(cells: usize) -> u16 {
+    u16::try_from(cells).unwrap_or(u16::MAX)
 }
 
 /// The first of the eight dim colors in the library's numbering.
-const DIM_START: usize = NamedColor::DimBlack as usize;
-const NAMED_COLORS: usize = 16;
+const DIM_START: usize = number(NamedColor::DimBlack);
+/// How many colors have names (black to bright white) and dim twins (black to white).
+const NAMED_COLORS: u8 = 16;
+const DIM_COLORS: u8 = 8;
 
 /// A cell's color in this crate's terms, and whether it is a dim one. A
 /// color the program redefined (OSC 4, 10, 11) comes back as its new value.
@@ -543,15 +609,21 @@ fn color(color: ansi::Color, redefined: &alacritty_terminal::term::color::Colors
         ansi::Color::Spec(c) => (rgb(c), false),
         ansi::Color::Indexed(index) => (redefined[usize::from(index)].map_or(Color::Indexed(index), rgb), false),
         ansi::Color::Named(name) => {
-            let index = name as usize;
+            let index = number(name);
             if let Some(c) = redefined[index] {
                 return (rgb(c), false);
             }
-            match index {
-                i if i < NAMED_COLORS => (Color::Indexed(i as u8), false),
-                i if (DIM_START..DIM_START + 8).contains(&i) => (Color::Indexed((i - DIM_START) as u8), true),
-                BACKGROUND_INDEX => (Color::Background, false),
-                _ => (Color::Foreground, name == NamedColor::DimForeground),
+            let below = |limit: u8, from: usize| {
+                index.checked_sub(from).and_then(|offset| u8::try_from(offset).ok()).filter(|offset| *offset < limit)
+            };
+            if let Some(named) = below(NAMED_COLORS, 0) {
+                (Color::Indexed(named), false)
+            } else if let Some(dim) = below(DIM_COLORS, DIM_START) {
+                (Color::Indexed(dim), true)
+            } else if index == BACKGROUND_INDEX {
+                (Color::Background, false)
+            } else {
+                (Color::Foreground, name == NamedColor::DimForeground)
             }
         }
     }
@@ -562,13 +634,14 @@ const PASTE_END: &[u8] = b"\x1b[201~";
 
 /// Pasted text as the bytes to send. Bracketed: between the paste marks,
 /// with any escape character taken out so the text cannot end the paste
-/// itself. Not bracketed: each line end becomes a carriage return (Enter).
-fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
-    if bracketed {
-        let clean = text.replace('\x1b', "");
-        [PASTE_START, clean.as_bytes(), PASTE_END].concat()
-    } else {
-        text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
+/// itself. Typed: each line end becomes a carriage return (Enter).
+fn paste_bytes(text: &str, paste: Paste) -> Vec<u8> {
+    match paste {
+        Paste::Bracketed => {
+            let clean = text.replace('\x1b', "");
+            [PASTE_START, clean.as_bytes(), PASTE_END].concat()
+        }
+        Paste::Typed => text.replace("\r\n", "\r").replace('\n', "\r").into_bytes(),
     }
 }
 
@@ -579,7 +652,7 @@ fn pty_size(columns: u16, lines: u16) -> PtySize {
 /// The program a new tab runs: the configured one, else PowerShell 7 when
 /// it is installed, else Windows PowerShell; `$SHELL` elsewhere. It starts
 /// in the current directory.
-pub fn shell_command(program: Option<&str>, args: &[String]) -> Result<CommandBuilder> {
+pub(crate) fn shell_command(program: Option<&str>, args: &[String]) -> Result<CommandBuilder> {
     let mut command = CommandBuilder::new(program.map_or_else(default_shell, str::to_owned));
     command.args(args);
     command.cwd(std::env::current_dir().context("the current directory")?);
@@ -618,7 +691,7 @@ fn default_shell() -> String {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
@@ -637,7 +710,7 @@ pub mod tests {
     }
 
     /// A screen with no program: what tests feed it is all that is on it.
-    pub fn quiet(columns: u16, lines: u16) -> Screen {
+    pub(crate) fn quiet(columns: u16, lines: u16) -> Screen {
         Screen::new(columns, lines, HISTORY, Theme::default(), None)
     }
 
@@ -705,7 +778,8 @@ pub mod tests {
     #[test]
     fn colors_and_attributes_are_in_the_snapshot() {
         let mut session = quiet(20, 4);
-        session.feed(b"\x1b[H\x1b[2J\x1b[1;31ma\x1b[0;4;38;5;196mb\x1b[0;7;48;2;1;2;3mc\x1b[0;2;9md\x1b[0;3;8me\x1b[0mf");
+        session
+            .feed(b"\x1b[H\x1b[2J\x1b[1;31ma\x1b[0;4;38;5;196mb\x1b[0;7;48;2;1;2;3mc\x1b[0;2;9md\x1b[0;3;8me\x1b[0mf");
         let snapshot = session.snapshot();
         let row = snapshot.row(0);
         assert_eq!((row[0].c, row[0].fg, row[0].attrs), ('a', Color::Indexed(1), attr::BOLD));
@@ -753,19 +827,19 @@ pub mod tests {
         let mut session = quiet(20, 3);
         session.feed(b"\x1b[H\x1b[2Jhello world\r\nsecond line");
         assert_eq!(session.selection(), None);
-        session.select(0, 6, false, SelectBy::Cell);
-        session.select_to(0, 10, true);
+        session.select(0, 6, Half::Left, SelectBy::Cell);
+        session.select_to(0, 10, Half::Right);
         assert_eq!(session.selection().as_deref(), Some("world"));
         let selected: Vec<bool> = session.snapshot().row(0).iter().map(|cell| cell.has(attr::SELECTED)).collect();
         assert_eq!(selected.iter().filter(|&&on| on).count(), 5);
         assert!(selected[6] && selected[10] && !selected[5] && !selected[11]);
 
-        session.select(0, 2, false, SelectBy::Word);
+        session.select(0, 2, Half::Left, SelectBy::Word);
         assert_eq!(session.selection().as_deref(), Some("hello"));
-        session.select(1, 3, false, SelectBy::Line);
+        session.select(1, 3, Half::Left, SelectBy::Line);
         assert_eq!(session.selection().as_deref(), Some("second line\n"));
-        session.select(0, 0, false, SelectBy::Cell);
-        session.select_to(1, 5, true);
+        session.select(0, 0, Half::Left, SelectBy::Cell);
+        session.select_to(1, 5, Half::Right);
         assert_eq!(session.selection().as_deref(), Some("hello world\nsecond"));
         session.clear_selection();
         assert_eq!(session.selection(), None);
@@ -785,18 +859,29 @@ pub mod tests {
     #[test]
     fn modes_follow_what_the_program_set() {
         let mut session = quiet(20, 3);
-        assert_eq!(session.modes(), Modes { alternate_scroll: true, ..Modes::default() });
+        assert_eq!(session.modes(), Modes { alternate_scroll: true, ..Modes::default() }, "a new screen");
         session.feed(b"\x1b[?1h\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[?1049h\x1b[?1004h");
         let modes = session.modes();
-        assert!(modes.app_cursor && modes.bracketed_paste && modes.mouse && modes.sgr_mouse);
-        assert!(modes.alt_screen && modes.focus_events && !modes.mouse_motion && !modes.mouse_drag);
+        assert_eq!(modes.cursor_keys, CursorKeys::Application);
+        assert_eq!(modes.paste, Paste::Bracketed);
+        assert_eq!(modes.mouse, MouseTracking::Clicks);
+        assert_eq!(modes.mouse_protocol, MouseProtocol::Sgr);
+        assert!(modes.alt_screen && modes.focus_events, "{modes:?}");
         session.feed(b"\x1b[?1002h");
-        assert!(session.modes().mouse_drag);
+        assert_eq!(session.modes().mouse, MouseTracking::Drags);
+        session.feed(b"\x1b[?1003h");
+        assert_eq!(session.modes().mouse, MouseTracking::Motion, "the widest mode that is on");
+        session.feed(b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l");
+        assert_eq!(
+            (session.modes().mouse, session.modes().mouse_protocol),
+            (MouseTracking::Off, MouseProtocol::Legacy)
+        );
     }
 
     #[test]
     fn a_panes_variables_are_not_passed_on() {
-        for name in ["KEEPANE", "KEEPANE_PANE", "KEEPANE_SHELL_HISTORY", "keepane_env_file", "TMUX", "TMUX_PANE", "STY"] {
+        for name in ["KEEPANE", "KEEPANE_PANE", "KEEPANE_SHELL_HISTORY", "keepane_env_file", "TMUX", "TMUX_PANE", "STY"]
+        {
             assert!(names_a_pane(name), "{name}");
         }
         for name in ["PATH", "TERM", "TMUXINATOR_CONFIG", "STYLE", "HOME"] {
@@ -817,8 +902,9 @@ pub mod tests {
 
     #[test]
     fn pasted_text_is_marked_or_given_enter_keys() {
-        assert_eq!(paste_bytes("a\r\nb\nc", false), b"a\rb\rc");
-        assert_eq!(paste_bytes("a\nb", true), b"\x1b[200~a\nb\x1b[201~");
-        assert_eq!(paste_bytes("x\x1b[201~rm -rf /", true), b"\x1b[200~x[201~rm -rf /\x1b[201~", "the text cannot end the paste");
+        assert_eq!(paste_bytes("a\r\nb\nc", Paste::Typed), b"a\rb\rc");
+        assert_eq!(paste_bytes("a\nb", Paste::Bracketed), b"\x1b[200~a\nb\x1b[201~");
+        let sneaky = paste_bytes("x\x1b[201~rm -rf /", Paste::Bracketed);
+        assert_eq!(sneaky, b"\x1b[200~x[201~rm -rf /\x1b[201~", "the text cannot end the paste");
     }
 }

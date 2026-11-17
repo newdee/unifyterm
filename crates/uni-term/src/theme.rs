@@ -2,11 +2,11 @@
 
 /// One color, 8 bits a channel.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Rgb(pub u8, pub u8, pub u8);
+pub(crate) struct Rgb(pub(crate) u8, pub(crate) u8, pub(crate) u8);
 
 impl Rgb {
     /// `#rrggbb` (the `#` may be left out).
-    pub fn parse(text: &str) -> Option<Self> {
+    pub(crate) fn parse(text: &str) -> Option<Self> {
         let hex = text.strip_prefix('#').unwrap_or(text);
         if hex.len() != 6 || !hex.is_ascii() {
             return None;
@@ -16,37 +16,72 @@ impl Rgb {
     }
 
     /// This color moved `amount` (0 to 1) of the way to `other`.
-    pub fn toward(self, other: Self, amount: f32) -> Self {
-        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
+    pub(crate) fn toward(self, other: Self, amount: f32) -> Self {
+        let mix = |a: u8, b: u8| channel(f32::from(a) + (f32::from(b) - f32::from(a)) * amount);
         Self(mix(self.0, other.0), mix(self.1, other.1), mix(self.2, other.2))
     }
 
-    pub fn hex(self) -> u32 {
+    /// The color as `0xRRGGBB`.
+    pub(crate) fn hex(self) -> u32 {
         u32::from(self.0) << 16 | u32::from(self.1) << 8 | u32::from(self.2)
     }
 }
 
+/// A computed channel value as a channel: rounded, and held to 0..=255.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped to a u8's range first, and float-to-int `as` maps NaN to 0"
+)]
+fn channel(value: f32) -> u8 {
+    value.round().clamp(0.0, 255.0) as u8
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct Theme {
-    pub foreground: Rgb,
-    pub background: Rgb,
-    pub cursor: Rgb,
-    pub selection: Rgb,
+pub(crate) struct Theme {
+    pub(crate) foreground: Rgb,
+    pub(crate) background: Rgb,
+    pub(crate) cursor: Rgb,
+    pub(crate) selection: Rgb,
     /// Black, red, green, yellow, blue, magenta, cyan, white, then the bright eight.
-    pub ansi: [Rgb; 16],
+    pub(crate) ansi: [Rgb; 16],
 }
 
 impl Default for Theme {
+    /// The built-in theme (Tokyo Night's colors).
     fn default() -> Self {
-        let c = |hex: u32| Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+        let red = Rgb(0xf7, 0x76, 0x8e);
+        let green = Rgb(0x9e, 0xce, 0x6a);
+        let yellow = Rgb(0xe0, 0xaf, 0x68);
+        let blue = Rgb(0x7a, 0xa2, 0xf7);
+        let magenta = Rgb(0xbb, 0x9a, 0xf7);
+        let cyan = Rgb(0x7d, 0xcf, 0xff);
+        let foreground = Rgb(0xc0, 0xca, 0xf5);
+        let (black, white, bright_black) = (Rgb(0x15, 0x16, 0x1e), Rgb(0xa9, 0xb1, 0xd6), Rgb(0x41, 0x48, 0x68));
         Self {
-            foreground: c(0xc0caf5),
-            background: c(0x16161e),
-            cursor: c(0xc0caf5),
-            selection: c(0x33467c),
+            foreground,
+            background: Rgb(0x16, 0x16, 0x1e),
+            cursor: foreground,
+            selection: Rgb(0x33, 0x46, 0x7c),
+            // The bright colors are the plain ones again, but for black and white.
             ansi: [
-                c(0x15161e), c(0xf7768e), c(0x9ece6a), c(0xe0af68), c(0x7aa2f7), c(0xbb9af7), c(0x7dcfff), c(0xa9b1d6),
-                c(0x414868), c(0xf7768e), c(0x9ece6a), c(0xe0af68), c(0x7aa2f7), c(0xbb9af7), c(0x7dcfff), c(0xc0caf5),
+                black,
+                red,
+                green,
+                yellow,
+                blue,
+                magenta,
+                cyan,
+                white,
+                bright_black,
+                red,
+                green,
+                yellow,
+                blue,
+                magenta,
+                cyan,
+                foreground,
             ],
         }
     }
@@ -60,7 +95,7 @@ const GREY_START: u8 = 232;
 
 impl Theme {
     /// Color `index` of xterm's 256: the theme's 16, a 6x6x6 cube, 24 greys.
-    pub fn indexed(&self, index: u8) -> Rgb {
+    pub(crate) fn indexed(&self, index: u8) -> Rgb {
         if index < CUBE_START {
             return self.ansi[usize::from(index)];
         }
@@ -85,6 +120,7 @@ mod tests {
         assert_eq!(Rgb::parse("#fff"), None);
         assert_eq!(Rgb::parse("#gggggg"), None);
         assert_eq!(Rgb::parse("#ffé00"), None, "not ASCII: no slicing inside a character");
+        assert_eq!(Rgb(0xc0, 0xca, 0xf5).hex(), 0x00c0_caf5);
     }
 
     #[test]
@@ -100,8 +136,23 @@ mod tests {
     }
 
     #[test]
+    fn the_built_in_theme_is_the_one_it_always_was() {
+        let theme = Theme::default();
+        let hexes: Vec<u32> = theme.ansi.iter().map(|color| color.hex()).collect();
+        let plain =
+            [0x0015_161e, 0x00f7_768e, 0x009e_ce6a, 0x00e0_af68, 0x007a_a2f7, 0x00bb_9af7, 0x007d_cfff, 0x00a9_b1d6];
+        let bright =
+            [0x0041_4868, 0x00f7_768e, 0x009e_ce6a, 0x00e0_af68, 0x007a_a2f7, 0x00bb_9af7, 0x007d_cfff, 0x00c0_caf5];
+        assert_eq!(hexes, [plain, bright].concat());
+        let named = [theme.foreground, theme.background, theme.cursor, theme.selection].map(Rgb::hex);
+        assert_eq!(named, [0x00c0_caf5, 0x0016_161e, 0x00c0_caf5, 0x0033_467c]);
+    }
+
+    #[test]
     fn a_color_moves_toward_another() {
         assert_eq!(Rgb(0, 100, 200).toward(Rgb(100, 100, 0), 0.5), Rgb(50, 100, 100));
         assert_eq!(Rgb(10, 20, 30).toward(Rgb(200, 200, 200), 0.0), Rgb(10, 20, 30));
+        assert_eq!(Rgb(10, 20, 30).toward(Rgb(200, 100, 0), 1.0), Rgb(200, 100, 0));
+        assert_eq!(Rgb(250, 5, 0).toward(Rgb(255, 0, 0), 9.0), Rgb(255, 0, 0), "past the end stays a color");
     }
 }

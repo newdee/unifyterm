@@ -1,5 +1,57 @@
 # 验收记录
 
+## 2026-11-17 · M2 命令集
+
+范围：`crates/ut`（multi-call 程序：uutils coreutils 0.12 的 90 个命令，Unix 上另加 15 个；findutils、sed、diffutils；基于 ripgrep 搜索库的 GNU 兼容 `grep`；基于 jaq 的 `jq`；`which`；`--links`；Windows 上的 `/` 路径和通配符展开），`crates/uni-term/src/shell.rs` 与 `start.ps1`（命令目录放在 PATH 最前；PowerShell 启动脚本；`[commands]` 配置），`tools/round.ps1`、`tools/linux-test.sh`、`tools/verify.ps1` 的 commands 部分。命令数：Windows 99 个，Linux 114 个。
+
+代码规范：按 BeautifulRust 执行（`cargo fmt`、`clippy -D warnings`、workspace lints）。初次接入时有 290 条 clippy 发现，已全部处理为 0。
+
+检查手段：
+- 单元测试和集成测试 111 项。其中 84 条命令记录，Windows 和 Linux 对比的是同一份文件，逐字节比较。
+- `ut` 的 grep 与 GNU grep 3.12 对比 104 项，stdout、stderr 和退出码都比。
+- 99 个命令各启动一次。
+- `tools/verify.ps1` 实机检查 59 项，含 M1 的 30 项。
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 机制通路存活 | `diff --help` 报"unrecognized option"，退出码 2（uutils diffutils 没有）。 | 边界遗漏 | `diff` 自己回答 `--help` 和 `--version`；`--` 之后的 `--help` 当作文件名。 |
+| 2 | 与 GNU 对比 | grep 有 4 处与 GNU 不同：`^*` 里的星号；`-m N` 之后不再输出 `-A` 上下文；`--exclude` 不作用于命令行直接给出的文件；`-m 0`。 | 边界遗漏 | 逐项修正。对比项从 49 增加到 104，0 处不同。 |
+| 3 | 静态一致性 | 16 个配置项里有 5 个没有实机检查（font.family、terminal.padding、theme.cursor/selection/ansi）。 | 检查缺口 | 补 6 项检查，用主题里不存在的颜色确认像素只能来自配置。光标 152 像素，正好 8×19 一格。 |
+| 4 | 用户新要求 | 终端里出现 Windows 的 `\` 路径。 | 新功能 | `pwd find realpath dirname du df mktemp readlink which` 输出 `/`；PowerShell 默认提示符显示 `/`；`UT_NATIVE_PATHS` 恢复 `\`。 |
+| 5 | 机制通路存活 | 交互式 PowerShell 里 `pwd`、`find` 仍输出 `\`，而 `cmd /c pwd` 正确。原因：用户 profile 里的 "Coreutils for Windows" 片段重写每一行输入，把 cat、ls 等改去执行它自己的程序。**`Get-Command cat` 显示的是 uni-term 的程序，实际执行的却是另一个。** | 结构缺陷：之前"PATH 最前即生效"的假设不成立 | 启动脚本在 uni-term 的标签页里，把 uni-term 在用的命令名从该片段的列表中移除，不改用户的 profile。实机检查现在用"敲入命令后的实际输出"判定，不再只看 `Get-Command`。 |
+| 6 | 跟进 #5 | 去掉该片段后，PowerShell 不展开 `*.txt`，Unix 用户的写法失效（那个片段原本靠调用方式让对方程序展开）。 | 结构缺陷 | `ut` 在 Windows 上按 Unix shell 的规则展开通配符。带引号的参数由启动脚本加 U+E000 标记，命令收到后去掉标记，原样使用。 |
+| 7 | 代码正确性 | `ut` 启动的子命令（`find -exec`、`xargs`、`env`）也会展开参数，`grep 'a*'` 会被换成文件名。 | 共性，结构缺陷：错误假设"参数总来自交互式 shell" | 只保留一个机制：每个 `ut` 命令为它启动的程序设置 `UT_NO_GLOB`。`slash::rerun` 里逐个加标记的做法随之删除。测试已证明：去掉修复后测试失败。 |
+| 8 | 边界 | `./*.txt` 丢了 `./`；`.*` 匹配到 `.` 和 `..`。 | 边界遗漏 | 与 bash 5.2 一致。4 个手工对比全部相同。 |
+| 9 | 静态一致性 | `UNI_TERM_COMMANDS` 导出了，但没人读；启动脚本又用占位符写了一遍同一个目录。 | 同一个值有两个来源 | 启动脚本改读这个环境变量。变量缺失时标记逻辑不做任何事，在两个 PowerShell 版本里都验证过。 |
+| 10 | 一致性 | `ut --links` 的提示、grep 遍历出错的提示仍是 `\`。 | 共性（`ut` 自己生成的路径，共 3 处） | 统一用 `slash::shown` / `found_name`。在 Windows 上用拒绝读取的临时目录实测：`grep: tree/sub/locked: Permission denied`。 |
+| 11 | 机制通路存活 | 带 `-e`/`-l`/`-c` 的 grep 着色、`which` 输出 `cat.EXE`、`[` 收到的 argv0 带 `.exe`、PATH 未设置时出现空项（等于当前目录）。 | 边界遗漏 | 验收前已修，此处补记。 |
+
+检查工具自身的问题（同样记账）：
+- **实机检查把敲入的命令写进了用户自己的 PowerShell 历史文件。** 现在每个测试 shell 先敲一行 `Set-PSReadLineOption -HistorySaveStyle SaveNothing`，这一行本身带 "password"，所以 PSReadLine 也不保存它。每轮检查前后比较历史文件的字节数：87034 → 87034。
+- 剪贴板是全机共享的。另一个程序在检查期间写剪贴板，导致 1 次误报。现在最多重试 3 次，结果里写明第几次。
+- `round.ps1` 的 `$flag = if (...) { @('--release') }` 只有一个元素时变成字符串，`@flag` 按字符拆开传参，于是 release 构建失败。**我起初把这次失败判断为"8 个并行任务下 rustc 崩溃"，写进了脚本注释并告诉了用户；这个判断是错的。** 已更正。rustc 真实崩溃只在 32 个并行任务时出现过两次。
+- 启动 uni-term 的 `-Type` 里少写 `{}`，而且命令解析到了系统装的 Microsoft coreutils `echo`（它也自己展开通配符），导致测试没有测到要测的东西。现在一律用 `ut` 的完整路径。
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | clippy | 实机 | 其他数字 |
+|---|---|---|---|---|---|---|
+| 1 | 机制通路存活 + 边界输入 | debug | 111/111 | 0 | 59/59 | 99/99 个命令启动；Linux 33/33，84 条记录 0 处不同；GNU grep 104/104；历史文件 87034 → 87034 字节 |
+| 2 | 静态一致性 | release | 111/111 | 0 | 59/59 | 非测试代码 `unwrap` 0、`allow` 0、`pub` 0；`unsafe` 5 处全部带 SAFETY；16 个配置项全部被读取、全部有实机检查；105 个 uutils 依赖与命令表一一对应；启动脚本 3 个占位符全部替换 |
+| 3 | 可复现性 | 两者 | 3 次 4/4 | — | — | 命令记录连跑 3 次与 golden 逐字节相同；debug 与 release 的 `--list`、`--help` 相同；99 个命令的帮助连跑 2 次哈希相同（00B0A01F3A28FF76）；`--links` 第二次 made 0 / kept 99；通配符连跑 3 次结果相同（17 个名字）；启动脚本重写后哈希不变；GNU grep 对比连跑 2 次输出相同；第 1、2 轮实机数字 0 处不同 |
+
+### 已知限制
+
+- 来自 uutils 内部的路径仍是 `\`：`ls -R` 的目录标题，`find -exec` 里的 `{}`。用户自己输入的 `\` 原样显示。
+- PowerShell 的 Tab 补全仍给出 `\` 路径（计划放到 M3 的 shell 集成）。
+- 通配符：`**` 按 glob 库递归匹配，bash 默认不递归（zsh 递归）；盘符相对写法 `C:*.txt` 会匹配到以点开头的名字。
+- 带引号参数的标记：以 U+E000 开头的参数会被去掉这个字符。这个字符属于私用区，正常输入不会出现。
+- uutils 的报错信息跟随系统语言（本机是中文）；`find` 在 Windows 上按系统格式输出，由 `ut` 转成 `/`；没有 `awk`、`rg`；`cmp` 说 "char" 而不是 "byte"；`cut -c` 按字节计。
+- 只在 Windows 11（pwsh 7.6、Windows PowerShell 5.1、cmd）和 WSL Ubuntu 上测过。macOS 未运行。
+- 实机检查在用户的真实 profile 下运行：pwsh 7 带 profile 和不带 profile 都测过，5.1 只测了不带 profile 的情况。
+
 ## 2026-11-17 · M1 终端基础
 
 范围：`crates/uni-term`（按格定位的网格渲染、颜色与属性、选择、复制粘贴、回滚、鼠标上报、输入法文本通路、字体回退、连字开关、标签页、配置文件、`--replay`）、`tools/shot.ps1`、`tools/verify.ps1`、`tools/fetch-conpty.ps1`。

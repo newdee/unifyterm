@@ -2,10 +2,10 @@
 
 /// The modifier keys held with a key or a click.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Mods {
-    pub shift: bool,
-    pub control: bool,
-    pub alt: bool,
+pub(crate) struct Mods {
+    pub(crate) shift: bool,
+    pub(crate) control: bool,
+    pub(crate) alt: bool,
 }
 
 impl Mods {
@@ -16,17 +16,36 @@ impl Mods {
     }
 }
 
+/// Which form of the arrow keys the program asked for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum CursorKeys {
+    /// `ESC [ A`.
+    #[default]
+    Normal,
+    /// `ESC O A`: what full-screen programs set.
+    Application,
+}
+
+/// Which form of mouse report the program asked for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum MouseProtocol {
+    /// One byte a number: no cell past column or line 223.
+    #[default]
+    Legacy,
+    /// Numbers as text: no limit.
+    Sgr,
+}
+
 const ESCAPE: u8 = 0x1b;
 
 /// The bytes for one key press. `key` is the key's name ("a", "enter",
-/// "up"), `key_char` the text it types, if any. `app_cursor`: the program
-/// asked for the application form of the arrow keys.
+/// "up"), `key_char` the text it types, if any.
 ///
 /// `None` for a key that sends nothing by itself (a modifier), and for a
 /// key that only types text: that text reaches the program through the
 /// input method's path, which also carries composed text (Chinese).
-pub fn encode(key: &str, key_char: Option<&str>, mods: Mods, app_cursor: bool) -> Option<Vec<u8>> {
-    if let Some(bytes) = named(key, mods, app_cursor) {
+pub(crate) fn encode(key: &str, key_char: Option<&str>, mods: Mods, cursor_keys: CursorKeys) -> Option<Vec<u8>> {
+    if let Some(bytes) = named(key, mods, cursor_keys) {
         return Some(bytes);
     }
     // Ctrl and Alt together with text is AltGr: the text is what counts.
@@ -45,14 +64,14 @@ pub fn encode(key: &str, key_char: Option<&str>, mods: Mods, app_cursor: bool) -
     None
 }
 
-fn named(key: &str, mods: Mods, app_cursor: bool) -> Option<Vec<u8>> {
+fn named(key: &str, mods: Mods, cursor_keys: CursorKeys) -> Option<Vec<u8>> {
     let parameter = mods.parameter();
     // `ESC [ 1 ; modifiers LETTER`, or without modifiers `ESC [ LETTER`
-    // (`ESC O LETTER` where the application form applies).
-    let letter = |letter: char, application: bool| match parameter {
-        Some(p) => format!("\x1b[1;{p}{letter}"),
-        None if application => format!("\x1bO{letter}"),
-        None => format!("\x1b[{letter}"),
+    // (`ESC O LETTER` in the application form).
+    let letter = |letter: char, keys: CursorKeys| match (parameter, keys) {
+        (Some(p), _) => format!("\x1b[1;{p}{letter}"),
+        (None, CursorKeys::Application) => format!("\x1bO{letter}"),
+        (None, CursorKeys::Normal) => format!("\x1b[{letter}"),
     };
     // `ESC [ NUMBER ~`, with modifiers `ESC [ NUMBER ; modifiers ~`.
     let tilde = |number: u8| match parameter {
@@ -60,16 +79,17 @@ fn named(key: &str, mods: Mods, app_cursor: bool) -> Option<Vec<u8>> {
         None => format!("\x1b[{number}~"),
     };
     let text = match key {
-        "up" => letter('A', app_cursor),
-        "down" => letter('B', app_cursor),
-        "right" => letter('C', app_cursor),
-        "left" => letter('D', app_cursor),
-        "home" => letter('H', app_cursor),
-        "end" => letter('F', app_cursor),
-        "f1" => letter('P', true),
-        "f2" => letter('Q', true),
-        "f3" => letter('R', true),
-        "f4" => letter('S', true),
+        "up" => letter('A', cursor_keys),
+        "down" => letter('B', cursor_keys),
+        "right" => letter('C', cursor_keys),
+        "left" => letter('D', cursor_keys),
+        "home" => letter('H', cursor_keys),
+        "end" => letter('F', cursor_keys),
+        // F1 to F4 are always in the application form.
+        "f1" => letter('P', CursorKeys::Application),
+        "f2" => letter('Q', CursorKeys::Application),
+        "f3" => letter('R', CursorKeys::Application),
+        "f4" => letter('S', CursorKeys::Application),
         "insert" => tilde(2),
         "delete" => tilde(3),
         "pageup" => tilde(5),
@@ -98,8 +118,11 @@ fn named(key: &str, mods: Mods, app_cursor: bool) -> Option<Vec<u8>> {
     Some(text.into_bytes())
 }
 
-/// Ctrl with a key: the key's code with the top three bits cleared
-/// (Ctrl-C is 3, Ctrl-[ is escape); Ctrl-Space is 0.
+/// The bits of a key's code that Ctrl keeps: Ctrl-C is 3, Ctrl-[ is escape.
+const CONTROL_MASK: u8 = 0x1f;
+
+/// Ctrl with a key: the key's code with the top three bits cleared;
+/// Ctrl-Space is 0. `None` for a key Ctrl gives no code (a digit).
 fn control_byte(key: &str) -> Option<u8> {
     if key == "space" {
         return Some(0);
@@ -109,11 +132,12 @@ fn control_byte(key: &str) -> Option<u8> {
         return None;
     };
     let c = c.to_ascii_uppercase();
-    ('@'..='_').contains(&c).then_some(c as u8 & 0x1f)
+    let code = u8::try_from(c).ok()?;
+    ('@'..='_').contains(&c).then_some(code & CONTROL_MASK)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MouseButton {
+pub(crate) enum MouseButton {
     Left,
     Middle,
     Right,
@@ -124,7 +148,7 @@ pub enum MouseButton {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MouseAction {
+pub(crate) enum MouseAction {
     Press,
     Release,
     Move,
@@ -135,17 +159,22 @@ const MOTION: u8 = 32;
 const SHIFT: u8 = 4;
 const ALT: u8 = 8;
 const CONTROL: u8 = 16;
-/// The legacy form sends each number as one byte, this much above it.
+/// The legacy form sends each number as one byte, this much above it, so
+/// it cannot say a coordinate past 255 - 32 = 223.
 const LEGACY_OFFSET: usize = 32;
-/// ... so it cannot say a coordinate past this.
-const LEGACY_LIMIT: usize = 223;
 /// In the legacy form a release does not say which button.
 const LEGACY_RELEASE: u8 = 3;
 
-/// The report of a mouse event at a cell (both from 0) for a program that
-/// asked for the mouse. `sgr`: in the SGR form. `None` when the legacy form
-/// cannot say the position.
-pub fn mouse(button: MouseButton, action: MouseAction, column: usize, line: usize, mods: Mods, sgr: bool) -> Option<Vec<u8>> {
+/// The report of a mouse event at a cell (column, line; both from 0) for a
+/// program that asked for the mouse. `None` when the legacy form cannot say
+/// the position.
+pub(crate) fn mouse(
+    button: MouseButton,
+    action: MouseAction,
+    (column, line): (usize, usize),
+    mods: Mods,
+    protocol: MouseProtocol,
+) -> Option<Vec<u8>> {
     let mut code = match button {
         MouseButton::Left => 0,
         MouseButton::Middle => 1,
@@ -159,18 +188,20 @@ pub fn mouse(button: MouseButton, action: MouseAction, column: usize, line: usiz
     }
     let modifiers = u8::from(mods.shift) * SHIFT + u8::from(mods.alt) * ALT + u8::from(mods.control) * CONTROL;
     let (x, y) = (column + 1, line + 1);
-    if sgr {
-        let end = if action == MouseAction::Release { 'm' } else { 'M' };
-        return Some(format!("\x1b[<{};{x};{y}{end}", code + modifiers).into_bytes());
+    match protocol {
+        MouseProtocol::Sgr => {
+            let end = if action == MouseAction::Release { 'm' } else { 'M' };
+            Some(format!("\x1b[<{};{x};{y}{end}", code + modifiers).into_bytes())
+        }
+        MouseProtocol::Legacy => {
+            if action == MouseAction::Release {
+                code = LEGACY_RELEASE;
+            }
+            // A number that does not fit its byte cannot be said.
+            let byte = |number: usize| u8::try_from(number + LEGACY_OFFSET).ok();
+            Some(vec![ESCAPE, b'[', b'M', byte(usize::from(code + modifiers))?, byte(x)?, byte(y)?])
+        }
     }
-    if x > LEGACY_LIMIT || y > LEGACY_LIMIT {
-        return None;
-    }
-    if action == MouseAction::Release {
-        code = LEGACY_RELEASE;
-    }
-    let byte = |n: usize| (n + LEGACY_OFFSET) as u8;
-    Some(vec![ESCAPE, b'[', b'M', byte(usize::from(code + modifiers)), byte(x), byte(y)])
 }
 
 #[cfg(test)]
@@ -183,7 +214,7 @@ mod tests {
     const ALT: Mods = Mods { alt: true, ..NONE };
 
     fn sent(key: &str, key_char: Option<&str>, mods: Mods) -> Option<String> {
-        encode(key, key_char, mods, false).map(|bytes| String::from_utf8(bytes).unwrap())
+        encode(key, key_char, mods, CursorKeys::Normal).map(|bytes| String::from_utf8(bytes).unwrap())
     }
 
     #[test]
@@ -223,7 +254,7 @@ mod tests {
 
     #[test]
     fn the_application_form_changes_unmodified_arrows_only() {
-        let app = |key, mods| String::from_utf8(encode(key, None, mods, true).unwrap()).unwrap();
+        let app = |key, mods| String::from_utf8(encode(key, None, mods, CursorKeys::Application).unwrap()).unwrap();
         assert_eq!(app("up", NONE), "\x1bOA");
         assert_eq!(app("home", NONE), "\x1bOH");
         assert_eq!(app("up", CTRL), "\x1b[1;5A");
@@ -232,11 +263,13 @@ mod tests {
 
     #[test]
     fn control_keys_send_control_codes() {
-        assert_eq!(encode("c", None, CTRL, false).unwrap(), [3]);
-        assert_eq!(encode("[", None, CTRL, false).unwrap(), [0x1b]);
-        assert_eq!(encode("space", None, CTRL, false).unwrap(), [0]);
-        assert_eq!(encode("1", None, CTRL, false), None, "no control code for a digit");
-        assert_eq!(encode("c", None, Mods { control: true, alt: true, shift: false }, false).unwrap(), [0x1b, 3]);
+        let control = |key, mods| encode(key, None, mods, CursorKeys::Normal);
+        assert_eq!(control("c", CTRL).unwrap(), [3]);
+        assert_eq!(control("[", CTRL).unwrap(), [0x1b]);
+        assert_eq!(control("space", CTRL).unwrap(), [0]);
+        assert_eq!(control("1", CTRL), None, "no control code for a digit");
+        assert_eq!(control("é", CTRL), None, "nor for a letter outside ASCII");
+        assert_eq!(control("c", Mods { control: true, alt: true, shift: false }).unwrap(), [0x1b, 3]);
     }
 
     #[test]
@@ -252,27 +285,30 @@ mod tests {
         assert_eq!(sent("alt", None, ALT), None);
     }
 
-    fn report(button: MouseButton, action: MouseAction, mods: Mods, sgr: bool) -> Vec<u8> {
-        mouse(button, action, 9, 4, mods, sgr).unwrap()
+    fn sgr(button: MouseButton, action: MouseAction, mods: Mods) -> Vec<u8> {
+        mouse(button, action, (9, 4), mods, MouseProtocol::Sgr).unwrap()
     }
 
     #[test]
     fn sgr_mouse_reports() {
-        assert_eq!(report(MouseButton::Left, MouseAction::Press, NONE, true), b"\x1b[<0;10;5M");
-        assert_eq!(report(MouseButton::Left, MouseAction::Release, NONE, true), b"\x1b[<0;10;5m");
-        assert_eq!(report(MouseButton::Right, MouseAction::Press, CTRL, true), b"\x1b[<18;10;5M");
-        assert_eq!(report(MouseButton::Left, MouseAction::Move, NONE, true), b"\x1b[<32;10;5M");
-        assert_eq!(report(MouseButton::None, MouseAction::Move, NONE, true), b"\x1b[<35;10;5M");
-        assert_eq!(report(MouseButton::WheelUp, MouseAction::Press, NONE, true), b"\x1b[<64;10;5M");
-        assert_eq!(report(MouseButton::WheelDown, MouseAction::Press, SHIFT, true), b"\x1b[<69;10;5M");
-        assert_eq!(mouse(MouseButton::Left, MouseAction::Press, 500, 300, NONE, true).unwrap(), b"\x1b[<0;501;301M");
+        assert_eq!(sgr(MouseButton::Left, MouseAction::Press, NONE), b"\x1b[<0;10;5M");
+        assert_eq!(sgr(MouseButton::Left, MouseAction::Release, NONE), b"\x1b[<0;10;5m");
+        assert_eq!(sgr(MouseButton::Right, MouseAction::Press, CTRL), b"\x1b[<18;10;5M");
+        assert_eq!(sgr(MouseButton::Left, MouseAction::Move, NONE), b"\x1b[<32;10;5M");
+        assert_eq!(sgr(MouseButton::None, MouseAction::Move, NONE), b"\x1b[<35;10;5M");
+        assert_eq!(sgr(MouseButton::WheelUp, MouseAction::Press, NONE), b"\x1b[<64;10;5M");
+        assert_eq!(sgr(MouseButton::WheelDown, MouseAction::Press, SHIFT), b"\x1b[<69;10;5M");
+        let far = mouse(MouseButton::Left, MouseAction::Press, (500, 300), NONE, MouseProtocol::Sgr);
+        assert_eq!(far.unwrap(), b"\x1b[<0;501;301M", "no limit on the cell");
     }
 
     #[test]
     fn legacy_mouse_reports() {
-        assert_eq!(report(MouseButton::Left, MouseAction::Press, NONE, false), [0x1b, b'[', b'M', 32, 42, 37]);
-        assert_eq!(report(MouseButton::Left, MouseAction::Release, NONE, false), [0x1b, b'[', b'M', 35, 42, 37]);
-        assert_eq!(mouse(MouseButton::Left, MouseAction::Press, 222, 0, NONE, false).unwrap()[4], 255);
-        assert_eq!(mouse(MouseButton::Left, MouseAction::Press, 223, 0, NONE, false), None, "past what one byte says");
+        let legacy = |action, cell| mouse(MouseButton::Left, action, cell, NONE, MouseProtocol::Legacy);
+        assert_eq!(legacy(MouseAction::Press, (9, 4)).unwrap(), [0x1b, b'[', b'M', 32, 42, 37]);
+        assert_eq!(legacy(MouseAction::Release, (9, 4)).unwrap(), [0x1b, b'[', b'M', 35, 42, 37]);
+        assert_eq!(legacy(MouseAction::Press, (222, 0)).unwrap()[4], 255, "the last column one byte can say");
+        assert_eq!(legacy(MouseAction::Press, (223, 0)), None, "past what one byte says");
+        assert_eq!(legacy(MouseAction::Press, (0, 223)), None, "the same for the line");
     }
 }

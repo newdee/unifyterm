@@ -7,14 +7,12 @@
 //! sed and diffutils, jaq for `jq`, ripgrep's searcher under `grep`.
 //! This file only chooses which one runs.
 
-// The linker says it made an import library: some linked crate exports a
-// symbol. That is a note, not a problem with this program.
-#![allow(linker_messages)]
-
 mod diff;
+mod expand;
 mod grep;
 mod jq;
 mod links;
+mod slash;
 mod which;
 
 use std::ffi::OsString;
@@ -27,7 +25,7 @@ type Main = fn(Vec<OsString>) -> i32;
 /// The table of uutils commands: each name with the crate that is it.
 macro_rules! uutils {
     ($($name:literal => $krate:ident),* $(,)?) => {
-        &[$(($name, (|args: Vec<OsString>| { localize($name); $krate::uumain(args.into_iter()) }) as Main)),*]
+        &[$(($name, { const RUN: Main = |args| { localize($name); $krate::uumain(args.into_iter()) }; RUN })),*]
     };
 }
 
@@ -206,7 +204,35 @@ fn find(args: Vec<OsString>) -> i32 {
         Err(code) => return code,
     };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    findutils::find::find_main(&args, &findutils::find::StandardDependencies::new())
+    let standard = findutils::find::StandardDependencies::new();
+    if slash::wanted() {
+        let output = std::cell::RefCell::new(slash::Slashes(std::io::stdout()));
+        findutils::find::find_main(&args, &SlashedFind { standard, output })
+    } else {
+        findutils::find::find_main(&args, &standard)
+    }
+}
+
+/// What `find` needs from outside itself, with what it prints (the paths
+/// it found) written with `/`. Programs it starts with `-exec` write for
+/// themselves and are not touched.
+struct SlashedFind {
+    standard: findutils::find::StandardDependencies,
+    output: std::cell::RefCell<slash::Slashes<std::io::Stdout>>,
+}
+
+impl findutils::find::Dependencies for SlashedFind {
+    fn get_output(&self) -> &std::cell::RefCell<dyn std::io::Write> {
+        &self.output
+    }
+
+    fn now(&self) -> std::time::SystemTime {
+        self.standard.now()
+    }
+
+    fn confirm(&self, prompt: &str) -> bool {
+        self.standard.confirm(prompt)
+    }
 }
 
 fn xargs(args: Vec<OsString>) -> i32 {
@@ -239,7 +265,13 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut --links DIRECTORY [--skip A,B] make DIRECTORY hold one link a command
        ut --version
 
-Started under a command's name (a link made by --links), ut is that command.";
+Started under a command's name (a link made by --links), ut is that command.
+
+On Windows the commands print paths with / (pwd, find, realpath, ...).
+Set UT_NATIVE_PATHS to keep Windows' own \\.
+On Windows a wildcard (*.txt) becomes the names it matches, as a Unix
+shell does it; in quotes (\"*.txt\") it stays as typed. Set UT_NO_GLOB
+to keep every wildcard as typed.";
 
 /// Runs `ut` called by its own name. `args` starts after the program's name.
 fn ut(args: &[OsString]) -> i32 {
@@ -278,8 +310,18 @@ fn ut(args: &[OsString]) -> i32 {
 fn main() {
     // A reader that closes its end (`| head`) ends the command quietly.
     uucore::panic::mute_sigpipe_panic();
-    let mut args: Vec<OsString> = std::env::args_os().collect();
+    let mut args = expand::arguments();
+    if cfg!(windows) {
+        // The programs this command starts (`find -exec`, `xargs`) get arguments as they are meant, not typed in a shell.
+        // SAFETY: no other thread runs yet, so none reads the environment while it changes.
+        unsafe { std::env::set_var(expand::AS_GIVEN, "1") };
+    }
     let name = args.first().map(invoked_as).unwrap_or_default();
+    // The command, whichever way it was named: `pwd`, or `ut pwd`.
+    let named = if lookup(&name).is_some() { Some(name.as_str()) } else { args.get(1).and_then(|arg| arg.to_str()) };
+    if slash::wanted() && named.is_some_and(|command| slash::PRINT_PATHS.contains(&command)) {
+        std::process::exit(slash::rerun(&args[1..]));
+    }
     let code = if let Some(command) = lookup(&name) {
         // A command sees its own name, not its file's path: `[` asks for a
         // closing `]` only when it is called exactly `[`.

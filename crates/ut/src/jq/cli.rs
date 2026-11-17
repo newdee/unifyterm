@@ -3,7 +3,7 @@
 //! the process, `--run-tests` is left out, and color needs no Windows call
 //! (the terminals uni-term's commands run in take colors as they are).
 use core::fmt;
-pub use jaq_all::fmts::Format;
+pub(crate) use jaq_all::fmts::Format;
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
@@ -12,43 +12,44 @@ use std::path::PathBuf;
 type Args = std::vec::IntoIter<OsString>;
 
 #[derive(Debug, Default)]
-pub struct Cli {
+#[expect(clippy::struct_excessive_bools, reason = "as in jaq: one field for each of jq's flags, which are independent")]
+pub(crate) struct Cli {
     // Input options
-    pub from: Option<Format>,
-    pub null_input: bool,
+    pub(crate) from: Option<Format>,
+    pub(crate) null_input: bool,
     /// When input is read from files,
     /// jaq yields an array for each file, whereas
     /// jq produces only a single array.
-    pub slurp: bool,
+    pub(crate) slurp: bool,
 
     // Output options
-    pub to: Option<Format>,
-    pub compact_output: bool,
+    pub(crate) to: Option<Format>,
+    pub(crate) compact_output: bool,
     /// This flag enables `--raw-output`.
-    pub join_output: bool,
-    pub in_place: bool,
-    pub sort_keys: bool,
-    pub color_output: bool,
-    pub monochrome_output: bool,
-    pub tab: bool,
-    pub indent: Option<usize>,
+    pub(crate) join_output: bool,
+    pub(crate) in_place: bool,
+    pub(crate) sort_keys: bool,
+    pub(crate) color_output: bool,
+    pub(crate) monochrome_output: bool,
+    pub(crate) tab: bool,
+    pub(crate) indent: Option<usize>,
 
     // Compilation options
-    pub from_file: bool,
+    pub(crate) from_file: bool,
     /// If this option is given multiple times, all given directories are searched.
-    pub library_path: Vec<PathBuf>,
+    pub(crate) library_path: Vec<PathBuf>,
 
     // Key-value options
-    pub arg: Vec<(String, String)>,
-    pub argjson: Vec<(String, String)>,
-    pub slurpfile: Vec<(String, OsString)>,
-    pub rawfile: Vec<(String, OsString)>,
+    pub(crate) arg: Vec<(String, String)>,
+    pub(crate) argjson: Vec<(String, String)>,
+    pub(crate) slurpfile: Vec<(String, OsString)>,
+    pub(crate) rawfile: Vec<(String, OsString)>,
 
     // Positional arguments
     /// If this argument is not given, it is assumed to be `.`, the identity filter.
-    pub filter: Option<Filter>,
-    pub files: Vec<PathBuf>,
-    pub args: Vec<String>,
+    pub(crate) filter: Option<Filter>,
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) args: Vec<String>,
     /// If there is some last output value `v`,
     /// then the exit status code is
     /// 1 if `v < true` (that is, if `v` is `false` or `null`) and
@@ -56,13 +57,13 @@ pub struct Cli {
     /// If there is no output value, then the exit status code is 4.
     ///
     /// If any error occurs, then this option has no effect.
-    pub exit_status: bool,
-    pub version: bool,
-    pub help: bool,
+    pub(crate) exit_status: bool,
+    pub(crate) version: bool,
+    pub(crate) help: bool,
 }
 
 #[derive(Debug)]
-pub enum Filter {
+pub(crate) enum Filter {
     Inline(String),
     FromFile(PathBuf),
 }
@@ -71,7 +72,7 @@ impl Cli {
     fn positional(&mut self, mode: &Mode, arg: OsString) -> Result<(), Error> {
         if self.filter.is_none() {
             self.filter =
-                Some(if self.from_file { Filter::FromFile(arg.into()) } else { Filter::Inline(arg.into_string()?) })
+                Some(if self.from_file { Filter::FromFile(arg.into()) } else { Filter::Inline(arg.into_string()?) });
         } else {
             match mode {
                 Mode::Files => self.files.push(arg.into()),
@@ -155,7 +156,7 @@ impl Cli {
     }
 
     /// `args`: the command's arguments, its own name first.
-    pub fn parse(args: Vec<OsString>) -> Result<Self, Error> {
+    pub(crate) fn parse(args: Vec<OsString>) -> Result<Self, Error> {
         let mut cli = Self::default();
         let mut mode = Mode::Files;
         let mut args = args.into_iter();
@@ -182,21 +183,21 @@ impl Cli {
         !self.monochrome_output && (self.color_output || (!no_color() && f()))
     }
 
-    pub fn color_output(&self) -> bool {
+    pub(crate) fn color_output(&self) -> bool {
         self.color_if(|| io::stdout().is_terminal() && !self.in_place)
     }
 
-    pub fn color_errors(&self) -> bool {
+    pub(crate) fn color_errors(&self) -> bool {
         self.color_if(|| io::stderr().is_terminal())
     }
 
-    pub fn indent(&self) -> String {
+    pub(crate) fn indent(&self) -> String {
         if self.tab { "\t".into() } else { " ".repeat(self.indent.unwrap_or(2)) }
     }
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub(crate) enum Error {
     Flag(String),
     Utf8(OsString),
     KeyValue(&'static str),
@@ -206,11 +207,11 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const FMTS: &str = Format::ALL;
         match self {
             Self::Flag(s) => write!(f, "unknown flag: {s}"),
-            Self::Utf8(s) => write!(f, "invalid UTF-8: {s:?}"),
+            Self::Utf8(s) => write!(f, "invalid UTF-8: {}", s.display()),
             Self::KeyValue(o) => write!(f, "{o} expects a key and a value"),
             Self::Int(o) => write!(f, "{o} expects an integer"),
             Self::Path(o) => write!(f, "{o} expects a path"),

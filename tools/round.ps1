@@ -1,0 +1,88 @@
+# One acceptance round: every check there is, with its numbers. The exit
+# code is how many checks failed.
+#
+#   pwsh tools/round.ps1 [-Profile debug|release] [-SkipLinux]
+#
+# What it runs:
+#   1. cargo fmt --check, cargo clippy with warnings denied, cargo test
+#   2. every one of ut's commands started once (--help), directly and by its link
+#   3. tools/verify.ps1: the built uni-term driven through its own window
+#   4. tools/linux-test.sh in WSL: ut's tests on Linux against the same record,
+#      and its grep against GNU grep
+param(
+    [ValidateSet('debug', 'release')][string]$Profile = 'debug',
+    [switch]$SkipLinux
+)
+$root = Split-Path $PSScriptRoot
+Set-Location $root
+$script:failed = 0
+function Report([string]$name, [bool]$ok, [string]$detail) {
+    if (-not $ok) { $script:failed++ }
+    "{0}  {1,-34} {2}" -f $(if ($ok) { 'PASS' } else { 'FAIL' }), $name, $detail
+}
+# rustc has crashed on this machine with 32 jobs at once (STATUS_ACCESS_VIOLATION, twice); eight has not.
+$jobs = 8
+# @( ) around the whole: one value alone would otherwise be a string, and splatting a string passes its characters.
+$flag = @(if ($Profile -eq 'release') { '--release' })
+
+"=== 1. format, lints, unit tests ($Profile) ==="
+cargo fmt --all --check *> $null
+Report 'cargo fmt --check' ($LASTEXITCODE -eq 0) "exit $LASTEXITCODE"
+$clippy = cargo clippy --workspace --all-targets --all-features -j $jobs -- -D warnings 2>&1
+$warnings = @($clippy | Select-String '^(warning|error)' | Where-Object { $_ -notmatch 'future version|could not compile|build failed' }).Count
+Report 'cargo clippy -D warnings' ($LASTEXITCODE -eq 0) "exit $LASTEXITCODE, $warnings warnings or errors"
+$build = cargo build --workspace -j $jobs @flag 2>&1
+Report "cargo build ($Profile)" ($LASTEXITCODE -eq 0) "exit $LASTEXITCODE"
+if ($LASTEXITCODE -ne 0) {
+    $build | Select-String '^error|STATUS_|could not compile' | Select-Object -First 5 | ForEach-Object { "      $($_.Line)" }
+    "nothing was built: the checks that need the programs are not run"
+    exit 1
+}
+$tests = cargo test --workspace -j $jobs 2>&1 | Select-String 'test result'
+$passed = ($tests | ForEach-Object { [int]([regex]::Match($_, '(\d+) passed').Groups[1].Value) } | Measure-Object -Sum).Sum
+$notPassed = ($tests | ForEach-Object { [int]([regex]::Match($_, '(\d+) failed').Groups[1].Value) } | Measure-Object -Sum).Sum
+Report 'cargo test' ($LASTEXITCODE -eq 0 -and $notPassed -eq 0 -and $passed -gt 0) "$passed passed, $notPassed failed, in $($tests.Count) test programs"
+
+"=== 2. every command starts ==="
+$ut = Join-Path $root "target\$Profile\ut.exe"
+$names = @(& $ut --list)
+# Three end otherwise by design: false always fails, test takes --help as a word, [ needs its ].
+$special = 'false', 'test', '['
+$broken = @(foreach ($name in $names) {
+    $text = (& $ut $name --help 2>&1 | Out-String)
+    $ok = ($LASTEXITCODE -eq 0 -and $text.Trim().Length -ge 20) -or ($name -in $special)
+    if (-not $ok -or $text -match 'panicked|could not load its messages') { $name }
+})
+Report 'ut COMMAND --help' ($names.Count -gt 0 -and $broken.Count -eq 0) "$($names.Count - $broken.Count) of $($names.Count) start and print help$(if ($broken) { '; not: ' + ($broken -join ', ') })"
+
+"=== 3. uni-term through its own window ==="
+$exe = Join-Path $root "target\$Profile\uni-term.exe"
+# The checks type into real shells. None of it may reach the user's own history file.
+$history = (Get-PSReadLineOption).HistorySavePath
+$historyBefore = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
+$live = pwsh -NoProfile -File "$PSScriptRoot\verify.ps1" -Section all -Exe $exe
+$historyAfter = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
+Report 'the user''s history is not written' ($historyAfter -eq $historyBefore) "the history file: $historyBefore bytes before the checks, $historyAfter after"
+$livePass = @($live | Where-Object { $_ -match '^PASS' }).Count
+$liveFail = @($live | Where-Object { $_ -match '^FAIL' })
+Report 'tools/verify.ps1' ($liveFail.Count -eq 0 -and $livePass -gt 0) "$livePass passed, $($liveFail.Count) failed"
+$liveFail | ForEach-Object { "      $_" }
+# The numbers that say a mechanism is alive, for comparing rounds.
+$live | Where-Object { $_ -match 'pixels differ|cols=|lines are numbered|same picture' } | ForEach-Object { "      " + ($_ -replace '^PASS\s+', '') }
+
+if (-not $SkipLinux) {
+    "=== 4. ut on Linux (WSL) ==="
+    $env:WSL_UTF8 = 1
+    $linux = wsl -- bash -l "/mnt/$($root.Substring(0,1).ToLower())$($root.Substring(2) -replace '\\', '/')/tools/linux-test.sh" 2>&1 | Where-Object { $_ -notmatch 'localhost' }
+    $linuxExit = $LASTEXITCODE
+    $results = @($linux | Where-Object { $_ -match '^test result' })
+    $linuxFailed = ($results | ForEach-Object { [int]([regex]::Match($_, '(\d+) failed').Groups[1].Value) } | Measure-Object -Sum).Sum
+    $linuxPassed = ($results | ForEach-Object { [int]([regex]::Match($_, '(\d+) passed').Groups[1].Value) } | Measure-Object -Sum).Sum
+    Report 'cargo test -p ut on Linux' ($results.Count -gt 0 -and $linuxFailed -eq 0) "$linuxPassed passed, $linuxFailed failed; $(($linux | Where-Object { $_ -match 'cases;' } | Select-Object -First 1))"
+    $gnu = ($linux | Where-Object { $_ -match 'against GNU grep' } | Select-Object -Last 1)
+    Report 'grep against GNU grep' ($linuxExit -eq 0 -and $gnu -match ', 0 differ') "$gnu"
+    $linux | Where-Object { $_ -match '^DIFFERS' } | ForEach-Object { "      $_" }
+}
+
+"$script:failed failed"
+exit $script:failed
