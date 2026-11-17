@@ -23,8 +23,9 @@ use anyhow::{Context as _, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use smol::channel::{Receiver, bounded};
 
+use crate::graphics::{self, Effect, Graphics, Image};
 use crate::keys::{CursorKeys, MouseProtocol};
-use crate::marks::Scanner;
+use crate::marks::{Mark, Scanner};
 use crate::prompt::{Finished, Phase, Prompt};
 use crate::theme::{Rgb, Theme};
 
@@ -274,7 +275,16 @@ pub(crate) struct Screen {
     /// The shell's marks, and what they say it is doing.
     scanner: Scanner,
     prompt: Prompt,
+    /// The images programs sent.
+    graphics: Graphics,
+    /// A cell's size in pixels, as last drawn: how many cells an image takes.
+    cell_pixels: (u32, u32),
+    /// Where answers to the program go (a graphics command's `OK`).
+    replies: Option<Writer>,
 }
+
+/// A cell's size in pixels until the window says.
+const CELL_PIXELS: (u32, u32) = (9, 19);
 
 /// A program in a pty, and its screen.
 pub(crate) struct Session {
@@ -426,7 +436,7 @@ impl Screen {
     /// questions go; `None` when there is no program.
     pub(crate) fn new(columns: u16, lines: u16, scrollback: usize, theme: Theme, replies: Option<Writer>) -> Self {
         let notices = Arc::new(Mutex::new(Vec::new()));
-        let listener = Listener { writer: replies, notices: Arc::clone(&notices), theme };
+        let listener = Listener { writer: replies.clone(), notices: Arc::clone(&notices), theme };
         let config = Config { scrolling_history: scrollback, ..Config::default() };
         let term = Term::new(config, &TermSize::new(columns.into(), lines.into()), listener);
         Self {
@@ -436,6 +446,9 @@ impl Screen {
             raw_log: None,
             scanner: Scanner::default(),
             prompt: Prompt::default(),
+            graphics: Graphics::default(),
+            cell_pixels: CELL_PIXELS,
+            replies,
         }
     }
 
@@ -452,6 +465,10 @@ impl Screen {
         for (end, mark) in self.scanner.scan(bytes) {
             self.parser.advance(&mut self.term, &bytes[done..end]);
             done = end;
+            if let Mark::Graphics(text) = mark {
+                self.graphics_command(&text);
+                continue;
+            }
             if let Some(mut finished) = self.prompt.mark(mark, self.cursor_place(), std::time::Instant::now()) {
                 if let Some(line) = finished.line {
                     finished.output = self.lines_between(line + 1, self.cursor_place().0);
@@ -460,6 +477,42 @@ impl Screen {
             }
         }
         self.parser.advance(&mut self.term, &bytes[done..]);
+    }
+
+    /// Does what a graphics command asks: answers, and placeholders at the cursor.
+    fn graphics_command(&mut self, text: &str) {
+        for effect in self.graphics.command(text, self.cell_pixels) {
+            match effect {
+                Effect::Reply(answer) => {
+                    if let Some(writer) = &self.replies {
+                        // A failed write means the program is gone.
+                        let _ = writer.lock().expect(LOCK_POISONED).write_all(answer.as_bytes());
+                    }
+                }
+                Effect::Place { id, cells: (columns, rows), cursor } => {
+                    // No wider than the room right of the cursor: a wrapped row would break the picture.
+                    let start = self.term.grid().cursor.point.column.0;
+                    let room = self.term.columns().saturating_sub(start).max(1);
+                    let text = graphics::placeholders(id, (columns.min(room), rows), start, cursor);
+                    self.parser.advance(&mut self.term, text.as_bytes());
+                }
+            }
+        }
+    }
+
+    /// A cell's size in pixels, as the window draws it.
+    pub(crate) fn set_cell_pixels(&mut self, width: u32, height: u32) {
+        self.cell_pixels = (width.max(1), height.max(1));
+    }
+
+    /// A cell's size in pixels, as last drawn.
+    pub(crate) fn cell_pixels(&self) -> (u32, u32) {
+        self.cell_pixels
+    }
+
+    /// The image numbered `id`, if the program sent one.
+    pub(crate) fn image(&self, id: u32) -> Option<&Image> {
+        self.graphics.image(id)
     }
 
     /// The cursor's cell, its line counted from the top of the history.
@@ -876,6 +929,64 @@ pub(crate) mod tests {
             "the marks were read: the text, how it ended, the last directory said"
         );
         assert_eq!(screen.shell(), Some("pwsh"));
+    }
+
+    #[test]
+    fn graphics_sequences_leave_nothing_on_the_screen() {
+        let mut screen = quiet(40, 3);
+        screen.feed(b"a\x1b_Gf=100,a=T,m=1;iVBORw0KGgo=\x1b\\b\x1b_Gm=0;AAAA\x1b\\c");
+        assert_eq!(screen.text().lines().next(), Some("abc"), "APC is passed over by the screen's library");
+    }
+
+    #[test]
+    fn a_placed_image_is_placeholders_in_the_grid_that_scroll_with_the_text() {
+        use base64::Engine as _;
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(18, 38))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
+        let mut screen = quiet(20, 6);
+        screen.set_cell_pixels(9, 19);
+        screen.feed(format!("ab\x1b_Ga=T,f=100,i=513,q=2;{data}\x1b\\cd").as_bytes());
+        // 18 × 38 pixels on 9 × 19 cells: 2 columns, 2 rows, from column 2.
+        let snapshot = screen.snapshot();
+        let cell = |line: usize, column: usize| snapshot.row(line)[column].clone();
+        assert_eq!(cell(0, 2).c, graphics::PLACEHOLDER);
+        assert_eq!(cell(0, 2).fg, Color::Rgb(Rgb(0, 2, 1)), "the number 513 is the color 0,2,1");
+        let marks = |line, column| {
+            cell(line, column).combining.unwrap_or_default().chars().filter_map(graphics::number_of).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            (marks(0, 2), marks(0, 3), marks(1, 2), marks(1, 3)),
+            (vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1])
+        );
+        let text: Vec<String> = screen.text().lines().take(2).map(str::to_owned).collect();
+        assert_eq!(
+            text,
+            [
+                "ab\u{10EEEE}\u{0305}\u{0305}\u{10EEEE}\u{0305}\u{030D}",
+                "  \u{10EEEE}\u{030D}\u{0305}\u{10EEEE}\u{030D}\u{030D}cd"
+            ],
+            "the text after the image goes on after its last row"
+        );
+        assert!(screen.image(513).is_some());
+        // Six lines down from line 1: both rows of the image are above the screen now.
+        screen.feed(b"\r\n\n\n\n\n\n\n\n");
+        assert_eq!(screen.snapshot().row(0)[2].c, ' ', "scrolled away with the text");
+        screen.feed(b"\x1b[2J");
+        assert!(screen.snapshot().cells.iter().all(|cell| cell.c != graphics::PLACEHOLDER), "cleared with the screen");
+        // An image that reaches the last column: every row starts in the same column.
+        screen.feed(b"\x1b[H  \x1b_Ga=p,i=513,c=30,r=3,q=2\x1b\\");
+        let snapshot = screen.snapshot();
+        for line in 0..3 {
+            let row = snapshot.row(line);
+            assert_eq!(
+                (row[1].c, row[2].c, row[19].c),
+                (' ', graphics::PLACEHOLDER, graphics::PLACEHOLDER),
+                "row {line}"
+            );
+        }
     }
 
     #[test]

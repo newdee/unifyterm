@@ -4,10 +4,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, EventEmitter, FocusHandle, Font,
-    FontFallbacks, FontFeatures, FontStyle, FontWeight, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Rgba, ScrollDelta, ScrollWheelEvent, ShapedLine, SharedString, Size,
-    TextRun, UTF16Selection, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
+    App, Bounds, ClipboardItem, ContentMask, Context, Corners, ElementInputHandler, EntityInputHandler, EventEmitter,
+    FocusHandle, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, KeyDownEvent, Modifiers, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, Rgba, ScrollDelta, ScrollWheelEvent,
+    ShapedLine, SharedString, Size, TextRun, UTF16Selection, Window, canvas, div, fill, point, prelude::*, px, rgb,
+    size,
 };
 use smol::channel::Receiver;
 
@@ -86,6 +87,10 @@ pub(crate) struct TerminalView {
     recorder: Option<Recorder>,
     /// The commands from the history offered under the input line.
     candidates: Candidates,
+    /// The images' textures, by number.
+    textures: std::collections::HashMap<u32, Texture>,
+    /// Textures replaced or no longer used, to free.
+    stale: Vec<Arc<RenderImage>>,
     /// Help with commands: fixes, suggestions, explanations.
     helper: Arc<Helper>,
     /// The box over the text, if one is open.
@@ -135,6 +140,30 @@ struct Prepared {
     origin: Point<Pixels>,
     cell: Size<Pixels>,
     composing: String,
+    /// The images to draw, by number, with the cells their placement takes (columns, rows).
+    pictures: Vec<(frame::ImageArea, Arc<RenderImage>, (usize, usize))>,
+    /// Textures no longer wanted: freed on the next paint.
+    stale: Vec<Arc<RenderImage>>,
+}
+
+/// A texture: the image's generation and the size (device pixels) it was made from and for.
+type Texture = (u64, (u32, u32), Arc<RenderImage>);
+
+/// An image as the window's renderer takes it (blue, green, red, alpha), no
+/// larger than `fit` = (width, height) device pixels: the size it is shown
+/// at. A picture of 2048 × 2048 shown in four columns needs no texture of 16 MiB.
+fn texture(image: &crate::graphics::Image, fit: (u32, u32)) -> Option<Arc<RenderImage>> {
+    let full = image::RgbaImage::from_raw(image.width, image.height, image.rgba.to_vec())?;
+    let (width, height) = (fit.0.clamp(1, image.width), fit.1.clamp(1, image.height));
+    let mut shown = if (width, height) == (image.width, image.height) {
+        full
+    } else {
+        image::imageops::resize(&full, width, height, image::imageops::FilterType::Triangle)
+    };
+    for pixel in shown.as_chunks_mut::<4>().0 {
+        pixel.swap(0, 2);
+    }
+    Some(Arc::new(RenderImage::new(vec![image::Frame::new(shown)])))
 }
 
 /// The bytes that put `text` on a screen in yellow. Control characters in
@@ -238,6 +267,8 @@ impl TerminalView {
             reported: None,
             recorder,
             candidates: Candidates::default(),
+            textures: std::collections::HashMap::new(),
+            stale: Vec::new(),
             helper,
             popup: None,
             popup_number: 0,
@@ -576,7 +607,54 @@ impl TerminalView {
         if let Some(cursor) = &frame.cursor {
             self.cursor_cell = (cursor.line, cursor.column);
         }
-        Prepared { frame, origin, cell, composing: self.composing.clone() }
+        let scale = window.scale_factor();
+        self.session.set_cell_pixels(device_pixels(cell.width, scale), device_pixels(cell.height, scale));
+        let pictures = self.pictures(&frame);
+        Prepared {
+            frame,
+            origin,
+            cell,
+            composing: self.composing.clone(),
+            pictures,
+            stale: std::mem::take(&mut self.stale),
+        }
+    }
+
+    /// The images the frame shows, with textures made for the ones new or sent again;
+    /// textures of images gone are set aside to free.
+    fn pictures(&mut self, frame: &Frame) -> Vec<(frame::ImageArea, Arc<RenderImage>, (usize, usize))> {
+        let mut pictures = Vec::new();
+        let (cell_width, cell_height) = self.session.cell_pixels();
+        for area in &frame.images {
+            let Some(image) = self.session.image(area.id) else { continue };
+            // The placement's cells (one cell for a picture placed by no command of ours).
+            let cells = image.cells.unwrap_or((1, 1));
+            let wide = |count: usize, pixels: u32| u32::try_from(count).unwrap_or(u32::MAX).saturating_mul(pixels);
+            let fit = (wide(cells.0, cell_width), wide(cells.1, cell_height));
+            let current = self
+                .textures
+                .get(&area.id)
+                .filter(|(generation, made_for, _)| *generation == image.generation && *made_for == fit);
+            let texture = if let Some((_, _, texture)) = current {
+                Arc::clone(texture)
+            } else {
+                let Some(texture) = texture(image, fit) else { continue };
+                if let Some((_, _, old)) = self.textures.insert(area.id, (image.generation, fit, Arc::clone(&texture)))
+                {
+                    self.stale.push(old);
+                }
+                texture
+            };
+            pictures.push((*area, texture, cells));
+        }
+        // Images the program deleted, or the memory limit removed.
+        let gone: Vec<u32> = self.textures.keys().copied().filter(|id| self.session.image(*id).is_none()).collect();
+        for id in gone {
+            if let Some((_, _, texture)) = self.textures.remove(&id) {
+                self.stale.push(texture);
+            }
+        }
+        pictures
     }
 
     /// The cell under a point of the window, as (line, column), and the
@@ -1186,7 +1264,10 @@ fn paint_drawn(c: char, color: Rgb, bounds: Bounds<Pixels>, scale: f32, window: 
 
 impl Painter<'_> {
     fn paint(&self, window: &mut Window, cx: &mut App) {
-        let Prepared { frame, origin, cell, composing } = self.prepared;
+        let Prepared { frame, origin, cell, composing, pictures, stale } = self.prepared;
+        for texture in stale {
+            logged(window.drop_image(Arc::clone(texture)));
+        }
         let scale = window.scale_factor();
         let x = |column: usize| snap(origin.x + cell.width * factor(column), scale);
         let y = |line: usize| snap(origin.y + cell.height * factor(line), scale);
@@ -1196,6 +1277,24 @@ impl Painter<'_> {
 
         for item in &frame.fills {
             window.paint_quad(fill(span(item.line, item.column, item.cells), hsla(item.color)));
+        }
+        for (area, texture, (columns, rows)) in pictures {
+            // The whole picture where its top left cell is, cut to the cells of the screen that show it.
+            let at = |line: i64, column: i64| {
+                let to_f32 = |n: i64| f32::from(i16::try_from(n).unwrap_or(if n < 0 { i16::MIN } else { i16::MAX }));
+                point(origin.x + cell.width * to_f32(column), origin.y + cell.height * to_f32(line))
+            };
+            let whole = Bounds::new(
+                at(area.origin.0, area.origin.1),
+                size(cell.width * factor(*columns), cell.height * factor(*rows)),
+            );
+            let shown = Bounds::from_corners(
+                point(x(area.first.1), y(area.first.0)),
+                point(x(area.last.1 + 1), y(area.last.0 + 1)),
+            );
+            window.with_content_mask(Some(ContentMask { bounds: shown }), |window| {
+                logged(window.paint_image(whole, Corners::default(), Arc::clone(texture), 0, false));
+            });
         }
         for run in &frame.runs {
             let width = cell.width * factor(run.cells);

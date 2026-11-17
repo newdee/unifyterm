@@ -2,9 +2,9 @@
 //! to draw out, all in cells. No window and no font is needed, so tests
 //! check the result directly; the view turns cells into pixels.
 
-use crate::boxdraw;
 use crate::session::{Cell, Color, CursorShape, Focus, Snapshot, attr};
 use crate::theme::{Rgb, Theme};
+use crate::{boxdraw, graphics};
 
 /// How far a dim color is moved toward its background.
 const DIM_AMOUNT: f32 = 0.4;
@@ -73,6 +73,17 @@ pub(crate) struct CursorMark {
     pub(crate) over_color: Rgb,
 }
 
+/// Where an image shows: the cell of its top left corner (above or left of
+/// the screen when part of it is), and the first and last cells of the
+/// screen that show it, as (line, column).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ImageArea {
+    pub(crate) id: u32,
+    pub(crate) origin: (i64, i64),
+    pub(crate) first: (usize, usize),
+    pub(crate) last: (usize, usize),
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub(crate) struct Frame {
     pub(crate) fills: Vec<Fill>,
@@ -80,6 +91,47 @@ pub(crate) struct Frame {
     pub(crate) drawn: Vec<Drawn>,
     pub(crate) strokes: Vec<Stroke>,
     pub(crate) cursor: Option<CursorMark>,
+    pub(crate) images: Vec<ImageArea>,
+}
+
+/// The image a placeholder's color names: 24 bits in a true color, 8 in one of the 256.
+fn image_number(color: Color) -> Option<u32> {
+    match color {
+        Color::Rgb(Rgb(red, green, blue)) => Some(u32::from_be_bytes([0, red, green, blue])),
+        Color::Indexed(index) => Some(u32::from(index)),
+        Color::Foreground | Color::Background => None,
+    }
+}
+
+/// The image, row and column a placeholder shows. What its marks leave out
+/// comes from the placeholder left of it (`left`: its image, row, column),
+/// as kitty's protocol says: the same row, the next column.
+fn placeholder(cell: &Cell, left: Option<(u32, usize, usize)>) -> Option<(u32, usize, usize)> {
+    let id = image_number(cell.fg)?;
+    let marks: Vec<usize> = cell.combining.as_deref().unwrap_or("").chars().filter_map(graphics::number_of).collect();
+    let follows =
+        |row: Option<usize>| left.filter(|(was, was_row, _)| *was == id && row.is_none_or(|row| row == *was_row));
+    let (row, column) = match (marks.first(), marks.get(1)) {
+        (Some(&row), Some(&column)) => (row, column),
+        (Some(&row), None) => (row, follows(Some(row)).map_or(0, |(_, _, column)| column + 1)),
+        (None, _) => follows(None).map_or((0, 0), |(_, row, column)| (row, column + 1)),
+    };
+    // A third mark is the number's top byte.
+    let id = marks.get(2).and_then(|top| u32::try_from(*top).ok()).map_or(id, |top| id | (top << 24));
+    Some((id, row, column))
+}
+
+/// Adds a cell that shows (image, row, column) at (line, column) of the screen.
+fn add_image_cell(images: &mut Vec<ImageArea>, (id, row, column): (u32, usize, usize), at: (usize, usize)) {
+    let wide = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
+    let origin = (wide(at.0) - wide(row), wide(at.1) - wide(column));
+    match images.iter_mut().find(|area| area.id == id && area.origin == origin) {
+        Some(area) => {
+            area.first = (area.first.0.min(at.0), area.first.1.min(at.1));
+            area.last = (area.last.0.max(at.0), area.last.1.max(at.1));
+        }
+        None => images.push(ImageArea { id, origin, first: at, last: at }),
+    }
 }
 
 fn resolve(color: Color, theme: &Theme) -> Rgb {
@@ -135,10 +187,23 @@ pub(crate) fn layout(snapshot: &Snapshot, theme: &Theme, focus: Focus) -> Frame 
     for line in 0..snapshot.lines {
         // The text being collected, and the spaces seen since its last character.
         let mut open: Option<(Run, usize)> = None;
+        // The placeholder just left, for the marks the next one leaves out.
+        let mut left: Option<(u32, usize, usize)> = None;
         for (column, cell) in snapshot.row(line).iter().enumerate() {
             if cell.has(attr::SPACER) {
                 continue;
             }
+            if cell.c == graphics::PLACEHOLDER {
+                left = placeholder(cell, left);
+                if let Some(shown) = left {
+                    add_image_cell(&mut frame.images, shown, (line, column));
+                }
+                if let Some((_, spaces)) = open.as_mut() {
+                    *spaces += 1;
+                }
+                continue;
+            }
+            left = None;
             let (fg, bg) = colors(cell, theme);
             let cells = if cell.has(attr::WIDE) { 2 } else { 1 };
             if bg != theme.background {
@@ -216,6 +281,24 @@ pub(crate) fn layout(snapshot: &Snapshot, theme: &Theme, focus: Focus) -> Frame 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placeholders_make_one_image_area_and_draw_no_text() {
+        let mut screen = crate::session::tests::quiet(10, 4);
+        // Image 5: rows 1 and 2 (row 0 scrolled away above), columns 0-2; the second row's
+        // marks leave the column out after the first cell: it follows from the left.
+        let (one, two, zero) = ('\u{030D}', '\u{030E}', '\u{0305}');
+        let row1 = format!("\x1b[38;2;0;0;5m\u{10EEEE}{one}{zero}\u{10EEEE}{one}{one}\u{10EEEE}{one}{two}\x1b[39m");
+        let row2 = format!("\x1b[38;2;0;0;5m\u{10EEEE}{two}{zero}\u{10EEEE}{two}\u{10EEEE}\x1b[39mx");
+        screen.feed(format!("{row1}\r\n{row2}").as_bytes());
+        let frame = layout(&screen.snapshot(), &Theme::default(), Focus::Focused);
+        assert_eq!(frame.images, [ImageArea { id: 5, origin: (-1, 0), first: (0, 0), last: (1, 2) }]);
+        assert_eq!(
+            frame.runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
+            ["x"],
+            "no glyph for a placeholder"
+        );
+    }
     use crate::session::tests::quiet;
 
     fn frame_of(bytes: &str, focus: Focus) -> Frame {

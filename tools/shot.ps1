@@ -17,6 +17,7 @@
 #   {SIZE:w,h}                               resize the window
 #   {KEY:CTRL+C} {KEY:CTRL+SHIFT+T}          a key with Ctrl, Shift or Alt held
 #   {SHOT:name}                              a picture now, saved beside -Out as <name>.png
+#   {MEM:name}                               uni-term's working set now, in bytes, beside -Out as <name>.mem
 
 param(
     [Parameter(Mandatory)][string]$Out,
@@ -130,6 +131,7 @@ foreach ($part in [regex]::Split($Type, '(\{[A-Z0-9]+(?::[^}]*)?\})')) {
         switch ($name) {
             'WAIT'   { Start-Sleep -Milliseconds ([int]$arg) }
             'SHOT'   { Save-Shot $h (Join-Path (Split-Path $Out) "$arg.png") }
+            'MEM'    { $p.Refresh(); [IO.File]::WriteAllText((Join-Path (Split-Path $Out) "$arg.mem"), [string]$p.WorkingSet64) }
             'CLICK'  { [Win]::Move($h, $n[0], $n[1], $false); [Win]::Left($h, $n[0], $n[1], $true); [Win]::Left($h, $n[0], $n[1], $false) }
             'DCLICK' { 1..2 | ForEach-Object { [Win]::Left($h, $n[0], $n[1], $true); [Win]::Left($h, $n[0], $n[1], $false) } }
             'RCLICK' { [Win]::Move($h, $n[0], $n[1], $false); [Win]::Right($h, $n[0], $n[1], $true); [Win]::Right($h, $n[0], $n[1], $false) }

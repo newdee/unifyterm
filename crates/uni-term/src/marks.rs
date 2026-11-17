@@ -15,7 +15,9 @@
 //! | `OSC 633;P;Cwd=path`         | the directory (VS Code's)              |
 //! | `OSC 633;P;Shell=name`       | which shell this is (uni-term's)       |
 //!
-//! Each ends with BEL or with ST (`ESC \`). [`Scanner`] finds them in the
+//! Each ends with BEL or with ST (`ESC \`). The scanner also passes on
+//! kitty's graphics commands (`ESC _ G ... ESC \`, an APC sequence) as
+//! [`Mark::Graphics`]. [`Scanner`] finds them in the
 //! bytes a program prints, whatever pieces the bytes come in. The bytes
 //! are not changed: the screen's library passes over these sequences.
 
@@ -40,6 +42,8 @@ pub(crate) enum Mark {
     Directory(String),
     CommandLine(String),
     Shell(String),
+    /// A graphics command: the sequence's text from its `G` on.
+    Graphics(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +57,9 @@ enum State {
     /// An OSC sequence too long to follow: its bytes are passed over until it ends.
     Skipping,
     SkippingEscape,
+    /// In an APC sequence (`ESC _`); its text so far is in `payload`.
+    Apc,
+    ApcEscape,
 }
 
 /// Finds marks in output that arrives in pieces.
@@ -94,6 +101,10 @@ impl Scanner {
                         self.payload.clear();
                         State::Osc
                     }
+                    b'_' => {
+                        self.payload.clear();
+                        State::Apc
+                    }
                     ESC => State::Escape,
                     _ => State::Ground,
                 };
@@ -113,6 +124,27 @@ impl Scanner {
                     return self.finish();
                 }
                 // Not a terminator: the ESC begins something new.
+                self.state = State::Escape;
+                return self.step(byte);
+            }
+            State::Apc => match byte {
+                ESC => self.state = State::ApcEscape,
+                CAN | SUB => self.state = State::Ground,
+                _ if self.payload.len() >= LONGEST => {
+                    self.payload.clear();
+                    self.state = State::Skipping;
+                }
+                _ => self.payload.push(byte),
+            },
+            State::ApcEscape => {
+                if byte == b'\\' {
+                    self.state = State::Ground;
+                    let payload = std::mem::take(&mut self.payload);
+                    // Only kitty's graphics commands; other APC sequences are no marks.
+                    return payload
+                        .starts_with(b"G")
+                        .then(|| Mark::Graphics(String::from_utf8_lossy(&payload).into_owned()));
+                }
                 self.state = State::Escape;
                 return self.step(byte);
             }
@@ -277,6 +309,26 @@ mod tests {
         for (bytes, mark) in cases {
             assert_eq!(marks(bytes), std::slice::from_ref(&mark), "{:?}", String::from_utf8_lossy(bytes));
         }
+    }
+
+    #[test]
+    fn graphics_commands_are_passed_on_whatever_the_pieces() {
+        let command = b"x\x1b_Ga=T,f=100,i=1;iVBORw0KGgo=\x1b\\y\x1b_Xother\x1b\\";
+        assert_eq!(
+            marks(command),
+            [Mark::Graphics("Ga=T,f=100,i=1;iVBORw0KGgo=".into())],
+            "an APC that is not G is no mark"
+        );
+        let mut scanner = Scanner::default();
+        let mut found = Vec::new();
+        for piece in command.chunks(3) {
+            found.extend(scanner.scan(piece).into_iter().map(|(_, mark)| mark));
+        }
+        assert_eq!(found, marks(command));
+        let mut long = b"\x1b_G".to_vec();
+        long.extend(std::iter::repeat_n(b'A', LONGEST + 1));
+        long.extend(b"\x1b\\\x1b]133;A\x07");
+        assert_eq!(marks(&long), [Mark::PromptStart], "too long: given up, the next mark is read");
     }
 
     #[test]

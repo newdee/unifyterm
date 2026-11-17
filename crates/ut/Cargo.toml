@@ -109,6 +109,11 @@ sed = "0.3.0"
 diffutils = "0.6.0"
 same-file = "1"
 uni-history = { path = "../history" }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+terminal_size = "0.4"
+pulldown-cmark = { version = "0.13", default-features = false }
+unicode-width = "0.2"
 anyhow = "1"
 # jq: the jaq interpreter and its formats; jaq's own command line is repeated in src/jq.
 jaq-all = { version = "0.4.0", default-features = false, features = ["formats", "std-all"] }
@@ -144,3 +149,6 @@ uu_stat = "0.12.0"
 uu_stty = "0.12.0"
 uu_users = "0.12.0"
 uu_who = "0.12.0"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

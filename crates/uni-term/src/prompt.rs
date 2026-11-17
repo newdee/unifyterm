@@ -110,6 +110,8 @@ impl Prompt {
             Mark::Directory(path) => self.cwd = Some(path),
             Mark::CommandLine(text) => self.said = Some(text),
             Mark::Shell(name) => self.shell = Some(name),
+            // The screen's, not the prompt's.
+            Mark::Graphics(_) => {}
         }
         None
     }

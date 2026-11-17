@@ -13,7 +13,9 @@ mod grep;
 mod history;
 mod jq;
 mod links;
+mod md;
 mod slash;
+mod view;
 mod which;
 
 use std::ffi::OsString;
@@ -265,6 +267,8 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut --list                         print every command's name
        ut --links DIRECTORY [--skip A,B] make DIRECTORY hold one link a command
        ut history recent|search|forget   uni-term's command history ('ut history' for more)
+       ut view FILE                      a picture in the terminal ('ut view --help')
+       ut md [FILE]                      markdown as styled text ('ut md --help')
        ut --version
 
 Started under a command's name (a link made by --links), ut is that command.
@@ -299,6 +303,8 @@ fn ut(args: &[OsString]) -> i32 {
         }
         Some("--links") => links::main(&args[1..], &commands().into_iter().map(|(name, _)| name).collect::<Vec<_>>()),
         Some("history") => history::main(&args[1..]),
+        Some("view") => view::main(&args[1..]),
+        Some("md") => md::main(&args[1..]),
         Some(other) => {
             let _ = writeln!(std::io::stderr(), "ut: unknown command '{other}'. 'ut --list' prints them.");
             USAGE_ERROR

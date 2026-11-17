@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|graphics] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'graphics')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -95,8 +95,9 @@ function CountColor([string]$a, [string]$hex, [int]$x, [int]$y, [int]$w, [int]$h
     $want = [Convert]::ToInt32($hex.TrimStart('#'), 16); $r = ($want -shr 16) -band 255; $g = ($want -shr 8) -band 255; $b = $want -band 255
     $i = [System.Drawing.Bitmap]::FromFile((Join-Path $work "$a.png")); $n = 0
     try {
-        for ($j = $y; $j -lt $y + $h; $j++) {
-            for ($k = $x; $k -lt $x + $w; $k++) {
+        # Within the picture: a smaller window gives a smaller one.
+        for ($j = $y; $j -lt [Math]::Min($y + $h, $i.Height); $j++) {
+            for ($k = $x; $k -lt [Math]::Min($x + $w, $i.Width); $k++) {
                 $p = $i.GetPixel($k, $j)
                 if ([Math]::Abs($p.R - $r) -le $ChannelTolerance -and [Math]::Abs($p.G - $g) -le $ChannelTolerance -and [Math]::Abs($p.B - $b) -le $ChannelTolerance) { $n++ }
             }
@@ -494,6 +495,85 @@ if ($Section -in 'all', 'ai') {
         $env:UNI_TERM_DATA_DIR = $keptData
         Remove-Item Env:UNI_TERM_TEST_KEY -ErrorAction Ignore
     }
+}
+if ($Section -in 'all', 'graphics') {
+    "--- graphics ---"
+    # The test picture: four colored quarters (and a white diagonal), drawn here, so its colors are known exactly.
+    # In a fixed order: what is printed must be the same from run to run.
+    $quarters = [ordered]@{ red = '#dc2828'; green = '#28c83c'; blue = '#2850dc'; yellow = '#e6d228' }
+    $png = Join-Path $work 'picture.png'
+    $bitmap = [System.Drawing.Bitmap]::new(64, 64)
+    try {
+        for ($y = 0; $y -lt 64; $y++) {
+            for ($x = 0; $x -lt 64; $x++) {
+                $hex = if ($x -eq $y -or $x + 1 -eq $y) { '#ffffff' } elseif ($y -lt 32) { if ($x -lt 32) { $quarters.red } else { $quarters.green } } else { if ($x -lt 32) { $quarters.blue } else { $quarters.yellow } }
+                $bitmap.SetPixel($x, $y, [System.Drawing.ColorTranslator]::FromHtml($hex))
+            }
+        }
+        $bitmap.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally { $bitmap.Dispose() }
+    $md = Join-Path $work 'doc.md'
+    [IO.File]::WriteAllText($md, "# Title`n`n- one`n- two`n`n| a | b |`n|---|---|`n| 1 | 2 |`n")
+    function Quarters([string]$name) { @($quarters.Keys | ForEach-Object { CountColor $name $quarters[$_] 0 40 900 560 }) }
+    $show = "ut view '$png' --width 20{ENTER}{WAIT:1800}"
+
+    Run 'gfx-view' $show | Out-Null
+    $counts = Quarters 'gfx-view'
+    Report 'ut view draws the picture in the window' (@($counts | Where-Object { $_ -gt 1000 }).Count -eq 4) "pixels of red, green, blue, yellow: $($counts -join ', ')"
+    $t = Run 'gfx-pipe' "ut view '$png' --width 20 | cat{ENTER}{WAIT:1500}"
+    Report 'through a pipe it is ASCII, not a picture' ((Count $t '====') -ge 5 -and (@(Quarters 'gfx-pipe' | Where-Object { $_ -gt 0 }).Count -eq 0)) "rows with '====': $(Count $t '===='); picture pixels: $((Quarters 'gfx-pipe') -join ', ')"
+    $t = Run 'gfx-half' "ut view '$png' --mode half --width 20{ENTER}{WAIT:1500}"
+    Report 'ut view --mode half draws half blocks' ((Count $t '▀') -ge 100) "'▀' on the screen: $(Count $t '▀')"
+
+    Run 'gfx-scroll' ($show + "1..45 | % { `"l `$_`" }{ENTER}{WAIT:1500}") | Out-Null
+    $scrolled = Quarters 'gfx-scroll'
+    Report 'the picture scrolls away with the text' (@($scrolled | Where-Object { $_ -gt 0 }).Count -eq 0) "pixels of the quarters after 45 lines: $($scrolled -join ', ')"
+    # On a full screen, 3 lines printed under the picture move it up 4 rows (the 3 and the next prompt).
+    function RedTop([string]$name) {
+        $i = [System.Drawing.Bitmap]::FromFile((Join-Path $work "$name.png"))
+        try { for ($y = 40; $y -lt $i.Height; $y++) { for ($x = 0; $x -lt 300; $x++) { $p = $i.GetPixel($x, $y); if ([Math]::Abs($p.R - 0xdc) -le $ChannelTolerance -and [Math]::Abs($p.G - 0x28) -le $ChannelTolerance -and [Math]::Abs($p.B - 0x28) -le $ChannelTolerance) { return $y } } }; -1 } finally { $i.Dispose() }
+    }
+    Run 'gfx-move' ("1..40 | % { `"f `$_`" }{ENTER}{WAIT:800}" + $show + "{SHOT:gfx-move-a}1..3 | % { `"l `$_`" }{ENTER}{WAIT:1000}") | Out-Null
+    $before = RedTop 'gfx-move-a'; $after = RedTop 'gfx-move'; $moved = $before - $after
+    $whole = (CountColor 'gfx-move-a' $quarters.red 0 40 900 560) -eq (CountColor 'gfx-move' $quarters.red 0 40 900 560)
+    Report 'the picture moves up with its text, row for row' ($before -gt 0 -and $after -gt 0 -and $moved -ge 4 * 18 -and $moved -le 4 * 20 -and $whole) "top of the picture: $before px, then $after px: $moved px for 4 rows of about 19 px; still whole: $whole"
+    Run 'gfx-clear' ($show + "clear{ENTER}{WAIT:1000}") | Out-Null
+    $cleared = Quarters 'gfx-clear'
+    Report 'clearing the screen takes the picture away' (@($cleared | Where-Object { $_ -gt 0 }).Count -eq 0) "pixels after clear: $($cleared -join ', ')"
+    Run 'gfx-resize' ($show + "{SIZE:760,460}{WAIT:1200}") | Out-Null
+    $resized = Quarters 'gfx-resize'
+    Report 'a smaller window keeps the picture where its text is' (@($resized | Where-Object { $_ -gt 500 }).Count -eq 4) "pixels of red, green, blue, yellow after the resize: $($resized -join ', ')"
+    $t = Run 'gfx-md' "ut md '$md'{ENTER}{WAIT:1200}"
+    Report 'ut md draws headings, lists and tables' ((Count $t 'Title') -ge 1 -and (Count $t '•') -eq 2 -and (Count $t '┌') -ge 1) "'Title' $(Count $t 'Title'), '•' $(Count $t '•'), '┌' $(Count $t '┌')"
+
+    # Windows Terminal has sixel: ut view chooses it there by itself.
+    if (Get-Command wt -ErrorAction SilentlyContinue) {
+        $said = Join-Path $work 'wt-choice.txt'
+        $utExe = Join-Path (Split-Path $Exe) 'ut.exe'
+        Start-Process wt -ArgumentList @('-w', 'new', '--title', 'uni-term-verify', 'cmd', '/c', "`"$utExe`" view `"$png`" --width 8 --verbose 2> `"$said`" & ping -n 2 127.0.0.1 >nul")
+        for ($i = 0; $i -lt 50 -and -not ((Test-Path $said) -and (Get-Item $said).Length -gt 0); $i++) { Start-Sleep -Milliseconds 200 }
+        $choice = if (Test-Path $said) { (Get-Content $said -Raw).Trim() } else { '(nothing said)' }
+        Report 'in Windows Terminal, ut view chooses sixel by itself' ($choice -match '^ut view: sixel') $choice
+    } else {
+        "SKIP  in Windows Terminal, ut view chooses sixel by itself: Windows Terminal is not installed here"
+    }
+
+    # Thirty pictures of 2048 × 2048 (16 MiB each once decoded): the terminal keeps at most 256 MiB of them.
+    $big = 1..30 | ForEach-Object {
+        $file = Join-Path $work "big-$_.png"
+        $image = [System.Drawing.Bitmap]::new(2048, 2048)
+        try {
+            $graphics = [System.Drawing.Graphics]::FromImage($image)
+            $graphics.Clear([System.Drawing.Color]::FromArgb(255, $_ * 8, 255 - $_ * 8, 128)); $graphics.Dispose()
+            $image.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+        } finally { $image.Dispose() }
+        $file
+    }
+    $many = ($big | ForEach-Object { "ut view '$_' --width 4{ENTER}{WAIT:700}" }) -join ''
+    Run 'gfx-many' ($many + "{WAIT:1500}{MEM:gfx-many}") | Out-Null
+    Run 'gfx-none' ("echo none{ENTER}{WAIT:1500}{MEM:gfx-none}") | Out-Null
+    $grown = ([long](Get-Content (Join-Path $work 'gfx-many.mem')) - [long](Get-Content (Join-Path $work 'gfx-none.mem'))) / 1MB
+    Report 'thirty 16 MiB pictures: memory stays under the limit' ($grown -lt 356) ("{0:N0} MiB more than with no picture (limit: 256 MiB of pictures + 100)" -f $grown)
 }
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 "$script:failed failed"

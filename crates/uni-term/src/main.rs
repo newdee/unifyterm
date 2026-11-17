@@ -9,6 +9,7 @@ mod boxdraw;
 mod candidates;
 mod config;
 mod frame;
+mod graphics;
 mod helper;
 mod keys;
 mod logging;

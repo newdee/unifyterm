@@ -29,6 +29,9 @@ uni-history = { path = "../history" }
 uni-assist = { path = "../assist" }
 regex = "1"
 unicode-width = "0.2"
+base64 = "0.22"
+# The same version GPUI draws with: its frames are this crate's.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [dev-dependencies]
 tempfile = "3"
