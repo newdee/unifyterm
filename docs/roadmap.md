@@ -2,7 +2,9 @@
 
 ## 本期（M0–M7）
 
-见 `demo/index.html` 的"方案"页。进度和每轮验收的数字见 `docs/verification-log.md`。
+- 已验收：M0、M1、M2。每轮验收的数字见 `docs/verification-log.md`。
+- 未做：M2.5（自己的 shell）、M3、M4、M5、M6、M7。每个阶段做什么、怎么设计、怎么验证，见 `docs/plan.md`。
+- 方案总览见 `demo/index.html` 的"方案"页。
 
 ## 下一期（M7 完成后再规划）
 

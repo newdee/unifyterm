@@ -343,7 +343,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><td>M0 <span class="tag ok">完成</span></td><td>技术验证：窗口 + pty + 屏幕文字 + 按键。</td><td>9 项单元测试通过；窗口截图显示 PowerShell 提示符和回显。</td></tr>
     <tr><td>M1 终端基础</td><td>按格定位的网格渲染（颜色、粗斜体、光标、选择、复制粘贴、回滚、鼠标上报）、输入法、字体回退、连字开关、标签页、配置文件。</td><td>vim、htop、keepane 显示正确；Windows 上用拼音输入法输入中文成功；vttest 的光标和滚动项通过。</td></tr>
     <tr><td>M2 命令集 <span class="tag ok">已验收</span></td><td><code>ut</code> multi-call 二进制、PATH 注入、别名移除、整体和逐条开关。Windows 上路径一律显示为 <code>/</code>（<code>UT_NATIVE_PATHS</code> 可恢复 <code>\</code>）；通配符 <code>*.txt</code> 像 Unix shell 一样展开，加引号则保持原样。</td><td>同一组夹具文件上，Windows 与 Linux 的 <code>cat ls grep find sed jq sort</code> 等输出逐字节一致；开关切换后 <code>which cat</code> 结果改变。</td></tr>
-    <tr><td>M3 历史与候选</td><td>shell 钩子（pwsh、zsh、bash、fish）、history.db、候选列表、Ctrl-N/P 和方向键。</td><td>10 万条历史下，单次查询 p95 低于 5 ms；失败的命令排在成功的之后；含密钥模式的命令不入库。</td></tr>
+    <tr><td>M2.5 自己的 shell</td><td><code>ut sh</code>：嵌入 brush（bash 兼容）。先做验证，带通过线；通过后作为可选 shell，默认不变。</td><td>60 条 shell 用例：Linux 与 bash 60/60 一致，Windows 至少 54/60；在 uni-term 里能交互；<code>pwd</code>、提示符、补全在 Windows 上没有 <code>\</code>。</td></tr><td>shell 钩子（pwsh、zsh、bash、fish）、history.db、候选列表、Ctrl-N/P 和方向键。</td><td>10 万条历史下，单次查询 p95 低于 5 ms；失败的命令排在成功的之后；含密钥模式的命令不入库。</td></tr>
     <tr><td>M4 AI</td><td>建议、纠正、解释；后端配置；脱敏。</td><td>无网络时终端全部功能照常，AI 功能安静地不可用；脱敏测试集 100% 命中。</td></tr>
     <tr><td>M5 图形与 markdown</td><td>GUI 支持 kitty graphics；<code>ut view</code> 降级链；<code>ut md</code>。</td><td>同一张图在 uni-term、Windows Terminal、纯文本管道里各自选对方式；image.nvim 在 uni-term 里显示图片。</td></tr>
     <tr><td>M6 agent 接口</td><td>agent 侧栏（读 keepane）、<code>ut mcp</code>、skill 文件。</td><td>Claude Code 通过 MCP 查询历史并得到结果；skill 让 agent 在 Windows 上直接使用 <code>cat</code>、<code>jq</code>。</td></tr>
