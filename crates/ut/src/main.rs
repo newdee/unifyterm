@@ -13,6 +13,7 @@ mod grep;
 mod history;
 mod jq;
 mod links;
+mod mcp;
 mod md;
 mod slash;
 mod view;
@@ -269,6 +270,8 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut history recent|search|forget   uni-term's command history ('ut history' for more)
        ut view FILE                      a picture in the terminal ('ut view --help')
        ut md [FILE]                      markdown as styled text ('ut md --help')
+       ut mcp                            an MCP server for agents: the history, these commands' help
+       ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/uni-term/SKILL.md
        ut --version
 
 Started under a command's name (a link made by --links), ut is that command.
@@ -278,6 +281,55 @@ Set UT_NATIVE_PATHS to keep Windows' own \\.
 On Windows a wildcard (*.txt) becomes the names it matches, as a Unix
 shell does it; in quotes (\"*.txt\") it stays as typed. Set UT_NO_GLOB
 to keep every wildcard as typed.";
+
+/// The skill file that tells an agent how to work in uni-term.
+const SKILL: &str = include_str!("../../../skills/uni-term/SKILL.md");
+
+/// `ut skill`: prints the skill file; with `--install DIRECTORY`, writes it
+/// to `DIRECTORY/uni-term/SKILL.md` (an agent's skills folder, as the user names it).
+fn skill(args: &[OsString]) -> i32 {
+    let args: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
+    match args.as_slice() {
+        [] => {
+            let _ = std::io::stdout().write_all(SKILL.as_bytes());
+            0
+        }
+        ["--install", directory] => {
+            let folder = Path::new(directory).join("uni-term");
+            let file = folder.join("SKILL.md");
+            match std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&file, SKILL)) {
+                Ok(()) => {
+                    let _ = writeln!(std::io::stdout(), "wrote {}", file.display().to_string().replace('\\', "/"));
+                    0
+                }
+                Err(error) => {
+                    let _ = writeln!(std::io::stderr(), "ut skill: {}: {error}", file.display());
+                    1
+                }
+            }
+        }
+        _ => {
+            let _ = writeln!(std::io::stderr(), "usage: ut skill [--install DIRECTORY]");
+            USAGE_ERROR
+        }
+    }
+}
+
+/// A command's `--help`, from this same program run once more: some
+/// commands end the process when they print it. `test --help` prints
+/// nothing, as POSIX wants; its help is `[`'s, the same command's.
+fn help(name: &str) -> Option<String> {
+    let asked = if name == "test" { "[" } else { name };
+    let output = std::process::Command::new(std::env::current_exe().ok()?)
+        .args([asked, "--help"])
+        .env("UT_NO_GLOB", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let printed = if output.stdout.is_empty() { output.stderr } else { output.stdout };
+    let text = String::from_utf8_lossy(&printed).trim_end().to_owned();
+    (!text.is_empty()).then_some(text)
+}
 
 /// Runs `ut` called by its own name. `args` starts after the program's name.
 fn ut(args: &[OsString]) -> i32 {
@@ -305,6 +357,11 @@ fn ut(args: &[OsString]) -> i32 {
         Some("history") => history::main(&args[1..]),
         Some("view") => view::main(&args[1..]),
         Some("md") => md::main(&args[1..]),
+        Some("mcp") => {
+            let names = commands().into_iter().map(|(name, _)| name.to_owned()).collect();
+            mcp::main(&args[1..], names, help)
+        }
+        Some("skill") => skill(&args[1..]),
         Some(other) => {
             let _ = writeln!(std::io::stderr(), "ut: unknown command '{other}'. 'ut --list' prints them.");
             USAGE_ERROR

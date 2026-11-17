@@ -1,0 +1,4 @@
+[
+  {"pane":"%12","target":"work:1.0","agent":"claude","pid":4242,"model":"claude-opus-5-5","cost":3.25,"cost_partial":false,"tokens":{"input":100,"cache_read":2000,"cache_write":300,"output":400,"total":2800},"context":410000,"context_pct":41,"cpu":12.4,"mem":536870912,"tools":20,"turns":37,"transcripts":1,"limits":null},
+  {"pane":"%13","target":"work:2.0","agent":"codex","pid":4343,"model":"","cost":0.0,"cost_partial":false,"tokens":{"input":0,"cache_read":0,"cache_write":0,"output":0,"total":0},"context":0,"context_pct":null,"cpu":0.0,"mem":134217728,"tools":0,"turns":0,"transcripts":0,"limits":null}
+]

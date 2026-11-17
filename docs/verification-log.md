@@ -1,5 +1,66 @@
 # 验收记录
 
+## 2026-11-18 · M6 agent 侧栏、`ut mcp`、skill
+
+范围：
+- `crates/uni-term`：
+  - `agents.rs`：读取 `keepane list-agents -J` 的输出；未知字段忽略，缺少的字段取空值。运行命令时无窗口，最多 1 秒，超时就停掉。同一个问题 1 分钟最多写 1 次日志。
+  - 侧栏（Ctrl-Shift-A，macOS 上是 Cmd-Shift-A）：每个 agent 一张卡片，显示 agent 和模型、所在窗格、费用、上下文占比、CPU、内存、轮数。点击卡片运行 `agents.focus`（默认 `keepane focus-pane %N`）；失败时把窗格位置复制到剪贴板。
+  - `[agents]` 配置 4 项：`sidebar`、`poll_ms`、`command`、`focus`。
+  - `shell::no_window`：无窗口启动子进程，原来分散在 2 处，现在 3 个调用方共用。
+- `crates/ut`：
+  - `ut mcp`：stdin/stdout 上的 JSON-RPC，4 个工具（`history_search`、`history_recent`、`list_commands`、`command_help`），协议版本 2025-06-18、2025-03-26、2024-11-05。历史库只读打开；库不存在时返回空列表，不创建文件。不提供运行命令的工具。
+  - `ut skill`：打印 skill 文件；`ut skill --install 目录` 写入 `目录/uni-term/SKILL.md`。不自动写任何 agent 的配置目录。
+- `skills/uni-term/SKILL.md`。
+- `tools/verify.ps1` 新增 `agents` 一节，13 项。
+
+### 与 plan.md 不同的地方
+
+| plan 写的 | 实际做法 | 原因 |
+|---|---|---|
+| 夹具取自测试 keepane 服务里 2 个窗格的 `list-agents -J` 输出 | 夹具按真实输出的字段手写，数值虚构 | `list-agents` 只列出运行着 agent 的窗格。测试服务里没有 agent，输出是 `[]`。为了测试去启动真的 Claude Code，既花钱又需要登录。 |
+| 侧栏固定运行 `keepane list-agents -J` | 新增配置 `agents.command` 和 `agents.focus` | 实机检查可以换成读夹具的命令；用户用自定义 socket 时也能改。 |
+| 当前标签页运行 keepane 时切换窗格，否则复制 | 先运行 `focus-pane`，失败才复制 | `focus-pane` 会把所有已连接的客户端切到那个窗格并带到前台。keepane 在别的终端窗口里运行时，这样也能直接跳过去。 |
+| 真实 agent 检查要先注册 MCP，会改用户的 Claude Code 配置 | 用 `claude -p --mcp-config 文件 --strict-mcp-config`，只对这一次会话有效 | 不改任何配置。数据目录是临时目录，里面只有 2 条虚构命令。 |
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 代码正确性（测试抓到） | 命令超时后进程被停掉了，但它启动的子进程还持有输出管道，读管道的线程一直等到子进程自己结束（实测 3 秒，超时设定为 1 秒）。 | 边界遗漏；同一个假设"进程结束，管道就关闭"在正常退出路径上也不成立 | 读管道的结果按同一个截止时间收取，两条路径都覆盖。新增测试：命令立即退出，但留下一个持有管道的后台进程，结果也是"超时"。 |
+| 2 | 逻辑正确（review） | 点击卡片运行的 `focus` 命令没有超时，卡住就永远占着一个后台线程。`ask` 有超时，两个函数各写了一套启动子进程的代码。 | 结构缺陷：两份实现，健壮程度不同 | 收敛成一个带超时的 `run`，`ask` 和 `focus` 共用。新增测试：卡住的 focus 命令在超时后报错。 |
+| 3 | 边界输入（review） | 侧栏关闭再打开，第一次查询返回之前仍显示上一次的列表。 | 边界遗漏 | 打开时清空，先显示 "Asking keepane…"。 |
+| 4 | 机制通路（测试抓到） | `command_help` 对 `test` 返回空：按 POSIX，`test --help` 什么都不打印。 | 个性 | 改取 `[ --help`，两者是同一个命令。99 个命令全部拿到帮助（有测试）。 |
+| 5 | 静态一致性（review） | `mcp.rs` 里一条走不到的分支写死了 20，没有用常量。 | 个性 | 改掉。全仓搜索同类写法，0 处。 |
+| 6 | 共性（实现前） | "无窗口启动子进程"在 `helper.rs`、`shell.rs` 各写了一遍，侧栏会是第 3 处。 | 结构缺陷 | 收敛为 `shell::no_window`。非测试代码里的 `creation_flags` 只剩 1 处。 |
+| 7 | 检查自身（review） | "没有 keepane 服务时只记录一次"的检查用默认 2 秒间隔，3 秒内只问了约 2 次，节流几乎没有被考验；说明里还写着"每秒两次"。 | 检查缺口 | 改为 500 ms 间隔：3 秒内问 6 次，日志只能有 1 行。 |
+| 8 | **可复现性（第 3 轮抓到）** | 两轮实机检查里，测试 keepane 服务的窗格数一次是 4、一次是 1（应为 2）。原因有两个：(a) keepane 停止服务时会保存会话，下次恢复，我的测试在测试 socket 上留下了 3 个已保存会话；(b) 无尺寸的分离会话太小，`split-window` 失败。另外，keepane 为测试 socket 上的每个 PowerShell 窗格都复制了一份用户的 PSReadLine 历史，共 43 份，留在 `%LOCALAPPDATA%\keepane\sessions-uni-term-test`。 | 检查脚本的结构缺陷：没有确认测试环境准备成功，也没有清理到位 | 清理：逐个关闭会话、删除已保存记录，再删掉测试 socket 的目录。用户默认 socket 的会话没有动过，用户的历史文件仍是 87347 字节。检查改为：开始前清空；会话带尺寸；断言窗格正好 2 个；结束后检查目录没有残留。 |
+
+检查工具自身的问题：
+- `cmd /c echo` 会吃掉 JSON 里的引号，测试改为让 `findstr`/`cat` 直接读文件。
+- 我在 PowerShell 双引号字符串里写了 `` `a ``，被转成了响铃字符，写进了 Rust 注释（clippy 抓到）。修后全仓 0 个。
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | 实机 | 其他数字 |
+|---|---|---|---|---|---|
+| 1 | 机制通路存活 + 边界输入 | debug | 198/198 | 107/107，8 个小节都跑完 | 侧栏隐藏 6 秒运行 0 次，显示 3 秒（500 ms 间隔）运行 7 次；没有服务时 3 秒问 6 次只记 1 行日志；点击后键盘仍进终端；测试 keepane 2 个窗格、结束后无残留；p95 3.27 ms；Linux 53/53；历史文件 87347 → 87347 字节 |
+| 2 | 静态一致性 | release | 198/198 | 107/107，8 个小节都跑完 | 30 个配置项全部被读取、全部有实机检查设置它；MCP 工具在文档、`tools/list`、应答三处一致（4 个）；skill 文件的命令数与 `ut --version` 一致，`ut skill` 输出与文件逐字节相同；`creation_flags` 只剩 1 处；非测试代码 `unwrap` 0、`allow` 0 |
+| 3 | 可复现性 | release | — | — | 同样的 6 条 MCP 请求跑 3 次，输出哈希相同；侧栏截图 3 次，两两 0 像素差异；`ut skill` 两次相同；第 1、2 轮实机输出 104 行 0 处不同 |
+
+### 额外的验证
+
+- **真实 agent**：Claude Code（claude-haiku-5-5）通过 `ut mcp` 的 `history_search` 查询 "deploy"，回答 `echo deploy-staging-5520`，正确。
+- **真实 keepane 数据**（只读）：默认 socket 上 `keepane list-agents -J` 返回 3 个 agent，侧栏显示 3 张卡片。记录里只有数字，没有内容。
+
+### 已知限制
+
+- 侧栏没有在"测试服务里有真 agent"的条件下自动检查过：卡片的检查用虚构夹具，真实数据只做了一次只读的手工核对。
+- 命令的错误输出不是 UTF-8 时（例如 cmd 的中文提示），侧栏里的那行字会是乱码。keepane 自己输出 UTF-8，不受影响。
+- `ut mcp` 不支持 JSON-RPC 批量请求（2025-03-26 版允许，2025-06-18 版已去掉）。
+- 侧栏宽度固定为 300 像素。
+- 把 `ut mcp` 注册进用户自己的 Claude Code（`claude mcp add uni-term -- ut mcp`）需要用户来做。
+
 ## 2026-11-18 · M5 图片与 markdown
 
 范围：

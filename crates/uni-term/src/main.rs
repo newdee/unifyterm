@@ -5,6 +5,7 @@
 // A release build on Windows is a window program: no console opens with it.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod agents;
 mod boxdraw;
 mod candidates;
 mod config;
@@ -23,21 +24,24 @@ mod theme;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{
-    App, Application, Bounds, Context, Entity, KeyBinding, MouseButton, SharedString, Subscription, TitlebarOptions,
-    Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, size,
+    App, Application, Bounds, ClipboardItem, Context, Entity, KeyBinding, MouseButton, SharedString, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, size,
 };
 
 use config::Config;
 use shell::{Commands, Hooks};
 use terminal::{Settings, TerminalEvent, TerminalView};
 
-actions!(uni_term, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste]);
+actions!(uni_term, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents]);
 
 const APP_NAME: &str = "uni-term";
 const WINDOW_SIZE: (f32, f32) = (960., 620.);
 const TAB_BAR_HEIGHT: f32 = 34.;
+/// The agents' sidebar, in pixels.
+const SIDEBAR_WIDTH: f32 = 300.;
 /// The longest title a tab shows, in characters.
 const TAB_TITLE_CHARS: usize = 28;
 const USAGE: &str = "usage: uni-term [--config FILE] [-e PROGRAM [ARGS...]]
@@ -149,6 +153,19 @@ struct Workspace {
     hooks: Option<Hooks>,
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
+    sidebar: Sidebar,
+}
+
+/// The agents' sidebar.
+#[derive(Default)]
+struct Sidebar {
+    shown: bool,
+    agents: Option<agents::Agents>,
+    /// Counts the times it was shown: a poll started for an earlier time stops.
+    shown_times: u64,
+    quiet: agents::Quiet,
+    /// What the last click did.
+    note: Option<String>,
 }
 
 /// What the window starts with.
@@ -168,8 +185,12 @@ impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
         let Start { settings, commands, recorder, hooks, helper, command, notices } = start;
-        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, helper };
+        let sidebar = Sidebar::default();
+        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, helper, sidebar };
         workspace.open(command, window, cx);
+        if workspace.settings.config.agents.sidebar {
+            workspace.toggle_agents(cx);
+        }
         if let (Some(tab), false) = (workspace.tabs.first(), notices.is_empty()) {
             let text: Vec<String> = notices.iter().map(|notice| format!("{APP_NAME}: {notice}")).collect();
             tab.view.update(cx, |view, _| view.announce(&text.join("\n")));
@@ -287,6 +308,118 @@ impl Workspace {
         }
     }
 
+    /// Shows or hides the agents' sidebar. While it shows, the agents are
+    /// asked for every `agents.poll_ms`; while it is hidden, nothing runs.
+    fn toggle_agents(&mut self, cx: &mut Context<'_, Self>) {
+        let sidebar = &mut self.sidebar;
+        sidebar.shown = !sidebar.shown;
+        cx.notify();
+        if !sidebar.shown {
+            return;
+        }
+        sidebar.shown_times += 1;
+        sidebar.note = None;
+        // What it showed before may be old by now: "asking" until the first answer.
+        sidebar.agents = None;
+        let time = sidebar.shown_times;
+        let command = self.settings.config.agents.command.clone();
+        let every = Duration::from_millis(self.settings.config.agents.poll_ms);
+        cx.spawn(async move |this, cx| {
+            let wanted = |this: &Workspace| this.sidebar.shown && this.sidebar.shown_times == time;
+            while this.read_with(cx, |this, _| wanted(this)).unwrap_or(false) {
+                let command = command.clone();
+                let found = cx.background_spawn(async move { agents::ask(&command) }).await;
+                let kept = this.update(cx, |this, cx| {
+                    if !wanted(this) {
+                        return false;
+                    }
+                    this.sidebar.quiet.log(&found);
+                    this.sidebar.agents = Some(found);
+                    cx.notify();
+                    true
+                });
+                if !kept.unwrap_or(false) {
+                    break;
+                }
+                cx.background_executor().timer(every).await;
+            }
+        })
+        .detach();
+    }
+
+    /// Brings an agent's pane to the front (`agents.focus`); when that fails,
+    /// its place goes to the clipboard instead.
+    fn go_to(&mut self, agent: &agents::Agent, cx: &mut Context<'_, Self>) {
+        let command = agents::focus_command(&self.settings.config.agents.focus, &agent.pane);
+        let (pane, place) = (agent.pane.clone(), agent.target.clone());
+        cx.spawn(async move |this, cx| {
+            let done = cx.background_spawn(async move { agents::focus(&command) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.sidebar.note = Some(match done {
+                    Ok(()) => format!("Went to {pane}."),
+                    Err(error) => {
+                        log::warn!("agents: going to {pane}: {error}");
+                        let copied = if place.is_empty() { pane } else { place };
+                        cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+                        format!("Could not go there ({error}); {copied} is copied.")
+                    }
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The sidebar: a card for each agent, or a line saying why there are none.
+    fn sidebar(&self, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let theme = &self.settings.theme;
+        let (background, foreground) = (theme.background, theme.foreground);
+        let dim = foreground.toward(background, 0.45);
+        let card_color = background.toward(foreground, 0.06);
+        let listed = match &self.sidebar.agents {
+            Some(agents::Agents::Listed(agents)) => agents.clone(),
+            _ => Vec::new(),
+        };
+        let notice =
+            self.sidebar.agents.as_ref().map_or_else(|| agents::Agents::Asking.notice(), agents::Agents::notice);
+        let count = if listed.is_empty() { String::new() } else { format!(" ({})", listed.len()) };
+        let cards = listed.into_iter().enumerate().map(|(index, agent)| {
+            let (title, place, figures) = (agent.title(), agent.place(), agent.figures());
+            div()
+                .id(("agent", index))
+                .p_2()
+                .rounded_md()
+                .bg(rgb(card_color.hex()))
+                .hover(|card| card.bg(rgb(background.toward(foreground, 0.12).hex())))
+                .cursor_pointer()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .on_click(cx.listener(move |this, _, _, cx| this.go_to(&agent, cx)))
+                .child(div().text_color(rgb(foreground.hex())).child(SharedString::from(title)))
+                .child(div().text_color(rgb(dim.hex())).child(SharedString::from(place)))
+                .child(div().text_color(rgb(dim.hex())).text_size(px(12.)).child(SharedString::from(figures)))
+        });
+        div()
+            .id("agents")
+            .w(px(SIDEBAR_WIDTH))
+            .flex_none()
+            .h_full()
+            .overflow_y_scroll()
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .bg(rgb(background.toward(theme::Rgb(0, 0, 0), 0.2).hex()))
+            .text_color(rgb(foreground.hex()))
+            .child(div().child(SharedString::from(format!("Agents{count}"))))
+            .children(notice.map(|notice| div().text_color(rgb(dim.hex())).child(SharedString::from(notice))))
+            .children(cards)
+            .children(
+                self.sidebar.note.clone().map(|note| div().text_color(rgb(dim.hex())).child(SharedString::from(note))),
+            )
+    }
+
     /// Goes to the tab beside the active one, around the ends.
     fn step(&mut self, step: Step, window: &mut Window, cx: &mut Context<'_, Self>) {
         let count = self.tabs.len();
@@ -390,8 +523,18 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(Step::Next, window, cx)))
             .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(Step::Previous, window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_agents(cx)))
             .child(div().flex().flex_none().h(px(TAB_BAR_HEIGHT)).children(tabs).child(add))
-            .children(self.tabs.get(self.active).map(|tab| div().flex_1().min_h_0().child(tab.view.clone())))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .children(
+                        self.tabs.get(self.active).map(|tab| div().flex_1().min_w_0().h_full().child(tab.view.clone())),
+                    )
+                    .when(self.sidebar.shown, |area| area.child(self.sidebar(cx))),
+            )
     }
 }
 
@@ -399,10 +542,16 @@ impl Render for Workspace {
 /// where Ctrl alone belongs to the program in the terminal; Cmd on macOS.
 fn key_bindings() -> Vec<KeyBinding> {
     #[cfg(target_os = "macos")]
-    let keys = [("cmd-t", 0), ("cmd-w", 1), ("cmd-c", 4), ("cmd-v", 5)];
+    let keys = [("cmd-t", 0), ("cmd-w", 1), ("cmd-c", 4), ("cmd-v", 5), ("cmd-shift-a", 6)];
     #[cfg(not(target_os = "macos"))]
-    let keys =
-        [("ctrl-shift-t", 0), ("ctrl-shift-w", 1), ("ctrl-shift-c", 4), ("ctrl-shift-v", 5), ("shift-insert", 5)];
+    let keys = [
+        ("ctrl-shift-t", 0),
+        ("ctrl-shift-w", 1),
+        ("ctrl-shift-c", 4),
+        ("ctrl-shift-v", 5),
+        ("shift-insert", 5),
+        ("ctrl-shift-a", 6),
+    ];
     let common = [("ctrl-tab", 2), ("ctrl-shift-tab", 3)];
     keys.into_iter()
         .chain(common)
@@ -412,7 +561,8 @@ fn key_bindings() -> Vec<KeyBinding> {
             2 => KeyBinding::new(key, NextTab, None),
             3 => KeyBinding::new(key, PreviousTab, None),
             4 => KeyBinding::new(key, Copy, None),
-            _ => KeyBinding::new(key, Paste, None),
+            5 => KeyBinding::new(key, Paste, None),
+            _ => KeyBinding::new(key, ToggleAgents, None),
         })
         .collect()
 }

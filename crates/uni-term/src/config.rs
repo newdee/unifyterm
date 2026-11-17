@@ -15,6 +15,7 @@ const LINE_HEIGHTS: std::ops::RangeInclusive<f32> = 1.0..=2.0;
 const MAX_SCROLLBACK: usize = 1_000_000;
 const MAX_PADDING: f32 = 64.0;
 const CANDIDATE_LIMITS: std::ops::RangeInclusive<usize> = 1..=20;
+const POLL_TIMES: std::ops::RangeInclusive<u64> = 500..=60_000;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -26,6 +27,7 @@ pub(crate) struct Config {
     pub(crate) commands: CommandsConfig,
     pub(crate) history: HistoryConfig,
     pub(crate) ai: AiConfig,
+    pub(crate) agents: AgentsConfig,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -165,6 +167,32 @@ impl Default for AiConfig {
     }
 }
 
+/// The sidebar with the agents keepane watches (Ctrl-Shift-A).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct AgentsConfig {
+    /// Show the sidebar when the window opens.
+    pub(crate) sidebar: bool,
+    /// How often the list is asked for while the sidebar shows, in milliseconds.
+    pub(crate) poll_ms: u64,
+    /// The program and its arguments that print the agents as JSON.
+    pub(crate) command: Vec<String>,
+    /// The program and its arguments that bring an agent's pane to the front; `{pane}` is its number.
+    pub(crate) focus: Vec<String>,
+}
+
+impl Default for AgentsConfig {
+    fn default() -> Self {
+        let words = |words: &[&str]| words.iter().map(|&word| word.to_owned()).collect();
+        Self {
+            sidebar: false,
+            poll_ms: 2000,
+            command: words(&["keepane", "list-agents", "-J"]),
+            focus: words(&["keepane", "focus-pane", "{pane}"]),
+        }
+    }
+}
+
 /// Colors as `#rrggbb`. Any left out keep the built-in theme's value.
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -215,6 +243,15 @@ impl Config {
         if !CANDIDATE_LIMITS.contains(&config.history.limit) {
             let (low, high) = (CANDIDATE_LIMITS.start(), CANDIDATE_LIMITS.end());
             bail!("history.limit is {}: it must be from {low} to {high}", config.history.limit);
+        }
+        if !POLL_TIMES.contains(&config.agents.poll_ms) {
+            let (low, high) = (POLL_TIMES.start(), POLL_TIMES.end());
+            bail!("agents.poll_ms is {}: it must be from {low} to {high}", config.agents.poll_ms);
+        }
+        for (key, words) in [("agents.command", &config.agents.command), ("agents.focus", &config.agents.focus)] {
+            if words.first().is_none_or(|program| program.trim().is_empty()) {
+                bail!("{key} is empty: it is a program and its arguments, as [\"keepane\", ...]");
+            }
         }
         if config.ai.provider != Provider::None {
             if config.ai.model.trim().is_empty() {
@@ -337,6 +374,15 @@ mod tests {
         assert!(error("[ai]\nprovider = \"anthropic\"\nmodel = \"m\"").contains("ai.api_key_env"));
         assert!(error("[ai]\nprovider = \"openai-compatible\"\nmodel = \"m\"").contains("ai.base_url"));
         assert!(error("[ai]\nprovider = \"gpt\"").contains("gpt"), "an unknown provider is named");
+        assert!(error("[agents]\npoll_ms = 100").contains("agents.poll_ms is 100"));
+        assert!(error("[agents]\ncommand = []").contains("agents.command is empty"));
+        assert!(error("[agents]\nfocus = [\"\"]").contains("agents.focus is empty"));
+        let agents =
+            Config::parse("[agents]\nsidebar = true\ncommand = [\"keepane\", \"-L\", \"x\", \"list-agents\", \"-J\"]")
+                .unwrap()
+                .agents;
+        assert!(agents.sidebar);
+        assert_eq!((agents.command.len(), agents.poll_ms, agents.focus[1].as_str()), (5, 2000, "focus-pane"));
         let fine = Config::parse("[ai]\nprovider = \"openai-compatible\"\nmodel = \"llama3\"\nbase_url = \"http://localhost:11434/v1\"\nsuggest = false").unwrap();
         assert_eq!((fine.ai.provider, fine.ai.suggest, fine.ai.fix), (Provider::OpenaiCompatible, false, true));
     }

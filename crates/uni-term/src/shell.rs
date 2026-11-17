@@ -71,17 +71,25 @@ fn ut_program() -> Result<PathBuf> {
     Ok(ut)
 }
 
+/// Starts `command` with no console window: on Windows a console program
+/// started by a window program would otherwise get one. Elsewhere nothing changes.
+pub(crate) fn no_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        /// `CREATE_NO_WINDOW`.
+        const NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 /// Runs `ut` with `args` and gives what it printed. No console window opens for it.
 fn run_ut(ut: &Path, args: &[OsString]) -> Result<String> {
     let mut command = Command::new(ut);
     command.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        /// `CREATE_NO_WINDOW`: a console program started by a window program gets no console window.
-        const NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(NO_WINDOW);
-    }
+    no_window(&mut command);
     let output = command.output().with_context(|| format!("start {}", ut.display()))?;
     if !output.status.success() {
         bail!("{}", String::from_utf8_lossy(&output.stderr).trim());

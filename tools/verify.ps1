@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|graphics] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|graphics|agents] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'graphics')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'graphics', 'agents')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -574,6 +574,113 @@ if ($Section -in 'all', 'graphics') {
     Run 'gfx-none' ("echo none{ENTER}{WAIT:1500}{MEM:gfx-none}") | Out-Null
     $grown = ([long](Get-Content (Join-Path $work 'gfx-many.mem')) - [long](Get-Content (Join-Path $work 'gfx-none.mem'))) / 1MB
     Report 'thirty 16 MiB pictures: memory stays under the limit' ($grown -lt 356) ("{0:N0} MiB more than with no picture (limit: 256 MiB of pictures + 100)" -f $grown)
+}
+if ($Section -in 'all', 'agents') {
+    "--- agents ---"
+    $utExe = Join-Path (Split-Path $Exe) 'ut.exe'
+    # Made-up agents in keepane's shape (crates/uni-term/tests/fixtures/agents.json): two of them.
+    $fixture = Join-Path $work 'agents.json'
+    Copy-Item (Join-Path $PSScriptRoot '..\crates\uni-term\tests\fixtures\agents.json') $fixture
+    $list = "command = ['$utExe', 'cat', '$fixture']"
+    $logFile = Join-Path $env:UNI_TERM_DATA_DIR 'uni-term.log'
+    function Logged { if (Test-Path $logFile) { Get-Content $logFile -Raw } else { '' } }
+    # The sidebar's cards: runs of the card color, at least 40 px tall, down a column inside them.
+    function Cards([string]$name) {
+        $i = [System.Drawing.Bitmap]::FromFile((Join-Path $work "$name.png"))
+        try {
+            $right = $i.Width - 8; $x = $right - 300 + 12; $back = $i.GetPixel($right - 300 + 4, $i.Height - 30)
+            $runs = 0; $run = 0
+            for ($y = 95; $y -lt $i.Height - 10; $y++) {
+                $p = $i.GetPixel($x, $y)
+                $differs = [Math]::Abs($p.R - $back.R) + [Math]::Abs($p.G - $back.G) + [Math]::Abs($p.B - $back.B) -gt 6
+                if ($differs) { $run++ } else { if ($run -ge 40) { $runs++ }; $run = 0 }
+            }
+            $runs
+        } finally { $i.Dispose() }
+    }
+
+    Run 'agents-shown' "{WAIT:1500}" "[agents]`nsidebar = true`n$list" | Out-Null
+    Report 'agents.sidebar = true: a card for each agent' ((Cards 'agents-shown') -eq 2) "cards: $(Cards 'agents-shown') (the list has 2)"
+    Run 'agents-hidden' "{WAIT:1500}" "[agents]`n$list" | Out-Null
+    Report 'by default the sidebar is hidden' ((Cards 'agents-hidden') -eq 0) "cards: $(Cards 'agents-hidden')"
+    Run 'agents-key' "{KEY:CTRL+SHIFT+A}{WAIT:1500}" "[agents]`n$list" | Out-Null
+    Run 'agents-key-twice' "{KEY:CTRL+SHIFT+A}{WAIT:1500}{KEY:CTRL+SHIFT+A}{WAIT:800}" "[agents]`n$list" | Out-Null
+    Report 'Ctrl-Shift-A shows the sidebar, and hides it again' ((Cards 'agents-key') -eq 2 -and (Cards 'agents-key-twice') -eq 0) "cards: $(Cards 'agents-key'), then $(Cards 'agents-key-twice')"
+
+    # A click on the first card runs agents.focus with its pane; when that fails, the place is copied.
+    $went = Join-Path $work 'went'
+    New-Item -ItemType Directory -Force $went | Out-Null
+    $t = Run 'agents-go' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}echo typed-after-click{ENTER}{WAIT:600}" "[agents]`nsidebar = true`n$list`nfocus = ['$utExe', 'touch', '$went\{pane}']"
+    $made = @(Get-ChildItem $went -Name)
+    Report 'a click on a card runs agents.focus with its pane' ($made.Count -eq 1 -and $made[0] -eq '%12') "made: $($made -join ', ') (the first card's pane is %12)"
+    Report 'after a click on a card, the keys still go to the terminal' ((Count $t 'typed-after-click') -ge 2) "'typed-after-click' on the screen: $(Count $t 'typed-after-click') (the line and its output)"
+    $saved = Get-Clipboard -Raw
+    try {
+        Set-Clipboard 'nothing yet'
+        Run 'agents-copy' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}" "[agents]`nsidebar = true`n$list`nfocus = ['uni-term-no-such-program', '{pane}']" | Out-Null
+        $copied = Get-Clipboard -Raw
+        Report 'when going there fails, the place is copied' ($copied -eq 'work:1.0' -and (Logged) -match 'going to %12') "clipboard: '$copied'; logged: $((Logged) -match 'going to %12')"
+    } finally { if ($null -ne $saved) { Set-Clipboard -Value $saved } }
+
+    # keepane's troubles: a line in the sidebar and one in the log, and the terminal works on.
+    $t = Run 'agents-noserver' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`npoll_ms = 500`ncommand = ['keepane', '-L', 'uni-term-test-none', 'list-agents', '-J']"
+    $noServer = ([regex]::Matches((Logged), 'agents: keepane: no server running')).Count
+    Report 'no keepane server: said once, and the terminal works on' ($noServer -eq 1 -and (Count $t 'still-fine') -ge 2 -and (Cards 'agents-noserver') -eq 0) "log lines: $noServer (asked every 500 ms for 3 s: about 6 times); 'still-fine' on the screen: $(Count $t 'still-fine')"
+    $t = Run 'agents-noprogram' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`ncommand = ['uni-term-no-such-program']"
+    Report 'no keepane program: said, and the terminal works on' ((Logged) -match 'agents: uni-term-no-such-program was not found' -and (Count $t 'still-fine') -ge 2) "logged: $((Logged) -match 'was not found'); 'still-fine' on the screen: $(Count $t 'still-fine')"
+    if (Get-Command keepane -ErrorAction SilentlyContinue) {
+        # A test server of our own (socket uni-term-test), with two panes and no agent in them.
+        # keepane saves a server's sessions when it stops, and keeps a copy of PowerShell's history
+        # for each pane: each session is stopped and forgotten first, then the socket's folder goes.
+        function Clear-TestKeepane {
+            foreach ($name in @(keepane -L uni-term-test list-saved 2>$null | ForEach-Object { if ($_ -match '^([^:]+): saved') { $Matches[1] } })) {
+                keepane -L uni-term-test kill-session -t $name 2>&1 | Out-Null
+                keepane -L uni-term-test delete-saved $name 2>&1 | Out-Null
+            }
+            keepane -L uni-term-test kill-server 2>&1 | Out-Null
+            Remove-Item (Join-Path $env:LOCALAPPDATA 'keepane\sessions-uni-term-test') -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Clear-TestKeepane
+        keepane -L uni-term-test new-session -d -s verify -x 160 -y 50 2>&1 | Out-Null
+        keepane -L uni-term-test split-window -t verify 2>&1 | Out-Null
+        $panes = @(keepane -L uni-term-test list-panes -a 2>$null).Count
+        try {
+            Run 'agents-keepane' "{WAIT:2500}" "[agents]`nsidebar = true`ncommand = ['keepane', '-L', 'uni-term-test', 'list-agents', '-J']" | Out-Null
+        } finally { Clear-TestKeepane }
+        $left = Test-Path (Join-Path $env:LOCALAPPDATA 'keepane\sessions-uni-term-test')
+        Report 'a real keepane with no agents: no cards, nothing logged' ($panes -eq 2 -and (Cards 'agents-keepane') -eq 0 -and (Logged) -notmatch 'uni-term-test[^-]' -and -not $left) "panes in the test server: $panes (2 made); cards: $(Cards 'agents-keepane'); its folder left after: $left"
+    } else {
+        "SKIP  a real keepane with no agents: keepane is not installed here"
+    }
+
+    # Hidden, nothing runs; shown, the list is asked for every poll_ms; hidden again, it stops.
+    $count = Join-Path $work 'asked.txt'
+    $counting = "command = ['cmd', '/c', 'echo x>>$count& type $fixture']`npoll_ms = 500"
+    Run 'agents-idle' "{WAIT:6000}" "[agents]`n$counting" | Out-Null
+    $idle = if (Test-Path $count) { @(Get-Content $count).Count } else { 0 }
+    Run 'agents-polling' "{KEY:CTRL+SHIFT+A}{WAIT:3000}{KEY:CTRL+SHIFT+A}{WAIT:500}{SHOT:agents-polled}{WAIT:3000}" "[agents]`n$counting" | Out-Null
+    $polled = if (Test-Path $count) { @(Get-Content $count).Count } else { 0 }
+    Report 'hidden: the list is never asked for; shown: every poll_ms' ($idle -eq 0 -and $polled -ge 4 -and $polled -le 8) "runs in 6 s hidden: $idle; in 3 s shown at 500 ms, then 3 s hidden: $polled (6 expected, 4 to 8 allowed)"
+
+    # ut mcp, as an agent's client: what a shell in uni-term ran is found.
+    Run 'agents-record' "echo mcp-probe-4217{ENTER}{WAIT:1200}" "" | Out-Null
+    function Ask-Mcp([string[]]$lines, [string]$data) {
+        $saved = $env:UNI_TERM_DATA_DIR; $env:UNI_TERM_DATA_DIR = $data
+        try { $lines | & $utExe mcp 2>$null | ForEach-Object { $_ | ConvertFrom-Json } } finally { $env:UNI_TERM_DATA_DIR = $saved }
+    }
+    $answers = @(Ask-Mcp @(
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}',
+        '{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"history_search","arguments":{"query":"mcp-probe"}}}'
+    ) $env:UNI_TERM_DATA_DIR)
+    $found = if ($answers.Count -eq 3) { @($answers[2].result.content[0].text | ConvertFrom-Json) } else { @() }
+    Report 'ut mcp: a client finds the command a shell ran' ($answers.Count -eq 3 -and $answers[1].result.tools.Count -eq 4 -and $found.Count -ge 1 -and $found[0].command -eq 'echo mcp-probe-4217') "answers: $($answers.Count); tools: $($answers[1].result.tools.Count); found: $($found | ForEach-Object command)"
+    $empty = Join-Path $work 'no-data'
+    New-Item -ItemType Directory -Force $empty | Out-Null
+    $none = @(Ask-Mcp @('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history_recent","arguments":{}}}') $empty)
+    $left = @(Get-ChildItem $empty -Force).Count
+    Report 'ut mcp with no history: an empty list, and no file made' ($none.Count -eq 1 -and $none[0].result.content[0].text -eq '[]' -and $left -eq 0) "answer: $($none[0].result.content[0].text); files made: $left"
 }
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 "$script:failed failed"

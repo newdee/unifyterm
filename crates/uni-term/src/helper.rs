@@ -287,13 +287,7 @@ fn own_help(ut: &std::path::Path, names: &[String], command: &str) -> Option<Str
     }
     let mut run = std::process::Command::new(ut);
     run.args([name, "--help"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        /// `CREATE_NO_WINDOW`: no console window opens for it.
-        const NO_WINDOW: u32 = 0x0800_0000;
-        run.creation_flags(NO_WINDOW);
-    }
+    crate::shell::no_window(&mut run);
     let output = run.output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     Some(text.chars().take(MOST).collect())

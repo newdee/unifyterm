@@ -346,7 +346,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><td>M3 历史与候选 <span class="tag ok">已验收</span></td><td>shell 钩子（pwsh、zsh、bash、fish）、history.db、候选列表、Ctrl-N/P 和方向键。</td><td>10 万条历史下，单次查询 p95 低于 5 ms；失败的命令排在成功的之后；含密钥模式的命令不入库。</td></tr>
     <tr><td>M4 AI <span class="tag ok">已验收</span></td><td>建议、纠正、解释；后端配置；脱敏。</td><td>无网络时终端全部功能照常，AI 功能安静地不可用；脱敏测试集 100% 命中。</td></tr>
     <tr><td>M5 图形与 markdown <span class="tag ok">已验收</span></td><td>GUI 支持 kitty graphics；<code>ut view</code> 降级链；<code>ut md</code>。</td><td>同一张图在 uni-term、Windows Terminal、纯文本管道里各自选对方式；image.nvim 在 uni-term 里显示图片。</td></tr>
-    <tr><td>M6 agent 接口</td><td>agent 侧栏（读 keepane）、<code>ut mcp</code>、skill 文件。</td><td>Claude Code 通过 MCP 查询历史并得到结果；skill 让 agent 在 Windows 上直接使用 <code>cat</code>、<code>jq</code>。</td></tr>
+    <tr><td>M6 agent 接口 <span class="tag ok">已验收</span></td><td>agent 侧栏（读 keepane）、<code>ut mcp</code>、skill 文件。</td><td>Claude Code 通过 MCP 查询历史并得到结果；skill 让 agent 在 Windows 上直接使用 <code>cat</code>、<code>jq</code>。</td></tr>
     <tr><td>M7 视频与发布</td><td>视频播放；MSI 与 winget、Homebrew、deb 与 AppImage；macOS 和 Linux 实机验证。</td><td>三个平台各有一个可安装包；同一份配置和历史文件在三个平台可用。</td></tr>
     <tr><td>自己的 shell <span class="tag">挂账</span></td><td>统一三个平台的 shell 语法。两条路线：嵌入 brush（bash 兼容，约一个里程碑），或从零写（以年计）。先不做，以后再定。</td><td>方案和通过线保留在 <code>docs/plan.md</code> 末尾。</td></tr>
   </table>
@@ -667,7 +667,7 @@ function renderMarkdown() {
   d.innerHTML = `<h1>uni-term</h1><p>一个终端，三个平台，<b>同一套命令</b>。下面这段由 <code>md README.md</code> 渲染。</p>
 <h2>安装</h2><pre><span class="c-dim"># Windows</span>\n<span class="c-green">winget</span> install uni-term\n<span class="c-dim"># macOS / Linux</span>\n<span class="c-green">brew</span> install uni-term</pre>
 <h2>内置命令</h2><table><tr><th>类别</th><th>命令</th><th>来源</th></tr><tr><td>文件</td><td><code>cat ls cp mv rm find</code></td><td>uutils</td></tr><tr><td>文本</td><td><code>grep rg sed sort jq</code></td><td>uutils · ripgrep · jaq</td></tr><tr><td>媒体</td><td><code>view md</code></td><td>uni-term</td></tr></table>
-<ul><li>历史候选：<code>Ctrl-N</code> / <code>Ctrl-P</code></li><li>解释命令：<code>Ctrl-Shift-E</code></li></ul>
+<ul><li>历史候选：<code>Ctrl-N</code> / <code>Ctrl-P</code></li><li>解释命令：<code>Ctrl-Shift-E</code></li><li>agent 侧栏：<code>Ctrl-Shift-A</code></li></ul>
 <blockquote>图片在 markdown 里同样走 <code>view</code> 的降级链：</blockquote>`;
   d.append(showMedia(state.gui ? "pixels" : "half", false));
   return d;
