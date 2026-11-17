@@ -1,17 +1,18 @@
-# 实施计划：M2.5 到 M7
+# 实施计划：M3 到 M7
 
-写于 2026-11-17。M0、M1、M2 已验收（见 `docs/verification-log.md`）。本文件规定剩下 6 个阶段各做什么、怎么设计、怎么验证。按步骤顺序执行。
+写于 2026-11-17。M0、M1、M2 已验收（见 `docs/verification-log.md`）。本文件规定剩下 5 个阶段各做什么、怎么设计、怎么验证。按步骤顺序执行。
 
 | 阶段 | 内容 | 依赖 |
 |---|---|---|
-| M2.5 | 自己的 shell：`ut sh`（嵌入 brush） | M2 |
-| M3 | shell 钩子、命令历史库、候选列表 | M2.5 的结论 |
+| M3 | shell 钩子、命令历史库、候选列表 | M2 |
 | M4 | AI：建议、纠正、解释 | M3 |
 | M5 | 图片（kitty graphics）、`ut view`、`ut md` | M1 |
 | M6 | agent 侧栏、`ut mcp`、skill | M3 |
 | M7 | 视频、安装包、三平台验证、发布 | 全部 |
 
 下一期（通信功能、可观测平台）见 `docs/roadmap.md`，M7 之后再规划。
+
+**挂账，不在当前顺序里：自己的 shell。** 用户 2026-11-17 决定先不做，等以后做自己的 shell 时再定路线。调研结果和验证方案保留在本文件末尾。在那之前，uni-term 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。
 
 ---
 
@@ -65,98 +66,6 @@
 
 ---
 
-## M2.5 自己的 shell：`ut sh`
-
-### 目标
-
-Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作为可选项，不改默认。
-
-### 已核实的事实（2026-11-17）
-
-- brush：MIT；`brush-core` 0.5.0（要求 Rust 1.88，本项目 1.93）；依赖 tokio。
-- 嵌入方式：`brush_core::Shell::builder().builtin(name, ...).build().await`，`shell.run_string(...)`。
-- 交互层：`brush-interactive` 0.4.0，基于 reedline。
-- 平台：Linux 和 macOS 是"日常可用"；**Windows 是"预览"，部分功能缺失**。
-- 兼容性：2500 多个用例与 bash 对比。缺 `select`、`wait -n`、`disown`、部分 trap。
-- 另有 `brush-coreutils-builtins` 0.1.0（把 uutils 做成内置命令）。
-
-### 第 0 步：先验证的事实（验证性实现，不合并）
-
-在分支 `spike/ut-sh` 上做。目的是决定"做"还是"不做"。
-
-1. 给 `crates/ut` 加依赖 `brush-core`、`brush-builtins`、`brush-interactive`。加命令 `sh`：`ut sh -c "..."`、`ut sh FILE`、无参数时交互。
-2. 写 60 条 shell 语言用例，存 `crates/ut/tests/shell/cases/*.sh`。覆盖：
-   - 管道、`&&`、`||`、`;`、退出码（10 条）
-   - 重定向 `>`、`>>`、`<`、`2>&1`、here-doc（8 条）
-   - 变量、引号、`${x:-y}`、`${x#p}`、数组（10 条）
-   - `$( )`、`( )`、算术 `$(( ))`（8 条）
-   - `if`、`for`、`while`、`case`、函数、`local`（12 条）
-   - 通配符、花括号展开、波浪号（6 条）
-   - `trap EXIT`、后台 `&` 加 `wait`、`set -e`（6 条）
-   用例只调用 `ut` 自带的命令，保证三个平台输入相同。
-3. 在 WSL 里用真正的 bash 运行这 60 条，把 stdout、stderr、退出码存成 golden。
-4. 用 `ut sh` 在 Windows 和 Linux 上运行，和 golden 逐字节比较。
-5. 在 uni-term 里启动 `ut sh`（配置 `[shell] program = "<ut 的路径>"`, `args = ["sh"]`），用 `tools/shot.ps1` 实测 6 项：提示符出现；能输入并运行 `echo ok`；Ctrl-C 中断 `sleep 30` 并回到提示符；Tab 补全一个路径；上方向键取回上一条；改窗口大小后 `tput cols` 或 `$COLUMNS` 正确。
-6. 测 `pwd`、`echo $PWD`、Tab 补全在 Windows 上输出的路径分隔符。
-7. 测启动时间：`ut sh -c true` 连跑 20 次取中位数。测 release 版 `ut.exe` 的大小。
-8. 查 `brush-coreutils-builtins` 固定的 uutils 版本，以及它怎样给内置命令做重定向。
-
-### 通过线
-
-| # | 条件 | 不满足时 |
-|---|---|---|
-| 1 | Windows 和 Linux 都能编译；`cargo clippy -D warnings` 通过 | 不做 |
-| 2 | Linux：60/60 与 bash 一致 | 低于 57 条：不做 |
-| 3 | Windows：至少 54/60（90%）。每条不一致都列出并判断是否可接受 | 低于 48 条（80%）：不做 |
-| 4 | 交互 6 项全部通过 | 任何一项失败且两天内修不好：不做 |
-| 5 | `ut sh -c true` 中位数不超过 100 ms | 记录，不阻塞 |
-| 6 | release 版 `ut.exe` 不超过 45 MB（现在 22 MB） | 记录，不阻塞 |
-
-"不做"时：把数字写进 `docs/verification-log.md`，删除分支，M3 只给系统 shell 写钩子。本节其余步骤跳过。
-
-### 设计（通过后）
-
-- **入口**：`ut sh`。不创建名为 `sh` 或 `bash` 的链接：别的工具调用 `bash` 时期望的是真正的 bash。
-- **`ut` 进入命令目录**：`ut --links` 额外创建 `ut` 自己的链接。这样终端里能敲 `ut sh`、`ut view`、`ut md`。（M2 的已知缺口。）
-- **配置**：不加新配置项。`[shell] program = "ut"`, `args = ["sh"]`。uni-term 把名字 `ut` 解析为它旁边的 `ut`。
-- **外部命令**：`cat`、`ls` 等先作为外部进程运行（shell 在 PATH 里找到命令目录）。不做进程内内置命令。只有第 0 步第 7 项测出进程启动是瓶颈时，才考虑内置化，并且先确认第 8 项的重定向做法可靠。
-- **通配符**：shell 自己展开。启动时设置 `UT_NO_GLOB=1`，子进程 `ut` 不再展开。
-- **路径**：`$PWD`、提示符、补全在 Windows 上显示 `C:/...`。不做 `/c/...` 形式，不做参数自动转换。
-- **启动文件**：只读 `<配置目录>/uni-term/shrc`。不读 `~/.bashrc`（里面常有只适用于真 bash 的内容）。
-- **终端标记**：`ut sh` 启动时如果 `TERM_PROGRAM=uni-term`，自动加载和 bash 相同的钩子脚本（M3 写）。
-- **PowerShell 和 cmd 的托管保留**，仍是默认。
-
-### 步骤
-
-1. 把 `spike/ut-sh` 的代码整理进主分支：`crates/ut/src/sh.rs`（入口和 tokio 运行时）、依赖、`ut --help` 里的说明。
-2. `links.rs`：命令清单加入 `ut`。更新 `links` 的测试和 `shell.rs` 里依赖清单的地方。
-3. `shell.rs`：`program = "ut"` 解析为同目录的 `ut`。加单元测试。
-4. `sh.rs`：设置 `UT_NO_GLOB`；Windows 上的路径显示；读 `shrc`。
-5. 把 60 条用例接入 `cargo test`（`crates/ut/tests/shell.rs`），Windows 和 Linux 共用一份 golden。已知不一致的用例单独列表，写明原因，不得静默跳过。
-6. `tools/verify.ps1` 加一节 `shell`：第 0 步第 5、6 项的 6+3 项检查。
-7. `tools/linux-test.sh`：加 `ut sh` 与 bash 的对比。
-
-### 验证
-
-- `cargo test`：60 条用例，Windows 至少 54 条一致，Linux 60 条。
-- 实机 9 项全部通过。
-- M2 的 59 项实机检查不变（证明默认 shell 的行为没有变化）。
-- 可复现性：60 条用例连跑 3 次，输出相同。
-
-### 验收标准
-
-1. 同一个脚本文件在 Windows 和 Linux 上用 `ut sh` 运行，输出逐字节一致（已知不一致的除外，且有清单）。
-2. 在 uni-term 里把 shell 设为 `ut sh`，能正常交互。
-3. `ut sh` 里 `pwd`、提示符、补全在 Windows 上都没有 `\`。
-4. 不设置时，行为和 M2 完全相同。
-
-### 风险
-
-- brush 的 Windows 支持不够成熟。退路：通过线已经规定了"不做"的条件。
-- brush 升级带来行为变化。对策：`Cargo.toml` 里固定小版本；60 条用例就是回归测试。
-
----
-
 ## M3 shell 钩子、命令历史、候选列表
 
 ### 目标
@@ -167,7 +76,7 @@ Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作�
 
 1. `rusqlite`（0.43，`bundled` 特性）里 FTS5 和 `trigram` 分词器可用。写 5 行测试：`CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')`，插入，`MATCH` 查询。
 2. alacritty_terminal 0.26 会忽略不认识的 OSC（133、633、7、9;9），不会把它们画到屏幕上。喂一段含这些序列的字节，检查屏幕文字。
-3. PSReadLine 默认的 Escape 键清空当前行；bash、zsh、fish、reedline 里 Ctrl-E 加 Ctrl-U 清空当前行。逐个实测。
+3. PSReadLine 默认的 Escape 键清空当前行；bash、zsh、fish 里 Ctrl-E 加 Ctrl-U 清空当前行。逐个实测。
 
 ### 设计
 
@@ -187,7 +96,7 @@ uni-term 识别这些标准序列（以 BEL 或 ST 结束）：
 | `OSC 133;D;<退出码>` | 命令结束 |
 | `OSC 7;file://host/path`、`OSC 9;9;<path>` | 当前目录 |
 | `OSC 633;E;<命令行>` | 命令文本。转义：`\` 写成 `\\`，`;` 写成 `\x3b`，小于 0x20 的字节写成 `\xHH` |
-| `OSC 633;P;Shell=<名字>` | shell 种类：`pwsh`、`bash`、`zsh`、`fish`、`ut-sh` |
+| `OSC 633;P;Shell=<名字>` | shell 种类：`pwsh`、`bash`、`zsh`、`fish` |
 
 用标准序列，不用私有序列：keepane 和其他工具也认识它们。
 
@@ -216,7 +125,7 @@ enum Phase { Unknown, Prompt, Input { start: (line, column) }, Running { command
 | shell | 注入方式 |
 |---|---|
 | pwsh、powershell | `start.ps1` 新增一段：包住现有的 `prompt` 函数，前后输出标记。命令文本取 `(Get-History -Count 1).CommandLine`，退出码取 `$?` 和 `$LASTEXITCODE`。现有的"默认提示符显示 `/`"逻辑保留在被包住的那一层。 |
-| bash、`ut sh` | `bash --rcfile <文件>`。文件先 source `~/.bashrc`，再加载钩子：`PS1` 前后加 A、B；`PS0` 输出 C；`PROMPT_COMMAND` 输出 D、目录和 `633;E`。 |
+| bash | `bash --rcfile <文件>`。文件先 source `~/.bashrc`，再加载钩子：`PS1` 前后加 A、B；`PS0` 输出 C；`PROMPT_COMMAND` 输出 D、目录和 `633;E`。 |
 | zsh | 设置 `ZDOTDIR` 指向我们的目录。那里的 `.zshrc` 先 source 用户原来的，再用 `add-zsh-hook precmd/preexec`。 |
 | fish | `fish --init-command 'source <文件>'`，用 `fish_prompt`、`fish_preexec`、`fish_postexec` 事件。 |
 | cmd.exe | 设置环境变量 `PROMPT=$E]133;A$E\$P$G$E]133;B$E\`。只有 A、B。命令文本从网格读，退出码未知。 |
@@ -323,6 +232,7 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 ### 步骤
 
 1. `UNI_TERM_DATA_DIR`：实现、文档、`tools/shot.ps1` 和 `tools/verify.ps1` 全部使用它。跑一遍 M2 的 59 项，确认不变。
+1b. `ut` 进入命令目录（M2 的已知缺口）：`ut --links` 额外创建 `ut` 自己的链接，终端里才能敲 `ut history`、`ut view`、`ut md`。更新 `links.rs` 的测试；实机检查加一条"敲 `ut --version` 有输出"。
 2. `marks.rs`：扫描器和单元测试（见"验证"）。
 3. `session.rs`：读线程先过扫描器；`Notice` 增加 `Mark`。
 4. `prompt.rs`：状态机和单元测试。
@@ -370,7 +280,7 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 1. 10 万条历史下，单次查询 p95 低于 5 ms。
 2. 失败过的命令排在同等条件下成功的命令之后（排序测试）。
 3. 密钥测试集 100% 命中，0 误伤。
-4. pwsh 7、Windows PowerShell 5.1、cmd、`ut sh`（如果 M2.5 通过）四种 shell 里候选列表都能出现。
+4. pwsh 7、Windows PowerShell 5.1、cmd 三种 shell 里候选列表都能出现。bash、zsh、fish 在 WSL 里验证钩子输出的标记（uni-term 的 Linux 界面要到 M7 才验证）。
 5. 关闭 `history.enabled` 后，行为与 M2 相同。
 
 ### 风险
@@ -733,7 +643,7 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 
 #### 2. 版本和许可证
 
-- 版本 0.1.0。`LICENSE`（MIT）。`THIRD-PARTY-NOTICES`：uutils、jaq、ripgrep 的库、brush、GPUI、alacritty_terminal、微软 ConPTY 等的许可证全文。
+- 版本 0.1.0。`LICENSE`（MIT）。`THIRD-PARTY-NOTICES`：uutils、jaq、ripgrep 的库、GPUI、alacritty_terminal、微软 ConPTY 等的许可证全文。
 - `uni-term --version`、`ut --version` 显示版本和 git 提交。
 
 #### 3. 安装包
@@ -755,9 +665,8 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 1. `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`。
 2. 构建 release。
 3. 运行 84 条命令记录（三个平台用同一份 golden）。
-4. 运行 60 条 shell 用例（如果 M2.5 通过）。
-5. GUI 冒烟测试：启动 uni-term，运行 `echo ok` 后退出，用 `--replay` 检查录下的输出里有 `ok`。Linux 用 xvfb 加 lavapipe。
-6. 打包，上传构建产物。
+4. GUI 冒烟测试：启动 uni-term，运行 `echo ok` 后退出，用 `--replay` 检查录下的输出里有 `ok`。Linux 用 xvfb 加 lavapipe。
+5. 打包，上传构建产物。
 
 推送和启用 CI 需要用户的远程仓库。
 
@@ -811,3 +720,101 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 - macOS 无法实机验证。对策：CI 构建加冒烟；在发布说明里写明验证程度。
 - GPUI 0.2.2 在 crates.io 上自 2025-10 起没有更新。对策：Linux、macOS 上遇到 GPUI 的问题时，评估改用 git 依赖并固定提交。
 - 没有代码签名时，Windows SmartScreen 和 macOS Gatekeeper 会警告。对策：文档写明；签名需要用户的证书。
+
+---
+
+## 挂账：自己的 shell（`ut sh`）
+
+**状态：挂账，未排期。** 用户 2026-11-17 决定：先不做，等以后做自己的 shell 时再说。下面是当时的调研和方案，原样保留。重新启动时先复核"已核实的事实"，那些会过期。
+
+有两条路线，届时再选：
+1. 嵌入 brush（下面的方案）。工作量约一个里程碑。
+2. 从零写。工作量以年计（语法、执行、交互三块，Windows 没有 `fork`）。
+
+### 目标
+
+Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作为可选项，不改默认。
+
+### 已核实的事实（2026-11-17）
+
+- brush：MIT；`brush-core` 0.5.0（要求 Rust 1.88，本项目 1.93）；依赖 tokio。
+- 嵌入方式：`brush_core::Shell::builder().builtin(name, ...).build().await`，`shell.run_string(...)`。
+- 交互层：`brush-interactive` 0.4.0，基于 reedline。
+- 平台：Linux 和 macOS 是"日常可用"；**Windows 是"预览"，部分功能缺失**。
+- 兼容性：2500 多个用例与 bash 对比。缺 `select`、`wait -n`、`disown`、部分 trap。
+- 另有 `brush-coreutils-builtins` 0.1.0（把 uutils 做成内置命令）。
+
+### 第 0 步：先验证的事实（验证性实现，不合并）
+
+在分支 `spike/ut-sh` 上做。目的是决定"做"还是"不做"。
+
+1. 给 `crates/ut` 加依赖 `brush-core`、`brush-builtins`、`brush-interactive`。加命令 `sh`：`ut sh -c "..."`、`ut sh FILE`、无参数时交互。
+2. 写 60 条 shell 语言用例，存 `crates/ut/tests/shell/cases/*.sh`。覆盖：
+   - 管道、`&&`、`||`、`;`、退出码（10 条）
+   - 重定向 `>`、`>>`、`<`、`2>&1`、here-doc（8 条）
+   - 变量、引号、`${x:-y}`、`${x#p}`、数组（10 条）
+   - `$( )`、`( )`、算术 `$(( ))`（8 条）
+   - `if`、`for`、`while`、`case`、函数、`local`（12 条）
+   - 通配符、花括号展开、波浪号（6 条）
+   - `trap EXIT`、后台 `&` 加 `wait`、`set -e`（6 条）
+   用例只调用 `ut` 自带的命令，保证三个平台输入相同。
+3. 在 WSL 里用真正的 bash 运行这 60 条，把 stdout、stderr、退出码存成 golden。
+4. 用 `ut sh` 在 Windows 和 Linux 上运行，和 golden 逐字节比较。
+5. 在 uni-term 里启动 `ut sh`（配置 `[shell] program = "<ut 的路径>"`, `args = ["sh"]`），用 `tools/shot.ps1` 实测 6 项：提示符出现；能输入并运行 `echo ok`；Ctrl-C 中断 `sleep 30` 并回到提示符；Tab 补全一个路径；上方向键取回上一条；改窗口大小后 `tput cols` 或 `$COLUMNS` 正确。
+6. 测 `pwd`、`echo $PWD`、Tab 补全在 Windows 上输出的路径分隔符。
+7. 测启动时间：`ut sh -c true` 连跑 20 次取中位数。测 release 版 `ut.exe` 的大小。
+8. 查 `brush-coreutils-builtins` 固定的 uutils 版本，以及它怎样给内置命令做重定向。
+
+### 通过线
+
+| # | 条件 | 不满足时 |
+|---|---|---|
+| 1 | Windows 和 Linux 都能编译；`cargo clippy -D warnings` 通过 | 不做 |
+| 2 | Linux：60/60 与 bash 一致 | 低于 57 条：不做 |
+| 3 | Windows：至少 54/60（90%）。每条不一致都列出并判断是否可接受 | 低于 48 条（80%）：不做 |
+| 4 | 交互 6 项全部通过 | 任何一项失败且两天内修不好：不做 |
+| 5 | `ut sh -c true` 中位数不超过 100 ms | 记录，不阻塞 |
+| 6 | release 版 `ut.exe` 不超过 45 MB（现在 22 MB） | 记录，不阻塞 |
+
+"不做"时：把数字写进 `docs/verification-log.md`，删除分支，M3 只给系统 shell 写钩子。本节其余步骤跳过。
+
+### 设计（通过后）
+
+- **入口**：`ut sh`。不创建名为 `sh` 或 `bash` 的链接：别的工具调用 `bash` 时期望的是真正的 bash。
+- **`ut` 进入命令目录**：已移到 M3 的步骤里做（`ut history`、`ut view`、`ut md` 也需要它）。
+- **配置**：不加新配置项。`[shell] program = "ut"`, `args = ["sh"]`。uni-term 把名字 `ut` 解析为它旁边的 `ut`。
+- **外部命令**：`cat`、`ls` 等先作为外部进程运行（shell 在 PATH 里找到命令目录）。不做进程内内置命令。只有第 0 步第 7 项测出进程启动是瓶颈时，才考虑内置化，并且先确认第 8 项的重定向做法可靠。
+- **通配符**：shell 自己展开。启动时设置 `UT_NO_GLOB=1`，子进程 `ut` 不再展开。
+- **路径**：`$PWD`、提示符、补全在 Windows 上显示 `C:/...`。不做 `/c/...` 形式，不做参数自动转换。
+- **启动文件**：只读 `<配置目录>/uni-term/shrc`。不读 `~/.bashrc`（里面常有只适用于真 bash 的内容）。
+- **终端标记**：`ut sh` 启动时如果 `TERM_PROGRAM=uni-term`，自动加载和 bash 相同的钩子脚本（M3 写）。
+- **PowerShell 和 cmd 的托管保留**，仍是默认。
+
+### 步骤
+
+1. 把 `spike/ut-sh` 的代码整理进主分支：`crates/ut/src/sh.rs`（入口和 tokio 运行时）、依赖、`ut --help` 里的说明。
+2. （已移到 M3。）
+3. `shell.rs`：`program = "ut"` 解析为同目录的 `ut`。加单元测试。
+4. `sh.rs`：设置 `UT_NO_GLOB`；Windows 上的路径显示；读 `shrc`。
+5. 把 60 条用例接入 `cargo test`（`crates/ut/tests/shell.rs`），Windows 和 Linux 共用一份 golden。已知不一致的用例单独列表，写明原因，不得静默跳过。
+6. `tools/verify.ps1` 加一节 `shell`：第 0 步第 5、6 项的 6+3 项检查。
+7. `tools/linux-test.sh`：加 `ut sh` 与 bash 的对比。
+
+### 验证
+
+- `cargo test`：60 条用例，Windows 至少 54 条一致，Linux 60 条。
+- 实机 9 项全部通过。
+- M2 的 59 项实机检查不变（证明默认 shell 的行为没有变化）。
+- 可复现性：60 条用例连跑 3 次，输出相同。
+
+### 验收标准
+
+1. 同一个脚本文件在 Windows 和 Linux 上用 `ut sh` 运行，输出逐字节一致（已知不一致的除外，且有清单）。
+2. 在 uni-term 里把 shell 设为 `ut sh`，能正常交互。
+3. `ut sh` 里 `pwd`、提示符、补全在 Windows 上都没有 `\`。
+4. 不设置时，行为和 M2 完全相同。
+
+### 风险
+
+- brush 的 Windows 支持不够成熟。退路：通过线已经规定了"不做"的条件。
+- brush 升级带来行为变化。对策：`Cargo.toml` 里固定小版本；60 条用例就是回归测试。
