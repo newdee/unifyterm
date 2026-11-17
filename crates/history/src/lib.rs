@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _, params};
 
-pub use secrets::{Refusal, refusal};
+pub use secrets::{Refusal, redact, refusal};
 
 /// The environment variable that puts all of uni-term's data (command
 /// links, start scripts, history, log) in another directory: tests use it,

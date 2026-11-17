@@ -41,6 +41,11 @@ pub(crate) struct Finished {
     pub(crate) duration_ms: Option<i64>,
     /// `None` when no hook said which shell this is.
     pub(crate) shell: Option<String>,
+    /// The line the command was typed on (counted from the top of the
+    /// history), when known: its output is on the lines below.
+    pub(crate) line: Option<usize>,
+    /// What it printed, as the screen shows it; filled in by the screen.
+    pub(crate) output: String,
 }
 
 /// One session's shell, as its marks tell it.
@@ -54,11 +59,13 @@ pub(crate) struct Prompt {
     /// The input line at Enter.
     typed: Option<String>,
     started: Option<Instant>,
+    /// The line the input was on at Enter.
+    line: Option<usize>,
 }
 
 impl Default for Prompt {
     fn default() -> Self {
-        Self { phase: Phase::Unknown, cwd: None, shell: None, said: None, typed: None, started: None }
+        Self { phase: Phase::Unknown, cwd: None, shell: None, said: None, typed: None, started: None, line: None }
     }
 }
 
@@ -110,9 +117,10 @@ impl Prompt {
     /// The user pressed Enter with `input` on the input line. Only at the
     /// input line: Enter in a running program is the program's.
     pub(crate) fn enter(&mut self, input: Option<String>, now: Instant) {
-        if let Phase::Input(_) = self.phase {
+        if let Phase::Input((line, _)) = self.phase {
             self.typed = input;
             self.started = Some(now);
+            self.line = Some(line);
             self.phase = Phase::Running;
         }
     }
@@ -121,11 +129,13 @@ impl Prompt {
     fn finish(&mut self, exit: Option<i32>, now: Instant) -> Option<Finished> {
         let text = self.said.take().or_else(|| self.typed.take()).map(|text| text.trim().to_owned());
         let started = self.started.take();
+        let line = self.line.take();
         self.typed = None;
         let text = text.filter(|text| !text.is_empty())?;
         let duration_ms =
             started.map(|started| i64::try_from(now.duration_since(started).as_millis()).unwrap_or(i64::MAX));
-        Some(Finished { text, cwd: self.cwd.clone(), exit, duration_ms, shell: self.shell.clone() })
+        let (cwd, shell) = (self.cwd.clone(), self.shell.clone());
+        Some(Finished { text, cwd, exit, duration_ms, shell, line, output: String::new() })
     }
 }
 
@@ -162,7 +172,9 @@ mod tests {
                 cwd: Some("/home/me".into()),
                 exit: Some(2),
                 duration_ms: Some(250),
-                shell: Some("bash".into())
+                shell: Some("bash".into()),
+                line: Some(3),
+                output: String::new(),
             }
         );
         assert_eq!(prompt.phase(), Phase::Unknown);

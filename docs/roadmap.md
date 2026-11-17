@@ -2,8 +2,8 @@
 
 ## 本期（M0–M7）
 
-- 已验收：M0、M1、M2、M3。每轮验收的数字见 `docs/verification-log.md`。
-- 未做：M4、M5、M6、M7。每个阶段做什么、怎么设计、怎么验证，见 `docs/plan.md`。
+- 已验收：M0、M1、M2、M3、M4。每轮验收的数字见 `docs/verification-log.md`。
+- 未做：M5、M6、M7。每个阶段做什么、怎么设计、怎么验证，见 `docs/plan.md`。
 - 方案总览见 `demo/index.html` 的"方案"页。
 
 ## 挂账（未排期）

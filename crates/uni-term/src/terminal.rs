@@ -14,6 +14,7 @@ use smol::channel::Receiver;
 use crate::candidates::{self, Candidates, Outcome};
 use crate::config::Config;
 use crate::frame::{self, CursorMark, Frame, StrokeKind};
+use crate::helper::{Consent, Feature, Helper, WHAT_IS_SENT};
 use crate::keys::{self, Mods, MouseAction};
 use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
@@ -85,7 +86,46 @@ pub(crate) struct TerminalView {
     recorder: Option<Recorder>,
     /// The commands from the history offered under the input line.
     candidates: Candidates,
+    /// Help with commands: fixes, suggestions, explanations.
+    helper: Arc<Helper>,
+    /// The box over the text, if one is open.
+    popup: Option<Popup>,
+    /// Counts the popups opened: an answer meant for one that is gone is dropped.
+    popup_number: u64,
+    /// The model's suggestion for the input line, shown in grey after the cursor.
+    suggestion: Option<String>,
+    /// The input last asked about: one question per pause in typing.
+    suggested_for: Option<String>,
+    /// This tab's last commands, newest first.
+    recent: Vec<String>,
 }
+
+/// What may be sent once the user agrees.
+#[derive(Debug, Clone)]
+enum Pending {
+    Suggest(String),
+    Fix { command: String, exit: Option<i32>, output: String },
+    Explain(String),
+}
+
+/// A box over the text, under the input line.
+#[derive(Debug, Clone)]
+enum Popup {
+    /// "May this be sent?": Enter yes, Esc no.
+    Consent(Pending),
+    /// A corrected command: Enter puts it on the input line, not run.
+    Fix(uni_assist::Fix),
+    /// The model is asked what a command means.
+    Waiting(String),
+    Explained(String, Vec<uni_assist::Part>),
+    /// A short line: why there is no answer.
+    Note(String),
+}
+
+/// How long typing must pause before the model is asked for a suggestion.
+const SUGGEST_PAUSE: std::time::Duration = std::time::Duration::from_millis(300);
+/// How many of a tab's last commands are kept for the model's context.
+const RECENT: usize = 5;
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
 
@@ -157,6 +197,7 @@ impl TerminalView {
         events: Receiver<PtyEvent>,
         settings: Arc<Settings>,
         recorder: Option<Recorder>,
+        helper: Arc<Helper>,
         cx: &mut Context<'_, Self>,
     ) -> Self {
         cx.spawn(async move |this, cx| {
@@ -197,6 +238,12 @@ impl TerminalView {
             reported: None,
             recorder,
             candidates: Candidates::default(),
+            helper,
+            popup: None,
+            popup_number: 0,
+            suggestion: None,
+            suggested_for: None,
+            recent: Vec::new(),
         }
     }
 
@@ -219,11 +266,209 @@ impl TerminalView {
                     cx.emit(TerminalEvent::Title);
                 }
                 Notice::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
-                Notice::Finished(finished) => cx.emit(TerminalEvent::Finished(finished)),
+                Notice::Finished(finished) => {
+                    self.recent.insert(0, finished.text.clone());
+                    self.recent.truncate(RECENT);
+                    // Failed, or a shell that does not say (cmd.exe): the output tells whether it was not found.
+                    if finished.exit.is_none_or(|exit| exit != 0) {
+                        self.offer_fix(&finished, cx);
+                    }
+                    cx.emit(TerminalEvent::Finished(finished));
+                }
             }
         }
         self.ask(cx);
+        self.suggest(cx);
         cx.notify();
+    }
+
+    /// Opens a popup; an answer for the one before is no longer wanted.
+    fn open(&mut self, popup: Popup) -> u64 {
+        self.popup = Some(popup);
+        self.popup_number += 1;
+        self.popup_number
+    }
+
+    /// For a command that was not found: the local fix, else the model's.
+    fn offer_fix(&mut self, finished: &crate::prompt::Finished, cx: &mut Context<'_, Self>) {
+        if let Some(fix) = self.helper.local_fix(&finished.text, &finished.output, finished.exit, &self.recent[1..]) {
+            self.open(Popup::Fix(fix));
+            return;
+        }
+        if !self.helper.wants_fix(&finished.output, finished.exit) {
+            return;
+        }
+        let pending =
+            Pending::Fix { command: finished.text.clone(), exit: finished.exit, output: finished.output.clone() };
+        self.send_to_model(pending, cx);
+    }
+
+    /// Asks the model, or first the user whether that may be done.
+    fn send_to_model(&mut self, pending: Pending, cx: &mut Context<'_, Self>) {
+        match self.helper.consent() {
+            Consent::Refused => {}
+            Consent::Unasked => {
+                self.open(Popup::Consent(pending));
+            }
+            Consent::Given => self.run(pending, cx),
+        }
+        cx.notify();
+    }
+
+    /// Sends a question the user has agreed to; the answer opens a popup (or shows the suggestion).
+    fn run(&mut self, pending: Pending, cx: &mut Context<'_, Self>) {
+        let shell = self.session.shell().unwrap_or("a shell").to_owned();
+        match pending {
+            Pending::Suggest(typed) => {
+                let cwd = self.session.cwd().unwrap_or_default().to_owned();
+                let Some(answer) = self.helper.suggest(typed, cwd, shell, self.recent.clone()) else { return };
+                cx.spawn(async move |this, cx| {
+                    let answered = answer.recv().await;
+                    if let Ok(Err(error)) = &answered {
+                        log::warn!("suggestion: {error}");
+                    }
+                    if let Ok(Ok(Some(completion))) = answered {
+                        let _ = this.update(cx, |view, cx| {
+                            // Only while the line still begins as it did.
+                            if view.session.input().is_some_and(|input| completion.starts_with(&input.text)) {
+                                view.suggestion = Some(completion);
+                                cx.notify();
+                            }
+                        });
+                    }
+                })
+                .detach();
+            }
+            Pending::Fix { command, exit, output } => {
+                let Some(answer) = self.helper.fix(command, exit, output, shell) else { return };
+                let number = self.popup_number;
+                cx.spawn(async move |this, cx| {
+                    let answered = answer.recv().await;
+                    if let Ok(Err(error)) = &answered {
+                        log::warn!("fix: {error}");
+                    }
+                    if let Ok(Ok(Some(fix))) = answered {
+                        let _ = this.update(cx, |view, cx| {
+                            // Not over a popup the user opened since.
+                            if view.popup.is_none() || view.popup_number == number {
+                                view.open(Popup::Fix(fix));
+                                cx.notify();
+                            }
+                        });
+                    }
+                })
+                .detach();
+            }
+            Pending::Explain(command) => {
+                let number = self.open(Popup::Waiting(command.clone()));
+                let Some(answer) = self.helper.explain(command.clone(), shell) else {
+                    self.open(Popup::Note("The model is not in use.".into()));
+                    return;
+                };
+                cx.spawn(async move |this, cx| {
+                    let answered = answer.recv().await;
+                    let _ = this.update(cx, |view, cx| {
+                        if view.popup_number != number {
+                            return; // Closed meanwhile.
+                        }
+                        view.popup = Some(match answered {
+                            Ok(Ok(parts)) => Popup::Explained(command, parts),
+                            Ok(Err(error)) => Popup::Note(error.to_string()),
+                            Err(_) => Popup::Note("No answer.".into()),
+                        });
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        }
+    }
+
+    /// After a pause in typing, asks the model for the rest of the line.
+    fn suggest(&mut self, cx: &mut Context<'_, Self>) {
+        let input = self.session.input().map(|input| input.text).filter(|text| !text.trim().is_empty());
+        if self
+            .suggestion
+            .as_ref()
+            .is_some_and(|completion| input.as_ref().is_none_or(|text| !completion.starts_with(text.as_str())))
+        {
+            self.suggestion = None;
+        }
+        let Some(typed) = input else { return };
+        if !self.helper.offers(Feature::Suggest) || self.helper.consent() == Consent::Refused {
+            return;
+        }
+        if self.suggested_for.as_deref() == Some(typed.as_str()) || self.candidates.visible().is_some() {
+            return;
+        }
+        self.suggested_for = Some(typed.clone());
+        cx.spawn(async move |this, cx| {
+            smol::Timer::after(SUGGEST_PAUSE).await;
+            let _ = this.update(cx, |view, cx| {
+                let still = view.session.input().is_some_and(|input| input.text == typed);
+                if still && view.popup.is_none() {
+                    view.send_to_model(Pending::Suggest(typed), cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Ctrl-Shift-E: what each part of the command on the line (or the last one) means.
+    fn explain(&mut self, cx: &mut Context<'_, Self>) {
+        let typed = self.session.input().map(|input| input.text).filter(|text| !text.trim().is_empty());
+        let Some(command) = typed.or_else(|| self.recent.first().cloned()) else {
+            self.open(Popup::Note("Type a command first: Ctrl-Shift-E explains the one on the line.".into()));
+            cx.notify();
+            return;
+        };
+        if !self.helper.has_model() {
+            self.open(Popup::Note("No model is set: [ai] in the settings names one.".into()));
+        } else if !self.helper.offers(Feature::Explain) {
+            self.open(Popup::Note("Explanations are off: ai.explain is false in the settings.".into()));
+        } else if self.helper.consent() == Consent::Refused {
+            self.open(Popup::Note("Sending to the model was declined; it is off until uni-term starts again.".into()));
+        } else {
+            self.send_to_model(Pending::Explain(command.trim().to_owned()), cx);
+        }
+        cx.notify();
+    }
+
+    /// A key while a popup is open: Enter and Esc are the popup's; any other key closes a
+    /// popup that is only shown (not the question), and goes on to the shell. `true`: taken.
+    fn popup_key(&mut self, key: &gpui::Keystroke, cx: &mut Context<'_, Self>) -> bool {
+        let Some(popup) = self.popup.clone() else { return false };
+        let held = key.modifiers;
+        let plain = !held.control && !held.shift && !held.alt;
+        match (key.key.as_str(), plain) {
+            ("enter", true) => {
+                self.popup = None;
+                match popup {
+                    Popup::Consent(pending) => {
+                        self.helper.agree();
+                        self.run(pending, cx);
+                    }
+                    Popup::Fix(fix) => self.fill(&fix.command, cx),
+                    Popup::Waiting(_) | Popup::Explained(..) | Popup::Note(_) => {}
+                }
+            }
+            ("escape", true) => {
+                self.popup = None;
+                if let Popup::Consent(_) = popup {
+                    self.helper.refuse();
+                }
+            }
+            _ => {
+                if !matches!(popup, Popup::Consent(_)) {
+                    self.popup = None;
+                }
+                cx.notify();
+                return false;
+            }
+        }
+        self.popup_number += 1;
+        cx.notify();
+        true
     }
 
     /// Asks the history about what is on the input line now, if that changed.
@@ -391,6 +636,15 @@ impl TerminalView {
             return;
         }
         let plain = !held.control && !held.shift && !held.alt;
+        if key.key == "e" && held.control && held.shift && !held.alt {
+            self.explain(cx);
+            cx.stop_propagation();
+            return;
+        }
+        if self.popup_key(key, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let list_key = match key.key.as_str() {
             "n" if held.control && !held.shift && !held.alt => Some(candidates::Key::Next),
             "p" if held.control && !held.shift && !held.alt => Some(candidates::Key::Previous),
@@ -403,6 +657,15 @@ impl TerminalView {
         };
         if let Some(list_key) = list_key {
             match self.candidates.key(list_key) {
+                // Right with no row chosen takes the model's suggestion, when there is one.
+                Outcome::Passed if list_key == candidates::Key::Take && key.key == "right" => {
+                    if let Some(completion) = self.shown_suggestion() {
+                        self.suggestion = None;
+                        self.fill(&completion, cx);
+                        cx.stop_propagation();
+                        return;
+                    }
+                }
                 Outcome::Passed => {}
                 Outcome::Taken => {
                     cx.notify();
@@ -420,6 +683,7 @@ impl TerminalView {
             // What is on the input line now is the command the shell is about to run.
             self.session.enter();
             self.candidates.question(None);
+            self.suggestion = None;
         }
         let mods = Mods { shift: held.shift, control: held.control, alt: held.alt };
         let cursor_keys = self.session.modes().cursor_keys;
@@ -653,7 +917,42 @@ impl Render for TerminalView {
                 .size_full(),
             )
             .children(self.candidate_list())
+            .children(self.suggestion_text())
+            .children(self.popup_box())
     }
+}
+
+/// How many cells `text` takes: two for a wide character (CJK), none for a combining one.
+fn width_of(text: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(text)
+}
+
+/// `text` in lines of at most `room` cells, broken between words where it
+/// can be, inside a word only when the word alone is wider.
+fn wrap(text: &str, room: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split(' ') {
+        let wanted = if line.is_empty() { width_of(word) } else { width_of(&line) + 1 + width_of(word) };
+        if wanted <= room {
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+        }
+        for c in word.chars() {
+            if width_of(&line) + unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) > room {
+                lines.push(std::mem::take(&mut line));
+            }
+            line.push(c);
+        }
+    }
+    lines.push(line);
+    lines
 }
 
 /// `text` cut into what comes before the part that matches `typed`, that
@@ -669,6 +968,110 @@ fn split_match<'a>(text: &'a str, typed: &str) -> (&'a str, &'a str, &'a str) {
 }
 
 impl TerminalView {
+    /// The suggestion to show now: when the line still begins as it did,
+    /// no list is open and the rest of the line is empty.
+    fn shown_suggestion(&self) -> Option<String> {
+        let completion = self.suggestion.as_ref()?;
+        let input = self.session.input()?;
+        let fits = completion.starts_with(&input.text) && completion.len() > input.text.len();
+        (fits && self.candidates.visible().is_none() && self.session.blank_right_of_cursor())
+            .then(|| completion.clone())
+    }
+
+    /// The rest of the suggested line, in grey, from the cursor.
+    fn suggestion_text(&self) -> Option<impl IntoElement> {
+        let completion = self.shown_suggestion()?;
+        let input = self.session.input()?;
+        let rest = completion[input.text.len()..].to_owned();
+        let theme = &self.settings.theme;
+        let at = self.origin - self.view_origin
+            + point(self.cell.width * factor(input.cursor.1), self.cell.height * factor(input.cursor.0));
+        Some(
+            div()
+                .absolute()
+                .left(at.x)
+                .top(at.y)
+                .font_family(SharedString::from(self.settings.config.font.family.clone()))
+                .text_size(self.font_size())
+                .line_height(self.cell.height)
+                .whitespace_nowrap()
+                .text_color(hsla(theme.foreground.toward(theme.background, 0.55)))
+                .child(SharedString::from(rest)),
+        )
+    }
+
+    /// The popup's lines: (text, whether it is a heading).
+    fn popup_lines(&self) -> Option<Vec<(String, bool)>> {
+        let lines = match self.popup.as_ref()? {
+            Popup::Consent(_) => vec![
+                (format!("Ask the model ({}) for help with commands?", self.helper.model()), true),
+                (WHAT_IS_SENT.to_owned(), false),
+                ("Enter: yes, from now on    Esc: no, not while uni-term runs".to_owned(), false),
+            ],
+            Popup::Fix(fix) => vec![
+                (fix.command.clone(), true),
+                (fix.reason.clone(), false),
+                ("Enter: put it on the line (not run)    Esc: close".to_owned(), false),
+            ],
+            Popup::Waiting(command) => vec![(command.clone(), true), ("Asking the model…".to_owned(), false)],
+            Popup::Explained(command, parts) => {
+                let widest = parts.iter().map(|part| part.text.chars().count()).max().unwrap_or(0);
+                let mut lines = vec![(command.clone(), true)];
+                lines.extend(parts.iter().map(|part| {
+                    let pad = widest.saturating_sub(part.text.chars().count());
+                    (format!("{}{}  {}", part.text, " ".repeat(pad), part.meaning), false)
+                }));
+                lines.push(("Enter or Esc: close".to_owned(), false));
+                lines
+            }
+            Popup::Note(text) => vec![(text.clone(), false), ("Enter or Esc: close".to_owned(), false)],
+        };
+        Some(lines)
+    }
+
+    /// The popup, under the input line (over it when there is no room below).
+    fn popup_box(&self) -> Option<impl IntoElement> {
+        let theme = &self.settings.theme;
+        let (columns, screen_lines) = self.session.size();
+        // Nothing is cut off: a long line goes on on the next one.
+        let room = usize::from(columns).saturating_sub(4).max(16);
+        let lines: Vec<(String, bool)> = self
+            .popup_lines()?
+            .into_iter()
+            .flat_map(|(text, heading)| wrap(&text, room).into_iter().map(move |line| (line, heading)))
+            .collect();
+        let cursor_line = self.session.input().map_or_else(|| self.cursor_cell.0, |input| input.cursor.0);
+        let count = lines.len();
+        let below = cursor_line + 1;
+        let first = if below + count <= usize::from(screen_lines) { below } else { cursor_line.saturating_sub(count) };
+        let widest = lines.iter().map(|(text, _)| width_of(text)).max().unwrap_or(0) + 2;
+        let width = widest.min(usize::from(columns).saturating_sub(2)).max(20);
+        let at = self.origin - self.view_origin + point(self.cell.width, self.cell.height * factor(first));
+        let dim = theme.foreground.toward(theme.background, 0.45);
+        Some(
+            div()
+                .absolute()
+                .left(at.x)
+                .top(at.y)
+                .w(self.cell.width * factor(width))
+                .bg(hsla(theme.background.toward(theme.foreground, 0.08)))
+                .border_1()
+                .border_color(hsla(theme.indexed(12)))
+                .font_family(SharedString::from(self.settings.config.font.family.clone()))
+                .text_size(self.font_size())
+                .line_height(self.cell.height)
+                .children(lines.into_iter().map(|(text, heading)| {
+                    let color = if heading { theme.foreground } else { dim };
+                    div()
+                        .px(px(6.))
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_color(hsla(color))
+                        .child(SharedString::from(text))
+                })),
+        )
+    }
+
     /// The list of commands from the history, under the input line (over
     /// it when there is no room below); `None` when it is closed.
     fn candidate_list(&self) -> Option<impl IntoElement> {
@@ -909,6 +1312,19 @@ impl Painter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_lines_are_wrapped_between_words_and_nothing_is_lost() {
+        assert_eq!(wrap("short", 20), ["short"]);
+        assert_eq!(wrap("the command line you type", 12), ["the command", "line you", "type"]);
+        assert_eq!(wrap("abcdefghij", 4), ["abcd", "efgh", "ij"], "a word wider than the room is cut inside");
+        assert_eq!(wrap("中文中文中文", 5), ["中文", "中文", "中文"], "two cells a character");
+        let text = "one two three four five six seven eight nine ten";
+        let lines = wrap(text, 9);
+        assert!(lines.iter().all(|line| width_of(line) <= 9), "{lines:?}");
+        assert_eq!(lines.join(" "), text, "nothing lost");
+        assert_eq!(wrap("", 10), [""]);
+    }
 
     #[test]
     fn the_typed_part_is_found_case_aside() {

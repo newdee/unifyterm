@@ -67,11 +67,19 @@ Report 'ut COMMAND --help' ($names.Count -gt 0 -and $broken.Count -eq 0) "$($nam
 
 "=== 3. uni-term through its own window ==="
 $exe = Join-Path $root "target\$Profile\uni-term.exe"
-$live = pwsh -NoProfile -File "$PSScriptRoot\verify.ps1" -Section all -Exe $exe
+# Everything it says is kept, its errors too: a run that stops half way must not pass as
+# fewer checks. It passed only if it got to its last line ("0 failed") through every section.
+$live = @(pwsh -NoProfile -File "$PSScriptRoot\verify.ps1" -Section all -Exe $exe 2>&1 | ForEach-Object { "$_" })
+$kept = Join-Path ([IO.Path]::GetTempPath()) "uni-term-round-verify-$Profile.txt"
+$live | Set-Content -Path $kept -Encoding utf8
 $livePass = @($live | Where-Object { $_ -match '^PASS' }).Count
 $liveFail = @($live | Where-Object { $_ -match '^FAIL' })
-Report 'tools/verify.ps1' ($liveFail.Count -eq 0 -and $livePass -gt 0) "$livePass passed, $($liveFail.Count) failed"
+$sections = 'input', 'settings', 'edges', 'commands', 'history', 'ai'
+$missing = @($sections | Where-Object { $live -notcontains "--- $_ ---" })
+$finished = ($live | Where-Object { $_.Trim() } | Select-Object -Last 1) -eq '0 failed'
+Report 'tools/verify.ps1' ($liveFail.Count -eq 0 -and $livePass -gt 0 -and $finished -and $missing.Count -eq 0) "$livePass passed, $($liveFail.Count) failed; ran to its end: $finished; sections missing: $($missing.Count) $($missing -join ' ') (all of it: $kept)"
 $liveFail | ForEach-Object { "      $_" }
+if (-not $finished) { $live | Select-Object -Last 8 | ForEach-Object { "      | $_" } }
 # The numbers that say a mechanism is alive, for comparing rounds.
 $live | Where-Object { $_ -match 'pixels differ|cols=|lines are numbered|same picture' } | ForEach-Object { "      " + ($_ -replace '^PASS\s+', '') }
 

@@ -91,6 +91,8 @@ mod tests {
             exit,
             duration_ms: Some(5),
             shell: Some("pwsh".into()),
+            line: None,
+            output: String::new(),
         };
         recorder.record(&finished("git status", Some(0)), "pwsh");
         recorder.record(&finished("git push", Some(1)), "pwsh");

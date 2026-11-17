@@ -25,6 +25,7 @@ pub(crate) struct Config {
     pub(crate) theme: ThemeConfig,
     pub(crate) commands: CommandsConfig,
     pub(crate) history: HistoryConfig,
+    pub(crate) ai: AiConfig,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -119,6 +120,51 @@ impl Default for HistoryConfig {
     }
 }
 
+/// Which language model helps with commands. None by default: nothing is
+/// sent anywhere until the user names one here, and agrees once in the window.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Provider {
+    #[default]
+    None,
+    /// Claude, through Anthropic's Messages API.
+    Anthropic,
+    /// A service with `OpenAI`'s chat-completions shape: a local model, for one.
+    OpenaiCompatible,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct AiConfig {
+    pub(crate) provider: Provider,
+    /// The model's name, as the service knows it (`claude-opus-5-5`).
+    pub(crate) model: String,
+    /// Where the service is. Needed for `openai-compatible`; for `anthropic`, only to go through a proxy.
+    pub(crate) base_url: String,
+    /// The environment variable that holds the key: the key itself is never in this file.
+    pub(crate) api_key_env: String,
+    /// The rest of the command, in grey, while typing.
+    pub(crate) suggest: bool,
+    /// A corrected command when one is not found.
+    pub(crate) fix: bool,
+    /// What each part of a command means (Ctrl-Shift-E).
+    pub(crate) explain: bool,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: Provider::None,
+            model: String::new(),
+            base_url: String::new(),
+            api_key_env: String::new(),
+            suggest: true,
+            fix: true,
+            explain: true,
+        }
+    }
+}
+
 /// Colors as `#rrggbb`. Any left out keep the built-in theme's value.
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -170,6 +216,17 @@ impl Config {
             let (low, high) = (CANDIDATE_LIMITS.start(), CANDIDATE_LIMITS.end());
             bail!("history.limit is {}: it must be from {low} to {high}", config.history.limit);
         }
+        if config.ai.provider != Provider::None {
+            if config.ai.model.trim().is_empty() {
+                bail!("ai.model is empty: name the model, as the service knows it");
+            }
+            if config.ai.provider == Provider::OpenaiCompatible && config.ai.base_url.trim().is_empty() {
+                bail!("ai.base_url is empty: an openai-compatible service needs its address");
+            }
+            if config.ai.provider == Provider::Anthropic && config.ai.api_key_env.trim().is_empty() {
+                bail!("ai.api_key_env is empty: name the environment variable that holds the key");
+            }
+        }
         config.theme()?;
         Ok(config)
     }
@@ -216,6 +273,7 @@ mod tests {
         assert_eq!(config.shell.program, None);
         assert_eq!(config.commands, CommandsConfig { builtin: true, system: Vec::new() }, "uni-term's commands are on");
         assert_eq!(config.history, HistoryConfig { enabled: true, candidates: true, limit: 8 }, "and the history");
+        assert_eq!(config.ai.provider, Provider::None, "no model is asked anything until one is named");
     }
 
     #[test]
@@ -275,6 +333,12 @@ mod tests {
         assert!(error("[commands]\nbuiltin = \"yes\"").contains("builtin"), "a switch is true or false");
         assert!(error("[history]\nlimit = 0").contains("history.limit is 0"));
         assert!(error("[history]\nlimit = 21").contains("history.limit"));
+        assert!(error("[ai]\nprovider = \"anthropic\"").contains("ai.model is empty"));
+        assert!(error("[ai]\nprovider = \"anthropic\"\nmodel = \"m\"").contains("ai.api_key_env"));
+        assert!(error("[ai]\nprovider = \"openai-compatible\"\nmodel = \"m\"").contains("ai.base_url"));
+        assert!(error("[ai]\nprovider = \"gpt\"").contains("gpt"), "an unknown provider is named");
+        let fine = Config::parse("[ai]\nprovider = \"openai-compatible\"\nmodel = \"llama3\"\nbase_url = \"http://localhost:11434/v1\"\nsuggest = false").unwrap();
+        assert_eq!((fine.ai.provider, fine.ai.suggest, fine.ai.fix), (Provider::OpenaiCompatible, false, true));
     }
 
     #[test]

@@ -297,6 +297,26 @@ impl std::ops::DerefMut for Session {
     }
 }
 
+/// The most lines of a command's output kept with it.
+const OUTPUT_LINES: usize = 200;
+
+/// A row's text without the spaces at its end, and a line break unless it runs on into the next.
+fn row_text(row: &alacritty_terminal::grid::Row<alacritty_terminal::term::cell::Cell>, columns: usize) -> String {
+    let mut text = String::new();
+    for column in 0..columns {
+        let cell = &row[Column(column)];
+        if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+            text.push(cell.c);
+            text.extend(cell.zerowidth().into_iter().flatten());
+        }
+    }
+    let mut text = text.trim_end().to_owned();
+    if !row[Column(columns - 1)].flags.contains(Flags::WRAPLINE) {
+        text.push('\n');
+    }
+    text
+}
+
 /// The environment variable naming the file a session's output is also
 /// written to.
 const RAW_LOG_VARIABLE: &str = "UNI_TERM_RAW_LOG";
@@ -432,7 +452,10 @@ impl Screen {
         for (end, mark) in self.scanner.scan(bytes) {
             self.parser.advance(&mut self.term, &bytes[done..end]);
             done = end;
-            if let Some(finished) = self.prompt.mark(mark, self.cursor_place(), std::time::Instant::now()) {
+            if let Some(mut finished) = self.prompt.mark(mark, self.cursor_place(), std::time::Instant::now()) {
+                if let Some(line) = finished.line {
+                    finished.output = self.lines_between(line + 1, self.cursor_place().0);
+                }
                 self.notices.lock().expect(LOCK_POISONED).push(Notice::Finished(finished));
             }
         }
@@ -444,6 +467,35 @@ impl Screen {
         let grid = self.term.grid();
         let line = usize::try_from(grid.cursor.point.line.0).unwrap_or(0);
         (grid.history_size() + line, grid.cursor.point.column.0)
+    }
+
+    /// The text of lines `from..to` (counted from the top of the history),
+    /// at most the last [`OUTPUT_LINES`] of them; lines no longer kept are left out.
+    fn lines_between(&self, from: usize, to: usize) -> String {
+        let grid = self.term.grid();
+        let (history, columns) = (grid.history_size(), self.term.columns());
+        let mut text = String::new();
+        for line in from.max(to.saturating_sub(OUTPUT_LINES))..to {
+            // Lines above the screen are in the history, at negative numbers.
+            let Ok(at) = i32::try_from(i64::try_from(line).unwrap_or(i64::MAX) - i64::try_from(history).unwrap_or(0))
+            else {
+                continue;
+            };
+            if at < -i32::try_from(history).unwrap_or(i32::MAX) {
+                continue;
+            }
+            text.push_str(&row_text(&grid[Line(at)], columns));
+        }
+        text
+    }
+
+    /// Whether the cursor's line is empty from the cursor on: room to show a suggestion without
+    /// covering the shell's own (PowerShell's grey prediction, for one).
+    pub(crate) fn blank_right_of_cursor(&self) -> bool {
+        let grid = self.term.grid();
+        let point = grid.cursor.point;
+        let row = &grid[point.line];
+        (point.column.0..self.term.columns()).all(|column| row[Column(column)].c == ' ')
     }
 
     /// The shell's directory, with `/`, if its hook said it.
@@ -845,9 +897,11 @@ pub(crate) mod tests {
         assert_eq!(screen.input().unwrap().text, "echo 中文");
         screen.enter();
         assert_eq!(screen.input(), None, "after Enter a command runs");
-        screen.feed(b"\r\n\x1b]133;D;0\x07");
+        screen.feed("\r\n中文\r\nsecond line\r\n\x1b]133;D;0\x07".as_bytes());
         let notices = screen.take_notices();
-        assert!(matches!(notices.as_slice(), [Notice::Finished(f)] if f.text == "echo 中文" && f.exit == Some(0)));
+        let [Notice::Finished(finished)] = notices.as_slice() else { panic!("one command ended: {notices:?}") };
+        assert_eq!((finished.text.as_str(), finished.exit), ("echo 中文", Some(0)));
+        assert_eq!(finished.output, "中文\nsecond line\n", "what it printed, from the line below the command");
         // A program with the whole screen: no input line.
         screen.feed(b"\x1b]133;A\x07> \x1b]133;B\x07vi\x1b[?1049h");
         assert_eq!(screen.input(), None);

@@ -189,7 +189,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
         <span>shell <b id="sbShell">pwsh 7.6</b></span>
         <span>命令集 <b id="sbCmd">内置 (Rust)</b></span>
         <span>历史 <b id="sbHist">0</b> 条</span>
-        <button class="sp" id="btnExplain" style="color:var(--purple)">解释当前命令 (Ctrl-E)</button>
+        <button class="sp" id="btnExplain" style="color:var(--purple)">解释当前命令 (Ctrl-Shift-E)</button>
         <span>图形 <b id="sbGfx">kitty graphics</b></span>
       </div>
     </div>
@@ -222,7 +222,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
           <span><kbd>Ctrl</kbd> <kbd>P</kbd> / <kbd>↑</kbd></span><span>上一个候选</span>
           <span><kbd>Tab</kbd> / <kbd>→</kbd> / <kbd>Enter</kbd></span><span>选中候选时：填入所选候选，不运行；再按 Enter 才运行</span>
           <span><kbd>→</kbd></span><span>没有选中候选时：接受灰色建议</span>
-          <span><kbd>Ctrl</kbd> <kbd>E</kbd></span><span>弹窗解释当前命令</span>
+          <span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd></span><span>弹窗解释当前命令（Ctrl-E 留给 shell：移到行尾）</span>
           <span><kbd>Enter</kbd></span><span>弹窗里：关闭解释，或填入修正后的命令（都不运行）</span>
           <span><kbd>Esc</kbd></span><span>弹窗里：只关闭</span>
           <span><kbd>Esc</kbd></span><span>关闭候选</span>
@@ -317,7 +317,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><td>命令集开关</td><td>PATH 前置 + 配置</td><td>uni-term 启动 shell 时把 <code>ut</code> 的命令目录放到 PATH 最前，并在 pwsh 里移除 <code>cat</code>、<code>ls</code>、<code>rm</code> 等同名别名。<code>commands.builtin = false</code> 整体关闭；<code>commands.system = ["curl"]</code> 逐条切回。</td></tr>
     <tr><td>历史检索</td><td>SQLite FTS5 + 重排</td><td>纯 BM25 有两个问题。第一，输入到一半的词（<code>gi</code>）匹配不到 <code>git</code>，需要前缀或 trigram 匹配。第二，BM25 会降低高频词的权重，而历史里高频命令应该排前。做法：FTS5 负责召回，排序 = 文本匹配分 + 使用频率和新近度 + 当前目录 + 退出码。</td></tr>
     <tr><td>候选列表位置</td><td>终端层（GUI）</td><td>VS Code 和 Windows Terminal 用同样的做法：shell 钩子报告提示符位置和命令行文本，终端画候选。这样对所有 shell 生效。</td></tr>
-    <tr><td>AI</td><td>接口 + 可换后端</td><td>建议用灰色文字显示，不阻塞输入。纠正和解释都用弹窗显示在输入行旁边，不留在滚动记录里。纠正在命令失败后出现：Enter 把修正后的命令填入输入行，Esc 关闭。解释由 Ctrl-E 唤出：Enter 或 Esc 关闭。弹窗里的 Enter 不运行命令。解释优先用本地帮助数据，再问模型。<span class="tag risk">隐私</span> 命令行可能含密钥。发送前脱敏，默认需要用户开启。</td></tr>
+    <tr><td>AI</td><td>接口 + 可换后端</td><td>建议用灰色文字显示，不阻塞输入。纠正和解释都用弹窗显示在输入行旁边，不留在滚动记录里。纠正在命令失败后出现：Enter 把修正后的命令填入输入行，Esc 关闭。解释由 Ctrl-Shift-E 唤出：Enter 或 Esc 关闭。弹窗里的 Enter 不运行命令。解释优先用本地帮助数据，再问模型。<span class="tag risk">隐私</span> 命令行可能含密钥。发送前脱敏，默认需要用户开启。</td></tr>
     <tr><td>图片与视频</td><td><code>ut view</code> 自动降级</td><td>见第 4 节。视频解码依赖 ffmpeg，纯 Rust 没有覆盖 H.264/H.265 的成熟解码器。</td></tr>
     <tr><td>markdown</td><td><code>ut md</code> + GUI 原生</td><td><code>ut md</code> 在任何终端输出带样式的文本，图片走 <code>view</code> 的降级链，做法同 glow、mdcat。nvim 的 render-markdown.nvim、markview.nvim 用隐藏文本和虚拟文本在编辑器里渲染；image.nvim 用 kitty graphics 显示图片，uni-term 支持该协议后它可直接工作。AI 卡片在 GUI 里原生渲染 markdown。</td></tr>
     <tr><td>字符集</td><td>全程 UTF-8</td><td>按字素簇计算宽度（CJK、emoji 组合）。字体回退链：等宽主字体 → CJK → 彩色 emoji → Nerd Font 符号。制表符和 Powerline 符号由程序自己画，保证拼接无缝。旧编码用 <code>ut iconv</code> 转换。</td></tr>
@@ -344,7 +344,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><td>M1 终端基础</td><td>按格定位的网格渲染（颜色、粗斜体、光标、选择、复制粘贴、回滚、鼠标上报）、输入法、字体回退、连字开关、标签页、配置文件。</td><td>vim、htop、keepane 显示正确；Windows 上用拼音输入法输入中文成功；vttest 的光标和滚动项通过。</td></tr>
     <tr><td>M2 命令集 <span class="tag ok">已验收</span></td><td><code>ut</code> multi-call 二进制、PATH 注入、别名移除、整体和逐条开关。Windows 上路径一律显示为 <code>/</code>（<code>UT_NATIVE_PATHS</code> 可恢复 <code>\</code>）；通配符 <code>*.txt</code> 像 Unix shell 一样展开，加引号则保持原样。</td><td>同一组夹具文件上，Windows 与 Linux 的 <code>cat ls grep find sed jq sort</code> 等输出逐字节一致；开关切换后 <code>which cat</code> 结果改变。</td></tr>
     <tr><td>M3 历史与候选 <span class="tag ok">已验收</span></td><td>shell 钩子（pwsh、zsh、bash、fish）、history.db、候选列表、Ctrl-N/P 和方向键。</td><td>10 万条历史下，单次查询 p95 低于 5 ms；失败的命令排在成功的之后；含密钥模式的命令不入库。</td></tr>
-    <tr><td>M4 AI</td><td>建议、纠正、解释；后端配置；脱敏。</td><td>无网络时终端全部功能照常，AI 功能安静地不可用；脱敏测试集 100% 命中。</td></tr>
+    <tr><td>M4 AI <span class="tag ok">已验收</span></td><td>建议、纠正、解释；后端配置；脱敏。</td><td>无网络时终端全部功能照常，AI 功能安静地不可用；脱敏测试集 100% 命中。</td></tr>
     <tr><td>M5 图形与 markdown</td><td>GUI 支持 kitty graphics；<code>ut view</code> 降级链；<code>ut md</code>。</td><td>同一张图在 uni-term、Windows Terminal、纯文本管道里各自选对方式；image.nvim 在 uni-term 里显示图片。</td></tr>
     <tr><td>M6 agent 接口</td><td>agent 侧栏（读 keepane）、<code>ut mcp</code>、skill 文件。</td><td>Claude Code 通过 MCP 查询历史并得到结果；skill 让 agent 在 Windows 上直接使用 <code>cat</code>、<code>jq</code>。</td></tr>
     <tr><td>M7 视频与发布</td><td>视频播放；MSI 与 winget、Homebrew、deb 与 AppImage；macOS 和 Linux 实机验证。</td><td>三个平台各有一个可安装包；同一份配置和历史文件在三个平台可用。</td></tr>
@@ -374,7 +374,7 @@ const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">":
 
 // ---------- state ----------
 const OS = {
-  win:   { shell: "pwsh", label: "pwsh 7.6", cwd: "C:\\Users\\tom\\proj\\uni-term", prompt: (cwd) => `PS ${cwd}> `, sysPath: "C:\\Windows\\System32" },
+  win:   { shell: "pwsh", label: "pwsh 7.6", cwd: "C:/Users/me/proj/uni-term", prompt: (cwd) => `PS ${cwd}> `, sysPath: "C:/Windows/System32" },
   mac:   { shell: "zsh",  label: "zsh 5.9",  cwd: "~/proj/uni-term", prompt: (cwd) => `tom@mac ${cwd} % `, sysPath: "/bin" },
   linux: { shell: "bash", label: "bash 5.2", cwd: "~/proj/uni-term", prompt: (cwd) => `tom@linux:${cwd}$ `, sysPath: "/usr/bin" },
 };
@@ -634,7 +634,7 @@ function runCommand(line) {
     case "which": case "where": {
       const c = args[0]; if (!c) return fail(span("c-red", "which: 缺少命令名"));
       if (!BUILTINS.includes(c)) return fail(span("c-red", `which: no ${c} in PATH`));
-      if (state.builtin) return out(esc(state.os === "win" ? `C:\\Program Files\\uni-term\\bin\\${c}.exe` : `/opt/uni-term/bin/${c}`) + "  " + span("c-green", "← 内置 (Rust)"));
+      if (state.builtin) return out(esc(state.os === "win" ? `C:/Users/me/AppData/Local/uni-term/bin/${c}.exe` : `/opt/uni-term/bin/${c}`) + "  " + span("c-green", "← 内置 (Rust)"));
       if (state.os === "win") return ["cat", "ls", "rm", "cp", "mv", "echo", "sort"].includes(c)
         ? out(span("c-yellow", `${c} 是 PowerShell 别名，不是程序`)) : fail(span("c-red", `which: no ${c} in PATH`) + "\n" + span("c-dim", "（Windows 没有自带这个命令。）"));
       return out(esc(`${os.sysPath}/${c}`) + "  " + span("c-dim", "← 系统自带"));
@@ -667,7 +667,7 @@ function renderMarkdown() {
   d.innerHTML = `<h1>uni-term</h1><p>一个终端，三个平台，<b>同一套命令</b>。下面这段由 <code>md README.md</code> 渲染。</p>
 <h2>安装</h2><pre><span class="c-dim"># Windows</span>\n<span class="c-green">winget</span> install uni-term\n<span class="c-dim"># macOS / Linux</span>\n<span class="c-green">brew</span> install uni-term</pre>
 <h2>内置命令</h2><table><tr><th>类别</th><th>命令</th><th>来源</th></tr><tr><td>文件</td><td><code>cat ls cp mv rm find</code></td><td>uutils</td></tr><tr><td>文本</td><td><code>grep rg sed sort jq</code></td><td>uutils · ripgrep · jaq</td></tr><tr><td>媒体</td><td><code>view md</code></td><td>uni-term</td></tr></table>
-<ul><li>历史候选：<code>Ctrl-N</code> / <code>Ctrl-P</code></li><li>解释命令：<code>Ctrl-E</code></li></ul>
+<ul><li>历史候选：<code>Ctrl-N</code> / <code>Ctrl-P</code></li><li>解释命令：<code>Ctrl-Shift-E</code></li></ul>
 <blockquote>图片在 markdown 里同样走 <code>view</code> 的降级链：</blockquote>`;
   d.append(showMedia(state.gui ? "pixels" : "half", false));
   return d;
@@ -780,7 +780,7 @@ $("btnExplain").onclick = explainCurrent;
 trap.addEventListener("keydown", (ev) => {
   if (pop) {
     if (["Control", "Shift", "Alt", "Meta"].includes(ev.key)) return;
-    const again = (ev.ctrlKey || ev.altKey) && ev.key.toLowerCase() === "e";
+    const again = ((ev.ctrlKey && ev.shiftKey) || ev.altKey) && ev.key.toLowerCase() === "e";
     const onEnter = pop.onEnter;
     closePop();
     // These keys act on the popup only. Any other key closes it and then does its usual work.
@@ -789,13 +789,14 @@ trap.addEventListener("keydown", (ev) => {
   }
   const k = ev.key, ctrl = ev.ctrlKey;
   if (ev.isComposing) return;
-  if (k === "Enter") { ev.preventDefault(); if (state.sel >= 0 && cands[state.sel]) { state.input = cands[state.sel].e.cmd; } submit(); }
+  // A chosen row is put on the line, not run (as in uni-term); Enter again runs it.
+  if (k === "Enter") { ev.preventDefault(); if (state.sel >= 0 && cands[state.sel]) { state.input = cands[state.sel].e.cmd; state.sel = -1; state.open = false; renderInput(); } else submit(); }
   else if (k === "ArrowDown" || (ctrl && k.toLowerCase() === "n")) { ev.preventDefault(); move(1); }
   else if (k === "ArrowUp" || (ctrl && k.toLowerCase() === "p")) { ev.preventDefault(); move(-1); }
-  else if (k === "Tab") { ev.preventDefault(); const pick = cands[Math.max(0, state.sel)]; if (pick) { state.input = pick.e.cmd; state.sel = -1; state.open = false; renderInput(); } }
+  else if (k === "Tab" && state.sel >= 0) { ev.preventDefault(); const pick = cands[state.sel]; if (pick) { state.input = pick.e.cmd; state.sel = -1; state.open = false; renderInput(); } }
   else if (k === "ArrowRight") { const g = state.sel < 0 ? ghost() : ""; if (g) { ev.preventDefault(); state.input += g; state.open = false; renderInput(); } }
   else if (k === "Escape") { ev.preventDefault(); state.open = false; state.sel = -1; renderInput(); }
-  else if ((ctrl || ev.altKey) && k.toLowerCase() === "e") { ev.preventDefault(); explainCurrent(); }
+  else if (((ctrl && ev.shiftKey) || ev.altKey) && k.toLowerCase() === "e") { ev.preventDefault(); explainCurrent(); }
   else if (ev.altKey && k.toLowerCase() === "n") { ev.preventDefault(); move(1); }
   else if (ev.altKey && k.toLowerCase() === "p") { ev.preventDefault(); move(-1); }
   else if (ctrl && k.toLowerCase() === "c") { ev.preventDefault(); stopPlayer(); state.input = ""; state.open = false; state.sel = -1; renderInput(); }
@@ -835,7 +836,7 @@ const TRY = [
   ["view demo.mp4", "播放视频", true],
   ["md README.md", "渲染 markdown", true],
   ["gti status", "打错命令：AI 纠正", true],
-  ["tar -xzvf release.tar.gz -C /opt/app", "不运行，按 Ctrl-E 解释每个参数", false],
+  ["tar -xzvf release.tar.gz -C /opt/app", "不运行，按 Ctrl-Shift-E 解释每个参数", false],
   ["echo '-> => != >= <= === 中文 😀 ├─┤'", "连字与字符集（切换「连字」再试）", true],
 ];
 for (const [cmd, desc, run] of TRY) {

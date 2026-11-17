@@ -52,6 +52,8 @@ pub(crate) struct Commands {
     directory: PathBuf,
     /// The script PowerShell runs at its start.
     powershell_start: PathBuf,
+    /// The names of the commands in use.
+    names: Vec<String>,
 }
 
 /// Where uni-term keeps the command links and the start scripts (and the history, and the log).
@@ -115,6 +117,21 @@ fn powershell_start(commands: &[&str]) -> String {
         .replace("@NAMES@", &names)
 }
 impl Commands {
+    /// The names of uni-term's commands in use (`cat`, `ls`, ...).
+    pub(crate) fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// The directory of links, first in each shell's `PATH`.
+    pub(crate) fn directory(&self) -> PathBuf {
+        self.directory.clone()
+    }
+
+    /// `ut`, which answers to these names.
+    pub(crate) fn program() -> Result<PathBuf> {
+        ut_program()
+    }
+
     /// Makes uni-term's commands ready as the settings say. `None` when the
     /// settings turn them off. The second value is what the user should be
     /// told: a name in `commands.system` that is no command, or why the
@@ -155,7 +172,8 @@ impl Commands {
         std::fs::write(&powershell_start, self::powershell_start(&in_use))
             .with_context(|| format!("write {}", powershell_start.display()))?;
         let unknown = unknown.into_iter().map(str::to_owned).collect();
-        Ok((Self { directory, powershell_start }, unknown))
+        let names = in_use.iter().map(|name| (*name).to_owned()).collect();
+        Ok((Self { directory, powershell_start, names }, unknown))
     }
 }
 
@@ -334,6 +352,7 @@ mod tests {
         Commands {
             directory: PathBuf::from("/data/uni-term/bin"),
             powershell_start: PathBuf::from("/data/uni-term/shell/start.ps1"),
+            names: vec!["cat".into(), "ls".into()],
         }
     }
 

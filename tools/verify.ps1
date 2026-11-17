@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -207,6 +207,9 @@ if ($Section -in 'all', 'settings') {
     $marks = "[theme]`ncursor = `"#ff0001`"`nselection = `"#00ff01`"`nansi = [`"#000000`", `"#123456`", `"#00aa00`", `"#aaaa00`", `"#0000aa`", `"#aa00aa`", `"#00aaaa`", `"#aaaaaa`", `"#555555`", `"#ff5555`", `"#55ff55`", `"#ffff55`", `"#5555ff`", `"#ff55ff`", `"#55ffff`", `"#ffffff`"]"
     Run 'marks' ("cls; echo `"`$([char]27)[41m          `$([char]27)[0m select-me`"{ENTER}{WAIT:700}{DRAG:100,50,170,50}{WAIT:400}") $marks | Out-Null
     $cursor = CountColor marks '#ff0001' 0 60 600 80; $selection = CountColor marks '#00ff01' 0 60 600 30; $ansi = CountColor marks '#123456' 0 60 600 30
+    Run 'fore' $line "[theme]`nforeground = `"#ff0002`"" | Out-Null
+    $fore = CountColor fore '#ff0002' 0 60 900 80
+    Report 'theme.foreground is the text''s color' ($fore -gt 200) "$fore pixels of #ff0002 in the first rows"
     Report 'theme.cursor is the cursor''s color' ($cursor -gt 50) "$cursor pixels of #ff0001"
     Report 'theme.selection is the selection''s color' ($selection -gt 100) "$selection pixels of #00ff01 after a drag"
     Report 'theme.ansi gives the 16 colors' ($ansi -gt 500) "$ansi pixels of #123456 behind ten cells of ESC[41m"
@@ -405,6 +408,92 @@ if ($Section -in 'all', 'history') {
     } finally { $env:UNI_TERM_DATA_DIR = $keptData }
     $real = Join-Path $env:LOCALAPPDATA 'uni-term\history.db'
     Report "the user's own history file is not touched" (-not (Test-Path $real)) "$real exists: $(Test-Path $real)"
+}
+if ($Section -in 'all', 'ai') {
+    "--- ai ---"
+    $keptData = $env:UNI_TERM_DATA_DIR
+    $env:UNI_TERM_DATA_DIR = Join-Path $work 'data-ai'
+    # A stand-in for the model's service on this machine (tools/fake-model.ps1); nothing leaves it.
+    $port = 8765
+    $requests = Join-Path $work 'model-requests.jsonl'
+    function Start-Model([int]$delay) {
+        Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$requests`" -DelaySeconds $delay" -PassThru -WindowStyle Hidden
+    }
+    function Sent { @(Get-Content $requests -ErrorAction Ignore) }
+    $env:UNI_TERM_TEST_KEY = 'test-key'
+    # The history's own list is off throughout: the pictures are of the model's help alone.
+    $quiet = "[history]`ncandidates = false"
+    $model = "$quiet`n[ai]`nprovider = `"anthropic`"`nmodel = `"claude-haiku-5-5`"`nbase_url = `"http://localhost:$port`"`napi_key_env = `"UNI_TERM_TEST_KEY`""
+    $noFix = "$quiet`n[ai]`nfix = false"
+    function Below([string]$a, [string]$b) { PixelDiff $a $b 0 ($Row.Y + $Row.H) 900 220 }
+    $server = Start-Model 0
+    Start-Sleep 2
+    try {
+        # No model named: the fix for a misspelt name still comes, from the names the shell can find.
+        Run 'ai-local' "gti status{ENTER}{WAIT:1500}" $quiet | Out-Null
+        Run 'ai-local-off' "gti status{ENTER}{WAIT:1500}" $noFix | Out-Null
+        $local = Below 'ai-local' 'ai-local-off'
+        $t = Run 'ai-local-take' "gti status{ENTER}{WAIT:1500}{ENTER}{WAIT:800}" $quiet
+        $last = @($t -split "`n" | Where-Object { $_.Trim() })[-1]
+        Report 'no model: a misspelt name is put right, not run' ($local -gt 500 -and $last -match '> git status$') "the fix's box: $local pixels; last line after Enter: '$last'"
+        Report 'no model: nothing is sent' ((Sent).Count -eq 0) "requests the model's service got: $((Sent).Count)"
+
+        # A model named: first the question whether it may be asked; Esc is no.
+        Run 'ai-ask' "echo hel{WAIT:1500}" $model | Out-Null
+        Run 'ai-ask-off' "echo hel{WAIT:1500}" $quiet | Out-Null
+        $asked = Below 'ai-ask' 'ai-ask-off'
+        Run 'ai-no' "echo hel{WAIT:1500}{ESC}{WAIT:300}echo more{WAIT:1500}" $model | Out-Null
+        Report 'first the user is asked; after Esc nothing is sent' ($asked -gt 500 -and (Sent).Count -eq 0) "the question's box: $asked pixels; requests after Esc: $((Sent).Count)"
+
+        # Enter is yes: the suggestion comes, Right takes it.
+        $t = Run 'ai-yes' "echo hel{WAIT:1500}{ENTER}{WAIT:2000}{RIGHT}{WAIT:800}" $model
+        $last = @($t -split "`n" | Where-Object { $_.Trim() })[-1]
+        $agreed = Join-Path $env:UNI_TERM_DATA_DIR 'ai-consent'
+        Report 'after yes, the suggestion is shown and Right takes it' ($last -match '> echo hel --from-model$' -and (Test-Path $agreed)) "last line: '$last'; the answer kept: $(Test-Path $agreed)"
+
+        $t = Run 'ai-fix' "zzqqxx-nothing{ENTER}{WAIT:3000}{ENTER}{WAIT:800}" $model
+        $lines = @($t -split "`n" | Where-Object { $_.Trim() })
+        Report "the model's fix is put on the line, not run" ($lines[-1] -match '> echo fixed-by-model$' -and (Count $t 'fixed-by-model') -eq 1) "last line: '$($lines[-1])'; 'fixed-by-model' seen $(Count $t 'fixed-by-model') time(s)"
+
+        # Each feature has its own switch: off, its question is never sent.
+        $before = (Sent).Count
+        Run 'ai-suggest-off' "echo sug{WAIT:2000}" "$model`nsuggest = false" | Out-Null
+        Run 'ai-suggest-on' "echo sug{WAIT:2000}" $model | Out-Null
+        $mid = (Sent).Count
+        $t = Run 'ai-explain-switched' "tar -czf a.tgz src{WAIT:400}{KEY:CTRL+SHIFT+E}{WAIT:2000}" "$model`nexplain = false"
+        $offAsks = @(Sent | Select-Object -Skip $mid | Where-Object { $_ -match '"parts"' }).Count
+        Report 'ai.suggest and ai.explain turn their feature off' ($mid - $before -eq 1 -and $offAsks -eq 0) "suggestions asked with suggest off, then on: $($mid - $before) (1 = only the second); explanations asked with explain off: $offAsks"
+
+        $before = (Sent).Count
+        Run 'ai-explain' "tar -czf a.tgz src{WAIT:400}{KEY:CTRL+SHIFT+E}{WAIT:3000}" $model | Out-Null
+        Run 'ai-explain-off' "tar -czf a.tgz src{WAIT:400}{WAIT:3000}" $quiet | Out-Null
+        $explained = Below 'ai-explain' 'ai-explain-off'
+        $asks = @(Sent | Select-Object -Skip $before | Where-Object { $_ -match '"parts"' }).Count
+        Report 'Ctrl-Shift-E explains the line in a box' ($explained -gt 1000 -and $asks -ge 1) "the box: $explained pixels; questions about parts: $asks"
+
+        Run 'ai-secret' "echo --token abc123secretvalue{WAIT:2000}" $model | Out-Null
+        $all = (Sent) -join "`n"
+        Report 'a secret on the line is not sent' ($all -notmatch 'abc123secretvalue' -and $all -match 'redacted') "requests: $((Sent).Count); the secret in them: $($all -match 'abc123secretvalue'); '‹redacted›' in them: $($all -match 'redacted')"
+
+        # A wrong key: no suggestion, and the log says why.
+        $env:UNI_TERM_TEST_KEY = 'bad-key'
+        Run 'ai-badkey' "echo bad{WAIT:2000}" $model | Out-Null
+        $env:UNI_TERM_TEST_KEY = 'test-key'
+        $logged = Get-Content (Join-Path $env:UNI_TERM_DATA_DIR 'uni-term.log') -Raw -ErrorAction Ignore
+        Report 'a refused key is written to the log' ($logged -match 'suggestion: .*401.*invalid x-api-key') "the log has the 401: $($logged -match 'suggestion: .*401')"
+
+        # A service that takes 20 s: the terminal goes on, nothing waits for it.
+        Stop-Process -Id $server.Id -Force; $server = Start-Model 20; Start-Sleep 2
+        $t = Run 'ai-slow' "zzqqyy-nothing{ENTER}{WAIT:500}echo still-alive{ENTER}{WAIT:1200}" $model
+        Report 'a slow model holds nothing up' ((Count $t 'still-alive') -eq 2) "'still-alive' seen $(Count $t 'still-alive') times (the line, then its output)"
+
+        $t = Run 'ai-nokey' "echo x{ENTER}" ($model -replace 'UNI_TERM_TEST_KEY', 'UNI_TERM_NO_SUCH_KEY_7Q') -keep
+        Report 'a key that is not set is named, the terminal works' ((Count $t 'UNI_TERM_NO_SUCH_KEY_7Q') -ge 1 -and (Count $t 'x') -ge 1) "the notice names the variable: $((Count $t 'UNI_TERM_NO_SUCH_KEY_7Q') -ge 1)"
+    } finally {
+        Stop-Process -Id $server.Id -Force -ErrorAction Ignore
+        $env:UNI_TERM_DATA_DIR = $keptData
+        Remove-Item Env:UNI_TERM_TEST_KEY -ErrorAction Ignore
+    }
 }
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 "$script:failed failed"

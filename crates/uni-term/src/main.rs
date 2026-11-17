@@ -9,6 +9,7 @@ mod boxdraw;
 mod candidates;
 mod config;
 mod frame;
+mod helper;
 mod keys;
 mod logging;
 mod marks;
@@ -145,6 +146,8 @@ struct Workspace {
     recorder: Option<recorder::Recorder>,
     /// The shells' hooks: with the history on.
     hooks: Option<Hooks>,
+    /// Help with commands: the local fix always, a model's help when the settings name one.
+    helper: Arc<helper::Helper>,
 }
 
 /// What the window starts with.
@@ -153,6 +156,7 @@ struct Start {
     commands: Option<Commands>,
     recorder: Option<recorder::Recorder>,
     hooks: Option<Hooks>,
+    helper: Arc<helper::Helper>,
     /// The first tab's program and its arguments; the shell when `None`.
     command: Option<(String, Vec<String>)>,
     /// Lines to show at the top of the first tab: what is wrong with the settings.
@@ -162,8 +166,8 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, commands, recorder, hooks, command, notices } = start;
-        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks };
+        let Start { settings, commands, recorder, hooks, helper, command, notices } = start;
+        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, helper };
         workspace.open(command, window, cx);
         if let (Some(tab), false) = (workspace.tabs.first(), notices.is_empty()) {
             let text: Vec<String> = notices.iter().map(|notice| format!("{APP_NAME}: {notice}")).collect();
@@ -204,7 +208,8 @@ impl Workspace {
         };
         let settings = Arc::clone(&self.settings);
         let recorder = self.recorder.clone();
-        let view = cx.new(|cx| TerminalView::new(session, events, settings, recorder, cx));
+        let helper = Arc::clone(&self.helper);
+        let view = cx.new(|cx| TerminalView::new(session, events, settings, recorder, helper, cx));
         if let Some(notice) = notice {
             view.update(cx, |view, _| view.announce(&notice));
         }
@@ -495,8 +500,12 @@ fn main() {
     } else {
         (None, None)
     };
+    let ut = commands.as_ref().and_then(|commands| Some((Commands::program().ok()?, commands.names().to_vec())));
+    let (helper, told) = helper::Helper::new(&config.ai, ut, commands.as_ref().map(Commands::directory));
+    notices.extend(told);
     let settings = Arc::new(Settings { config, theme });
-    let start = Start { settings, commands, recorder, hooks, command: args.command, notices };
+    let helper = Arc::new(helper);
+    let start = Start { settings, commands, recorder, hooks, helper, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());
