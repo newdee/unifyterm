@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/newdee/unifyterm/releases/download/v0.1.0/unifyterm-v0.1.0-windows-x86_64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "94569895075629cb5b06cf61f7af8236331e60d4da9c4ab9d17a59f337f5fa8a",
       "extract_dir": "unifyterm-v0.1.0-windows-x86_64"
     }
   },
