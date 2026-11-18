@@ -12,7 +12,7 @@
 
 下一期（通信功能、可观测平台）见 `docs/roadmap.md`，M7 之后再规划。
 
-**挂账，不在当前顺序里：自己的 shell。** 用户 2026-11-17 决定先不做，等以后做自己的 shell 时再定路线。调研结果和验证方案保留在本文件末尾。在那之前，uni-term 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。
+**挂账，不在当前顺序里：自己的 shell。** 用户 2026-11-17 决定先不做，等以后做自己的 shell 时再定路线。调研结果和验证方案保留在本文件末尾。在那之前，UnifyTerm 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。
 
 ---
 
@@ -44,7 +44,7 @@
 
 - Rust 按 BeautifulRust：无 `unwrap`（测试除外），无 `bool` 参数，用 `#[expect(lint, reason = "...")]` 而不是 `#[allow]`，`unsafe` 必须带 SAFETY 说明，二进制 crate 里用 `pub(crate)`。
 - 每个新配置项必须同时满足三条：有代码读它；有实机检查证明改它会改变输出；写进帮助或文档。
-- 每个新环境变量必须写进 `ut --help` 或 `uni-term --help`。
+- 每个新环境变量必须写进 `ut --help` 或 `unifyterm --help`。
 - 同一个值只能有一个来源。
 - `ut` 自己生成的路径一律用 `slash::shown`。用户输入的路径原样显示。
 
@@ -82,11 +82,11 @@
 
 #### 1. 数据目录可重定位（先做）
 
-新环境变量 `UNI_TERM_DATA_DIR`。设置后，命令目录、启动脚本、历史库、日志都放在那里。所有实机检查都设置它，指向临时目录。这样测试不可能写到用户的真实数据。
+新环境变量 `UNIFYTERM_DATA_DIR`。设置后，命令目录、启动脚本、历史库、日志都放在那里。所有实机检查都设置它，指向临时目录。这样测试不可能写到用户的真实数据。
 
 #### 2. 终端标记协议
 
-uni-term 识别这些标准序列（以 BEL 或 ST 结束）：
+UnifyTerm 识别这些标准序列（以 BEL 或 ST 结束）：
 
 | 序列 | 含义 |
 |---|---|
@@ -100,7 +100,7 @@ uni-term 识别这些标准序列（以 BEL 或 ST 结束）：
 
 用标准序列，不用私有序列：keepane 和其他工具也认识它们。
 
-#### 3. 扫描器 `crates/uni-term/src/marks.rs`
+#### 3. 扫描器 `crates/unifyterm/src/marks.rs`
 
 - 一个字节流状态机。输入：pty 读到的一块字节。输出：若干段"普通字节"和"标记"。
 - 普通字节原样交给 `Screen::feed`。遇到标记时，先把它之前的字节喂完，读取此刻的光标位置，再产生 `Mark { kind, line, column }`。
@@ -130,9 +130,9 @@ enum Phase { Unknown, Prompt, Input { start: (line, column) }, Running { command
 | fish | `fish --init-command 'source <文件>'`，用 `fish_prompt`、`fish_preexec`、`fish_postexec` 事件。 |
 | cmd.exe | 设置环境变量 `PROMPT=$E]133;A$E\$P$G$E]133;B$E\`。只有 A、B。命令文本从网格读，退出码未知。 |
 
-钩子脚本放在 `crates/uni-term/src/hooks/`，用 `include_str!` 嵌入，启动时写到数据目录。做法参考 keepane 的 `src/shellhook.rs` 和 `src/platform/windows/shell.rs`（同一作者，MIT），文件头注明来源。
+钩子脚本放在 `crates/unifyterm/src/hooks/`，用 `include_str!` 嵌入，启动时写到数据目录。做法参考 keepane 的 `src/shellhook.rs` 和 `src/platform/windows/shell.rs`（同一作者，MIT），文件头注明来源。
 
-#### 6. 历史库：新 crate `crates/history`（库，名字 `uni-history`）
+#### 6. 历史库：新 crate `crates/history`（库，名字 `unifyterm-history`）
 
 GUI、`ut history`、M6 的 `ut mcp` 共用它。文件：`<数据目录>/history.db`。
 
@@ -232,7 +232,7 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 
 ### 步骤
 
-1. `UNI_TERM_DATA_DIR`：实现、文档、`tools/shot.ps1` 和 `tools/verify.ps1` 全部使用它。跑一遍 M2 的 59 项，确认不变。
+1. `UNIFYTERM_DATA_DIR`：实现、文档、`tools/shot.ps1` 和 `tools/verify.ps1` 全部使用它。跑一遍 M2 的 59 项，确认不变。
 1b. `ut` 进入命令目录（M2 的已知缺口）：`ut --links` 额外创建 `ut` 自己的链接，终端里才能敲 `ut history`、`ut view`、`ut md`。更新 `links.rs` 的测试；实机检查加一条"敲 `ut --version` 有输出"。
 2. `marks.rs`：扫描器和单元测试（见"验证"）。
 3. `session.rs`：读线程先过扫描器；`Notice` 增加 `Mark`。
@@ -255,7 +255,7 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 - 排序：用固定 `now_ms` 和手工构造的 6 条命令，期望顺序写死在测试里。
 - 密钥：100 行测试集（50 行含密钥，50 行不含）。含密钥的 50 行全部拒绝；不含的 50 行全部接受。
 
-**性能测试**（release，`cargo test --release -p uni-history -- --ignored`）
+**性能测试**（release，`cargo test --release -p unifyterm-history -- --ignored`）
 - 生成 10 万条不同的命令。跑 1000 次查询（长度 1 到 12 的混合）。p95 低于 5 ms。
 - 单条 `record` 平均低于 2 ms。
 - 把 p50、p95、p99 写进验收记录。
@@ -281,7 +281,7 @@ pub struct Query<'a> { pub text: &'a str, pub cwd: &'a str, pub now_ms: i64, pub
 1. 10 万条历史下，单次查询 p95 低于 5 ms。
 2. 失败过的命令排在同等条件下成功的命令之后（排序测试）。
 3. 密钥测试集 100% 命中，0 误伤。
-4. pwsh 7、Windows PowerShell 5.1、cmd 三种 shell 里候选列表都能出现。bash、zsh、fish 在 WSL 里验证钩子输出的标记（uni-term 的 Linux 界面要到 M7 才验证）。
+4. pwsh 7、Windows PowerShell 5.1、cmd 三种 shell 里候选列表都能出现。bash、zsh、fish 在 WSL 里验证钩子输出的标记（UnifyTerm 的 Linux 界面要到 M7 才验证）。
 5. 关闭 `history.enabled` 后，行为与 M2 相同。
 
 ### 风险
@@ -338,7 +338,7 @@ pub struct Request { pub system: String, pub user: String, pub max_tokens: u32 }
 
 #### 3. 脱敏（发送前）
 
-复用 `uni-history` 的 `secrets.rs`。命中的片段替换为 `‹redacted›`。另外：用户主目录替换为 `~`。脱敏在 `assist` 的入口统一做，三个功能都经过它。
+复用 `unifyterm-history` 的 `secrets.rs`。命中的片段替换为 `‹redacted›`。另外：用户主目录替换为 `~`。脱敏在 `assist` 的入口统一做，三个功能都经过它。
 
 #### 4. 配置
 
@@ -404,7 +404,7 @@ explain = true
 
 ### 目标
 
-uni-term 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任何终端里选对显示方式。`ut md` 渲染 markdown。
+UnifyTerm 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任何终端里选对显示方式。`ut md` 渲染 markdown。
 
 ### 第 0 步：先验证的事实
 
@@ -414,7 +414,7 @@ uni-term 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任�
 
 ### 设计
 
-#### 1. 协议子集（`crates/uni-term/src/graphics.rs`）
+#### 1. 协议子集（`crates/unifyterm/src/graphics.rs`）
 
 扫描器（M3 的 `marks.rs`）增加 APC `G` 序列。支持：
 
@@ -453,7 +453,7 @@ uni-term 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任�
 
 | 顺序 | 方式 | 判断 |
 |---|---|---|
-| 1 | kitty graphics | `TERM_PROGRAM=uni-term`，或发 `a=q` 后 100 ms 内收到 `OK` |
+| 1 | kitty graphics | `TERM_PROGRAM=unifyterm`，或发 `a=q` 后 100 ms 内收到 `OK` |
 | 2 | iTerm2 内联图片 | `TERM_PROGRAM` 是 `iTerm.app` 或 `WezTerm` |
 | 3 | sixel | 设备属性回应里有 `4` |
 | 4 | 半块字符 `▀` + 真彩色 | `COLORTERM=truecolor` |
@@ -520,7 +520,7 @@ uni-term 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任�
 
 ### 验收标准
 
-1. 同一张图在 uni-term、不支持图片的终端、管道里各自选对了方式。
+1. 同一张图在 UnifyTerm、不支持图片的终端、管道里各自选对了方式。
 2. 图片跟随文字滚动，清屏后消失。
 3. 内存有上限，并且测过。
 4. `ut view`、`ut md` 的文本输出在 Windows 和 Linux 上逐字节一致。
@@ -536,11 +536,11 @@ uni-term 窗口里能显示图片（kitty graphics 协议）。`ut view` 在任�
 
 ### 目标
 
-在 uni-term 里看到 keepane 管理的 agent。让外部 agent 通过 MCP 查询命令历史和命令帮助。给 agent 一份 skill，说明在 uni-term 里怎样工作。
+在 UnifyTerm 里看到 keepane 管理的 agent。让外部 agent 通过 MCP 查询命令历史和命令帮助。给 agent 一份 skill，说明在 UnifyTerm 里怎样工作。
 
 ### 第 0 步：先验证的事实
 
-1. 在一个测试用的 keepane 服务（`keepane -L uni-term-test`）里起两个窗格，运行 `keepane -L uni-term-test list-agents -J`，把输出存为夹具 `crates/uni-term/tests/fixtures/agents.json`。记录字段名。**不要碰默认 socket 上用户的会话。**
+1. 在一个测试用的 keepane 服务（`keepane -L unifyterm-test`）里起两个窗格，运行 `keepane -L unifyterm-test list-agents -J`，把输出存为夹具 `crates/unifyterm/tests/fixtures/agents.json`。记录字段名。**不要碰默认 socket 上用户的会话。**
 2. 确认 keepane 有没有"切换到某个窗格"的命令，以及它的确切写法。
 3. 读 keepane 的 `src/mcp.rs`：它支持的协议版本是 `2025-06-18`、`2025-03-26`、`2024-11-05`。`ut mcp` 用同样的列表。
 
@@ -575,10 +575,10 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 
 #### 3. skill 文件
 
-`skills/uni-term/SKILL.md`。内容：
-- 在 uni-term 里，Windows 上也能直接用 `cat`、`grep`、`jq`、`find`、`sed` 等 99 个命令。
+`skills/unifyterm/SKILL.md`。内容：
+- 在 UnifyTerm 里，Windows 上也能直接用 `cat`、`grep`、`jq`、`find`、`sed` 等 99 个命令。
 - 路径用 `/`。通配符按 Unix 规则展开，带引号的不展开。
-- 怎样注册 MCP：`claude mcp add uni-term -- ut mcp`。
+- 怎样注册 MCP：`claude mcp add unifyterm -- ut mcp`。
 - 四个工具各自什么时候用。
 - 不要做的事：不要假设 `awk`、`rg` 存在。
 
@@ -591,7 +591,7 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 3. 侧栏界面和快捷键。
 4. `ut mcp`：协议层、四个工具、测试。
 5. skill 文件、`ut skill`。
-6. `tools/verify.ps1` 加一节 `agents`。测试用 `keepane -L uni-term-test`，结束时只关这个服务。
+6. `tools/verify.ps1` 加一节 `agents`。测试用 `keepane -L unifyterm-test`，结束时只关这个服务。
 
 ### 验证
 
@@ -613,7 +613,7 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 ### 验收标准
 
 1. 一个真实的 agent 通过 MCP 查询历史并得到正确结果。
-2. keepane 不存在时，uni-term 的其他功能不受影响。
+2. keepane 不存在时，UnifyTerm 的其他功能不受影响。
 3. 侧栏不可见时，不产生任何后台进程。
 
 ---
@@ -627,7 +627,7 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 ### 第 0 步：先验证的事实
 
 1. 机器上的 `ffmpeg` 能把视频解成原始 RGB 帧输出到管道：`ffmpeg -i f.mp4 -f rawvideo -pix_fmt rgb24 -`。
-2. WSLg 里能否运行 uni-term 的 Linux 版（GPUI 需要 Vulkan）。不能就用 CI 加软件渲染（lavapipe、xvfb）。
+2. WSLg 里能否运行 UnifyTerm 的 Linux 版（GPUI 需要 Vulkan）。不能就用 CI 加软件渲染（lavapipe、xvfb）。
 3. `cargo-wix`、`cargo-deb` 的当前用法。
 4. 用 `cargo-about`（或 `cargo-license`）生成全部依赖的许可证清单，确认没有与 MIT 发布不兼容的许可证。
 
@@ -645,13 +645,13 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 #### 2. 版本和许可证
 
 - 版本 0.1.0。`LICENSE`（MIT）。`THIRD-PARTY-NOTICES`：uutils、jaq、ripgrep 的库、GPUI、alacritty_terminal、微软 ConPTY 等的许可证全文。
-- `uni-term --version`、`ut --version` 显示版本和 git 提交。
+- `unifyterm --version`、`ut --version` 显示版本和 git 提交。
 
 #### 3. 安装包
 
 | 平台 | 包 | 内容 | 工具 |
 |---|---|---|---|
-| Windows | MSI | `uni-term.exe`、`ut.exe`、`conpty.dll`、`OpenConsole.exe`、开始菜单项 | `cargo-wix` |
+| Windows | MSI | `unifyterm.exe`、`ut.exe`、`conpty.dll`、`OpenConsole.exe`、开始菜单项 | `cargo-wix` |
 | Windows | winget 清单 | 指向 MSI 的 YAML | 手写 |
 | macOS | `.app` 加 `.dmg` | 两个程序、`Info.plist`、图标 | 脚本 |
 | macOS | Homebrew cask | 指向 `.dmg` | 手写 |
@@ -666,7 +666,7 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 1. `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`。
 2. 构建 release。
 3. 运行 84 条命令记录（三个平台用同一份 golden）。
-4. GUI 冒烟测试：启动 uni-term，运行 `echo ok` 后退出，用 `--replay` 检查录下的输出里有 `ok`。Linux 用 xvfb 加 lavapipe。
+4. GUI 冒烟测试：启动 UnifyTerm，运行 `echo ok` 后退出，用 `--replay` 检查录下的输出里有 `ok`。Linux 用 xvfb 加 lavapipe。
 5. 打包，上传构建产物。
 
 推送和启用 CI 需要用户的远程仓库。
@@ -699,8 +699,8 @@ stdin/stdout 上的 JSON-RPC，每行一条。手写，不引入 MCP SDK（做�
 1. 播放夹具视频：0.5 秒和 1.5 秒时各截一张图，同一像素的颜色不同，且各自等于夹具里那一秒的颜色。
 2. 播放中按 `q`：1 秒内回到提示符，光标可见，没有 `ffmpeg` 进程残留。
 3. PATH 里没有 ffmpeg：打印说明，退出码 1。
-4. MSI：安装后开始菜单有 uni-term；启动后 `cat --version` 可用；卸载后安装目录不存在。用户数据目录保留（文档里写明）。
-5. `.deb`：`dpkg -i` 成功；`uni-term --version` 和 `ut --list` 可用；`dpkg -r` 成功。
+4. MSI：安装后开始菜单有 UnifyTerm；启动后 `cat --version` 可用；卸载后安装目录不存在。用户数据目录保留（文档里写明）。
+5. `.deb`：`dpkg -i` 成功；`unifyterm --version` 和 `ut --list` 可用；`dpkg -r` 成功。
 6. 把 Windows 上的 `config.toml` 和 `history.db` 拷到 Linux：`ut history recent` 列出同样的命令；配置被接受。
 7. 全部之前阶段的检查在 release 版安装包里的程序上再跑一遍。
 
@@ -761,7 +761,7 @@ Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作�
    用例只调用 `ut` 自带的命令，保证三个平台输入相同。
 3. 在 WSL 里用真正的 bash 运行这 60 条，把 stdout、stderr、退出码存成 golden。
 4. 用 `ut sh` 在 Windows 和 Linux 上运行，和 golden 逐字节比较。
-5. 在 uni-term 里启动 `ut sh`（配置 `[shell] program = "<ut 的路径>"`, `args = ["sh"]`），用 `tools/shot.ps1` 实测 6 项：提示符出现；能输入并运行 `echo ok`；Ctrl-C 中断 `sleep 30` 并回到提示符；Tab 补全一个路径；上方向键取回上一条；改窗口大小后 `tput cols` 或 `$COLUMNS` 正确。
+5. 在 UnifyTerm 里启动 `ut sh`（配置 `[shell] program = "<ut 的路径>"`, `args = ["sh"]`），用 `tools/shot.ps1` 实测 6 项：提示符出现；能输入并运行 `echo ok`；Ctrl-C 中断 `sleep 30` 并回到提示符；Tab 补全一个路径；上方向键取回上一条；改窗口大小后 `tput cols` 或 `$COLUMNS` 正确。
 6. 测 `pwd`、`echo $PWD`、Tab 补全在 Windows 上输出的路径分隔符。
 7. 测启动时间：`ut sh -c true` 连跑 20 次取中位数。测 release 版 `ut.exe` 的大小。
 8. 查 `brush-coreutils-builtins` 固定的 uutils 版本，以及它怎样给内置命令做重定向。
@@ -783,12 +783,12 @@ Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作�
 
 - **入口**：`ut sh`。不创建名为 `sh` 或 `bash` 的链接：别的工具调用 `bash` 时期望的是真正的 bash。
 - **`ut` 进入命令目录**：已移到 M3 的步骤里做（`ut history`、`ut view`、`ut md` 也需要它）。
-- **配置**：不加新配置项。`[shell] program = "ut"`, `args = ["sh"]`。uni-term 把名字 `ut` 解析为它旁边的 `ut`。
+- **配置**：不加新配置项。`[shell] program = "ut"`, `args = ["sh"]`。UnifyTerm 把名字 `ut` 解析为它旁边的 `ut`。
 - **外部命令**：`cat`、`ls` 等先作为外部进程运行（shell 在 PATH 里找到命令目录）。不做进程内内置命令。只有第 0 步第 7 项测出进程启动是瓶颈时，才考虑内置化，并且先确认第 8 项的重定向做法可靠。
 - **通配符**：shell 自己展开。启动时设置 `UT_NO_GLOB=1`，子进程 `ut` 不再展开。
 - **路径**：`$PWD`、提示符、补全在 Windows 上显示 `C:/...`。不做 `/c/...` 形式，不做参数自动转换。
-- **启动文件**：只读 `<配置目录>/uni-term/shrc`。不读 `~/.bashrc`（里面常有只适用于真 bash 的内容）。
-- **终端标记**：`ut sh` 启动时如果 `TERM_PROGRAM=uni-term`，自动加载和 bash 相同的钩子脚本（M3 写）。
+- **启动文件**：只读 `<配置目录>/unifyterm/shrc`。不读 `~/.bashrc`（里面常有只适用于真 bash 的内容）。
+- **终端标记**：`ut sh` 启动时如果 `TERM_PROGRAM=unifyterm`，自动加载和 bash 相同的钩子脚本（M3 写）。
 - **PowerShell 和 cmd 的托管保留**，仍是默认。
 
 ### 步骤
@@ -811,7 +811,7 @@ Windows、macOS、Linux 上用同一种 shell 语法（bash 兼容）。先作�
 ### 验收标准
 
 1. 同一个脚本文件在 Windows 和 Linux 上用 `ut sh` 运行，输出逐字节一致（已知不一致的除外，且有清单）。
-2. 在 uni-term 里把 shell 设为 `ut sh`，能正常交互。
+2. 在 UnifyTerm 里把 shell 设为 `ut sh`，能正常交互。
 3. `ut sh` 里 `pwd`、提示符、补全在 Windows 上都没有 `\`。
 4. 不设置时，行为和 M2 完全相同。
 

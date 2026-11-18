@@ -1,17 +1,17 @@
-//! `ut history`: the command history uni-term keeps, from the command line.
+//! `ut history`: the command history UnifyTerm keeps, from the command line.
 //!
 //!     ut history recent [-n N] [--cwd DIR] [--long]
 //!     ut history search TEXT [-n N] [--cwd DIR] [--long]
 //!     ut history forget TEXT
 //!
-//! The file is uni-term's (`history.db` in its data directory, or in
-//! `UNI_TERM_DATA_DIR`). Reading opens it read-only and makes nothing when
+//! The file is UnifyTerm's (`history.db` in its data directory, or in
+//! `UNIFYTERM_DATA_DIR`). Reading opens it read-only and makes nothing when
 //! it is not there.
 
 use std::ffi::OsString;
 use std::io::{self, Write as _};
 
-use uni_history::{Candidate, History, Query, ago, now_ms};
+use unifyterm_history::{Candidate, History, Query, ago, now_ms};
 
 const USAGE: &str = "usage: ut history recent [-n N] [--cwd DIR] [--long]
        ut history search TEXT [-n N] [--cwd DIR] [--long]
@@ -114,7 +114,7 @@ pub(crate) fn main(args: &[OsString]) -> i32 {
 }
 
 fn run(request: &Request, out: &mut impl io::Write) -> anyhow::Result<i32> {
-    let path = uni_history::default_path()?;
+    let path = unifyterm_history::default_path()?;
     if let Ask::Forget(text) = &request.ask {
         if !path.is_file() {
             return Ok(TROUBLE);

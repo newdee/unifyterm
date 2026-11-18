@@ -1,4 +1,4 @@
-# Writes THIRD-PARTY-NOTICES: every license of what goes into uni-term and ut.
+# Writes THIRD-PARTY-NOTICES: every license of what goes into unifyterm and ut.
 #
 #   pwsh tools/notices.ps1          write it
 #   pwsh tools/notices.ps1 -Check   fail when the file in the repository is not what it would write
@@ -13,7 +13,7 @@ if (Test-Path $tools) { $env:PATH = "$tools$([IO.Path]::PathSeparator)$env:PATH"
 Push-Location $root
 try {
     # To a file: cargo-about refuses PowerShell's redirection (it would change the encoding).
-    $raw = Join-Path ([IO.Path]::GetTempPath()) "uni-term-notices-$PID.txt"
+    $raw = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-notices-$PID.txt"
     cargo about generate --locked --workspace --output-file $raw about.hbs
     if ($LASTEXITCODE -ne 0) { throw "cargo about failed (exit $LASTEXITCODE)" }
     $generated = [IO.File]::ReadAllText($raw).Replace("`r", ''); Remove-Item $raw

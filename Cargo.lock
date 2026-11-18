@@ -7725,51 +7725,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "uni-assist"
-version = "0.1.0"
-dependencies = [
- "dirs 6.0.0",
- "serde",
- "serde_json",
- "uni-history",
- "ureq",
-]
-
-[[package]]
-name = "uni-history"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs 6.0.0",
- "regex",
- "rusqlite",
- "tempfile",
-]
-
-[[package]]
-name = "uni-term"
-version = "0.1.0"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "base64 0.22.1",
- "dirs 6.0.0",
- "gpui",
- "image",
- "log",
- "portable-pty",
- "regex",
- "serde",
- "serde_json",
- "smol",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
- "uni-assist",
- "uni-history",
- "unicode-width 0.2.3",
-]
-
-[[package]]
 name = "unic-langid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7870,6 +7825,51 @@ name = "unicode-width"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
+
+[[package]]
+name = "unifyterm"
+version = "0.1.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "base64 0.22.1",
+ "dirs 6.0.0",
+ "gpui",
+ "image",
+ "log",
+ "portable-pty",
+ "regex",
+ "serde",
+ "serde_json",
+ "smol",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "unicode-width 0.2.3",
+ "unifyterm-assist",
+ "unifyterm-history",
+]
+
+[[package]]
+name = "unifyterm-assist"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
+ "serde",
+ "serde_json",
+ "unifyterm-history",
+ "ureq",
+]
+
+[[package]]
+name = "unifyterm-history"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "regex",
+ "rusqlite",
+ "tempfile",
+]
 
 [[package]]
 name = "unit-prefix"
@@ -7985,8 +7985,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "terminal_size",
- "uni-history",
  "unicode-width 0.2.3",
+ "unifyterm-history",
  "uu_arch",
  "uu_b2sum",
  "uu_base32",

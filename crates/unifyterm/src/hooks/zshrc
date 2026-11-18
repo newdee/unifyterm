@@ -1,0 +1,45 @@
+# Written by unifyterm each time it starts: changes here are lost.
+# zsh reads this as its .zshrc in unifyterm's tabs (unifyterm points ZDOTDIR
+# here); your own start files are read first, from where they were.
+# `[history] enabled = false` in unifyterm's settings turns it off.
+#
+# It tells unifyterm, in standard terminal marks, where the prompt starts
+# and ends (OSC 133;A and B), when a command starts (133;C), what it was
+# and how it ended (633;E, 133;D) and which directory this is (633;P;Cwd).
+# Adapted from keepane's shell hooks (MIT, same author).
+
+[[ -f "$UNIFYTERM_ZDOTDIR/.zshrc" ]] && ZDOTDIR="$UNIFYTERM_ZDOTDIR" source "$UNIFYTERM_ZDOTDIR/.zshrc"
+# From here on, zsh finds your files where they are.
+ZDOTDIR="$UNIFYTERM_ZDOTDIR"
+
+__unifyterm_escape() {
+    local s=${1//\\/\\\\}
+    s=${s//;/\\x3b}
+    s=${s//$'\n'/\\x0a}
+    print -rn -- "$s"
+}
+
+__unifyterm_running=0
+
+__unifyterm_preexec() {
+    __unifyterm_running=1
+    printf '\e]633;E;%s\e\\\e]133;C\e\\' "$(__unifyterm_escape "$1")"
+}
+
+__unifyterm_precmd() {
+    local code=$?
+    if (( __unifyterm_running )); then
+        printf '\e]133;D;%s\e\\' "$code"
+        __unifyterm_running=0
+    fi
+    printf '\e]633;P;Cwd=%s\e\\' "$(__unifyterm_escape "$PWD")"
+    case "$PS1" in
+        *$'\e]133;B'*) ;;
+        *) PS1="%{"$'\e]133;A\a'"%}$PS1%{"$'\e]133;B\a'"%}" ;;
+    esac
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec __unifyterm_preexec
+add-zsh-hook precmd __unifyterm_precmd
+printf '\e]633;P;Shell=zsh\e\\'

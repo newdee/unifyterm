@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=UnifyTerm
+GenericName=Terminal
+Comment=One terminal for Windows, macOS and Linux
+Exec=unifyterm
+Icon=unifyterm
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;console;command;
+StartupWMClass=unifyterm

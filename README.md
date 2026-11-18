@@ -1,6 +1,12 @@
-# uni-term
+<p align="center">
+  <img src="docs/brand/unifyterm-wordmark-light.png" alt="UnifyTerm" width="420">
+</p>
+
+# UnifyTerm
 
 One terminal for Windows, macOS and Linux.
+
+![UnifyTerm: the same Unix commands on Windows, history as you type, pictures and markdown, a model's explanation, agents beside the terminal](docs/media/unifyterm-promo.gif)
 
 - **The same Unix commands everywhere.** `cat`, `ls`, `grep`, `jq`, `find`, `sed` and the rest of 99 commands (114 on Linux) come with it (`ut`): on Windows too, and before PowerShell's aliases. Paths are printed with `/`.
 - **A command history you can search as you type.** Every command a shell runs is kept (without secrets) with its directory and exit code; a list of matches shows while you type.
@@ -12,12 +18,40 @@ It runs your own shell: PowerShell, cmd, bash, zsh or fish.
 
 ## Install
 
-| System | Package | How |
-|---|---|---|
-| Windows 10 1809 or later | MSI | Run `uni-term-VERSION-x64.msi`. Once published to winget: `winget install uni-term.uni-term`. |
-| macOS 11 or later | `.dmg` | Open `uni-term-VERSION-macos-ARCH.dmg`, drag uni-term to Applications. Once published to a Homebrew tap: `brew install --cask uni-term`. |
-| Debian, Ubuntu | `.deb` | `sudo apt install ./uni-term_VERSION-1_amd64.deb` |
-| Other Linux | AppImage | `chmod +x uni-term-VERSION-x86_64.AppImage` and run it. Needs Vulkan (`mesa-vulkan-drivers`). |
+**macOS and Linux** (Apple silicon, Intel; Linux x86_64), with [Homebrew](https://brew.sh):
+
+```bash
+brew install newdee/tap/unifyterm
+```
+
+Or with one line, for you alone (no root): it puts `unifyterm` and `ut` in `~/.local/bin`, UnifyTerm.app in `~/Applications` on macOS, a menu entry on Linux.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh
+```
+
+**Windows** 10 1809 or later, with [Scoop](https://scoop.sh):
+
+```powershell
+scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json
+```
+
+Or with one line, for you alone (no administrator rights): it puts UnifyTerm in `%LOCALAPPDATA%\Programs\unifyterm`, on your `PATH` and in the Start menu.
+
+```powershell
+irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex
+```
+
+**Packages** on the [releases page](https://github.com/newdee/unifyterm/releases), each with a `.sha256` beside it:
+
+| System | File |
+|---|---|
+| Windows | `unifyterm-VERSION-x64.msi` (into Program Files, for every user), or `unifyterm-vVERSION-windows-x86_64.zip` |
+| macOS | `unifyterm-VERSION-macos-aarch64.dmg` or `-macos-x86_64.dmg`, or the `.tar.gz` |
+| Debian, Ubuntu | `unifyterm_VERSION-1_amd64.deb`: `sudo apt install ./unifyterm_VERSION-1_amd64.deb` |
+| Other Linux | `unifyterm-VERSION-x86_64.AppImage`, or the `.tar.gz` |
+
+On Linux the window needs Vulkan and xkbcommon (on Debian and Ubuntu: `mesa-vulkan-drivers libxkbcommon-x11-0`). Updating: `brew upgrade unifyterm`, `scoop update unifyterm`, or the same one line again.
 
 The builds are not signed yet. Windows SmartScreen may ask once ("More info", then "Run anyway"); macOS asks once (right-click the app, then "Open").
 
@@ -49,7 +83,7 @@ In a popup, Enter takes what it offers (a corrected command goes on the line, no
 
 ## Settings
 
-The settings file is `config.toml` in `%APPDATA%\uni-term` (Windows), `~/Library/Application Support/uni-term` (macOS) or `~/.config/uni-term` (Linux); `uni-term --config FILE` names another. Every key is optional. A key that is misspelt, or a value out of range, is named in a line at the top of the first tab, and the defaults are used. The same file works on every system: paths may be written with `/`.
+The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Library/Application Support/unifyterm` (macOS) or `~/.config/unifyterm` (Linux); `unifyterm --config FILE` names another. Every key is optional. A key that is misspelt, or a value out of range, is named in a line at the top of the first tab, and the defaults are used. The same file works on every system: paths may be written with `/`.
 
 | Key | Default | What it is |
 |---|---|---|
@@ -67,7 +101,7 @@ The settings file is `config.toml` in `%APPDATA%\uni-term` (Windows), `~/Library
 | `theme.cursor` | built-in | `#rrggbb` |
 | `theme.selection` | built-in | `#rrggbb` |
 | `theme.ansi` | built-in | The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight |
-| `commands.builtin` | `true` | Put uni-term's commands before the system's in each shell's `PATH` |
+| `commands.builtin` | `true` | Put UnifyTerm's commands before the system's in each shell's `PATH` |
 | `commands.system` | `[]` | Commands that stay the system's although `builtin` is on, as `["find", "sort"]` |
 | `history.enabled` | `true` | Keep the commands shells run. Off: no shell hook, no history file |
 | `history.candidates` | `true` | Show the list while typing |
@@ -90,8 +124,8 @@ Nothing is sent to a model until `ai.provider` names one **and** you agree in th
 
 | Variable | What it does |
 |---|---|
-| `UNI_TERM_DATA_DIR` | Keep uni-term's data (history, log, command links, shell hooks) in this directory instead of the system's |
-| `UNI_TERM_RAW_LOG` | A file to append every byte the first tab's program prints to (later tabs: `.2`, `.3`); `uni-term --replay FILE` shows the screen they draw |
+| `UNIFYTERM_DATA_DIR` | Keep UnifyTerm's data (history, log, command links, shell hooks) in this directory instead of the system's |
+| `UNIFYTERM_RAW_LOG` | A file to append every byte the first tab's program prints to (later tabs: `.2`, `.3`); `unifyterm --replay FILE` shows the screen they draw |
 | `UT_NATIVE_PATHS` | On Windows: `ut`'s commands print paths with Windows' own `\` |
 | `UT_NO_GLOB` | On Windows: `ut`'s commands keep every wildcard as typed instead of expanding it |
 
@@ -99,7 +133,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 
 ## The commands: `ut`
 
-`ut --list` names them (99 on Windows, 114 on Linux): coreutils, findutils, `grep`, `sed`, `jq`, `diff`, `which` and others. In a uni-term shell they are on `PATH` under their own names; elsewhere run them as `ut cat FILE`.
+`ut --list` names them (99 on Windows, 114 on Linux): coreutils, findutils, `grep`, `sed`, `jq`, `diff`, `which` and others. In a UnifyTerm shell they are on `PATH` under their own names; elsewhere run them as `ut cat FILE`.
 
 | Command | What it does |
 |---|---|
@@ -109,27 +143,27 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut view FILE [--mode M] [--width N]` | A picture, or a video with ffmpeg (no sound; `q` stops it) |
 | `ut md [FILE]` | Markdown as styled text |
 | `ut mcp` | An MCP server on standard input and output (below) |
-| `ut skill [--install DIR]` | The agents' skill file, printed or written to `DIR/uni-term/SKILL.md` |
+| `ut skill [--install DIR]` | The agents' skill file, printed or written to `DIR/unifyterm/SKILL.md` |
 
 ## For agents
 
 - **The sidebar** (Ctrl-Shift-A) shows the agents in keepane's panes (keepane is a terminal multiplexer): model, cost, context, CPU, memory. It asks keepane only while it shows.
-- **`ut mcp`** gives an agent four tools: `history_search`, `history_recent`, `list_commands`, `command_help`. It reads the history and runs nothing. Register it with Claude Code: `claude mcp add uni-term -- ut mcp`.
-- **The skill** (`skills/uni-term/SKILL.md`, or `ut skill`) tells an agent how to work in uni-term.
+- **`ut mcp`** gives an agent four tools: `history_search`, `history_recent`, `list_commands`, `command_help`. It reads the history and runs nothing. Register it with Claude Code: `claude mcp add unifyterm -- ut mcp`.
+- **The skill** (`skills/unifyterm/SKILL.md`, or `ut skill`) tells an agent how to work in UnifyTerm.
 
 ## Where things are
 
 | What | Windows | macOS | Linux |
 |---|---|---|---|
-| Settings | `%APPDATA%\uni-term\config.toml` | `~/Library/Application Support/uni-term/config.toml` | `~/.config/uni-term/config.toml` |
-| History, log, links | `%LOCALAPPDATA%\uni-term` | `~/Library/Application Support/uni-term` | `~/.local/share/uni-term` |
+| Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
+| History, log, links | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
 The history is one SQLite file, `history.db`; a copy works on every system.
 
 ## Known limits
 
 - No sound with video; ffmpeg must be installed for video.
-- uni-term draws kitty's graphics protocol; sixel and iTerm2 images are for `ut view` in other terminals.
+- UnifyTerm draws kitty's graphics protocol; sixel and iTerm2 images are for `ut view` in other terminals.
 - PowerShell's Tab completion still writes paths with `\`; `ls -R` and `find -exec` print uutils' own `\` paths on Windows.
 - The shell hooks (history, the list while typing) need PowerShell 7 or 5.1, cmd, bash, zsh or fish.
 - macOS has not been used by hand: CI builds it, runs the tests and starts it.

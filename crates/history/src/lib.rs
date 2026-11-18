@@ -1,4 +1,4 @@
-//! uni-term's command history: one SQLite file. The terminal writes a row
+//! UnifyTerm's command history: one SQLite file. The terminal writes a row
 //! for each command a shell ran; the terminal's candidate list, `ut history`
 //! and `ut mcp` read it.
 //!
@@ -17,18 +17,18 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension as _, params};
 
 pub use secrets::{Refusal, redact, refusal};
 
-/// The environment variable that puts all of uni-term's data (command
+/// The environment variable that puts all of UnifyTerm's data (command
 /// links, start scripts, history, log) in another directory: tests use it,
 /// so that they never touch the user's own.
-pub const DATA_DIRECTORY_VARIABLE: &str = "UNI_TERM_DATA_DIR";
+pub const DATA_DIRECTORY_VARIABLE: &str = "UNIFYTERM_DATA_DIR";
 
-/// Where uni-term keeps its data: `UNI_TERM_DATA_DIR` when it is set, else
-/// `uni-term` in the system's directory for local application data.
+/// Where UnifyTerm keeps its data: `UNIFYTERM_DATA_DIR` when it is set, else
+/// `unifyterm` in the system's directory for local application data.
 pub fn data_directory() -> Result<PathBuf> {
     if let Some(directory) = std::env::var_os(DATA_DIRECTORY_VARIABLE).filter(|value| !value.is_empty()) {
         return Ok(PathBuf::from(directory));
     }
-    Ok(dirs::data_local_dir().context("this system has no data directory")?.join("uni-term"))
+    Ok(dirs::data_local_dir().context("this system has no data directory")?.join("unifyterm"))
 }
 
 /// Now, in milliseconds since 1970.
@@ -247,7 +247,7 @@ impl History {
             Some(other) => {
                 bail!("{} is of version {other}; this program reads version {SCHEMA_VERSION}", path.display())
             }
-            None => bail!("{} is not a uni-term history file", path.display()),
+            None => bail!("{} is not a UnifyTerm history file", path.display()),
         }
     }
 
@@ -613,7 +613,7 @@ mod tests {
         let directory = data_directory().unwrap();
         match std::env::var_os(DATA_DIRECTORY_VARIABLE).filter(|value| !value.is_empty()) {
             Some(moved) => assert_eq!(directory, PathBuf::from(moved)),
-            None => assert!(directory.ends_with("uni-term")),
+            None => assert!(directory.ends_with("unifyterm")),
         }
         assert_eq!(default_path().unwrap(), directory.join("history.db"));
     }

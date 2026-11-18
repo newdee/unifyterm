@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>uni-term 方案与演示</title>
+<title>UnifyTerm 方案与演示</title>
 <style>
 :root {
   --bg: #0f1016; --panel: #16161e; --panel2: #1c1d28; --line: #2a2c3c;
@@ -151,7 +151,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
 </head>
 <body>
 <header class="top">
-  <h1>uni-term<span>一个终端，三个平台，同一套命令</span></h1>
+  <h1>UnifyTerm<span>一个终端，三个平台，同一套命令</span></h1>
   <nav class="pages" role="tablist">
     <button role="tab" aria-selected="true" data-page="demo">交互演示</button>
     <button role="tab" aria-selected="false" data-page="plan">方案</button>
@@ -238,17 +238,17 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
 <section class="page" id="page-plan">
 <div class="plan">
   <h2>1. 产品定义</h2>
-  <p class="lead">uni-term 是一个自带窗口的跨平台终端。它在 Windows、macOS、Linux 上提供同一个界面、同一套命令、同一份历史和同一个 AI 接口。</p>
+  <p class="lead">UnifyTerm 是一个自带窗口的跨平台终端。它在 Windows、macOS、Linux 上提供同一个界面、同一套命令、同一份历史和同一个 AI 接口。</p>
   <table>
     <tr><th>层</th><th>谁负责</th><th>说明</th></tr>
-    <tr><td>窗口与渲染</td><td>uni-term（新写，GPUI）</td><td>字符网格、连字、CJK 与 emoji、输入法、图片、候选列表、AI 卡片、设置。</td></tr>
-    <tr><td>多窗格与 agent 管理</td><td>keepane（已有）</td><td>uni-term 只做标签页。分屏、持久会话、agent 收件箱、MCP 继续由 keepane 提供。uni-term 只读取 agent 状态并显示。</td></tr>
-    <tr><td>shell</td><td>系统 shell（托管）</td><td>Windows 运行 pwsh，macOS 和 Linux 运行 zsh 或 bash。uni-term 注入 PATH 和 shell 钩子。</td></tr>
+    <tr><td>窗口与渲染</td><td>UnifyTerm（新写，GPUI）</td><td>字符网格、连字、CJK 与 emoji、输入法、图片、候选列表、AI 卡片、设置。</td></tr>
+    <tr><td>多窗格与 agent 管理</td><td>keepane（已有）</td><td>UnifyTerm 只做标签页。分屏、持久会话、agent 收件箱、MCP 继续由 keepane 提供。UnifyTerm 只读取 agent 状态并显示。</td></tr>
+    <tr><td>shell</td><td>系统 shell（托管）</td><td>Windows 运行 pwsh，macOS 和 Linux 运行 zsh 或 bash。UnifyTerm 注入 PATH 和 shell 钩子。</td></tr>
     <tr><td>命令集</td><td><code>ut</code>（新写，集成）</td><td>一个 multi-call 二进制。集成 uutils、ripgrep、jaq；自己写 <code>view</code>、<code>md</code>、<code>explain</code>。默认启用，可整体或逐条切回系统命令。</td></tr>
   </table>
 
   <h2>2. 架构</h2>
-  <svg viewBox="0 0 1040 470" role="img" aria-label="uni-term 架构图">
+  <svg viewBox="0 0 1040 470" role="img" aria-label="UnifyTerm 架构图">
     <defs>
       <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7a82a8"/></marker>
       <style>
@@ -260,7 +260,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
         .gl { fill: #4c5273; font: 600 11px "Segoe UI","PingFang SC","Microsoft YaHei UI",sans-serif; letter-spacing: .08em; }
       </style>
     </defs>
-    <rect class="g" x="20" y="20" width="640" height="200" rx="10"/><text class="gl" x="34" y="40">UNI-TERM 进程（GPUI）</text>
+    <rect class="g" x="20" y="20" width="640" height="200" rx="10"/><text class="gl" x="34" y="40">UnifyTerm 进程（GPUI）</text>
     <rect class="nb" x="40" y="54" width="186" height="70" rx="8"/><text class="t" x="54" y="80">网格渲染</text><text class="s" x="54" y="100">连字 · CJK · emoji · 图片</text>
     <rect class="nb" x="246" y="54" width="186" height="70" rx="8"/><text class="t" x="260" y="80">输入层</text><text class="s" x="260" y="100">输入法 · 候选列表 · 灰色建议</text>
     <rect class="np" x="452" y="54" width="186" height="70" rx="8"/><text class="t" x="466" y="80">ai</text><text class="s" x="466" y="100">建议 · 纠正 · 解释（接口）</text>
@@ -312,14 +312,14 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><th>主题</th><th>决定</th><th>依据与风险</th></tr>
     <tr><td>GUI 框架</td><td>GPUI <span class="tag ok">已实测</span></td><td><code>gpui 0.2.2</code> 在本机 Windows 冷编译通过。spike 窗口运行了 PowerShell 7，按键可用，连字已渲染。<code>shape_line(force_width)</code> 支持按网格对齐的连字，<code>paint_image</code> 支持图片，<code>EntityInputHandler</code> 支持输入法。<span class="tag risk">风险</span> crates.io 上的版本停在 2025-10-22。对策：GPUI 只出现在窗口这一个 crate；M1 结束时评估改为锁定 Zed 仓库的某个提交。</td></tr>
     <tr><td>屏幕状态</td><td><code>alacritty_terminal 0.26</code></td><td>Zed 的终端使用它。它不处理图片协议。对策：在 <code>session</code> 里先拦截 kitty graphics 序列再交给它。备选 <code>libghostty-vt 0.2.2</code> 自带 kitty 模块，M5 前评估。</td></tr>
-    <tr><td>多窗格</td><td>不做，交给 keepane</td><td>keepane 0.69 已有分屏、持久会话、agent 状态、MCP、OSC 133 钩子。uni-term 重做一遍没有收益。</td></tr>
+    <tr><td>多窗格</td><td>不做，交给 keepane</td><td>keepane 0.69 已有分屏、持久会话、agent 状态、MCP、OSC 133 钩子。UnifyTerm 重做一遍没有收益。</td></tr>
     <tr><td>命令集</td><td>集成，不重写</td><td>uutils coreutils 0.11 通过 653 项 GNU 测试，约 22 项失败，MIT 许可。微软 2026 年 6 月发布的 Coreutils for Windows 也基于它。自己重写约 100 个命令要按人年计。</td></tr>
-    <tr><td>命令集开关</td><td>PATH 前置 + 配置</td><td>uni-term 启动 shell 时把 <code>ut</code> 的命令目录放到 PATH 最前，并在 pwsh 里移除 <code>cat</code>、<code>ls</code>、<code>rm</code> 等同名别名。<code>commands.builtin = false</code> 整体关闭；<code>commands.system = ["curl"]</code> 逐条切回。</td></tr>
+    <tr><td>命令集开关</td><td>PATH 前置 + 配置</td><td>UnifyTerm 启动 shell 时把 <code>ut</code> 的命令目录放到 PATH 最前，并在 pwsh 里移除 <code>cat</code>、<code>ls</code>、<code>rm</code> 等同名别名。<code>commands.builtin = false</code> 整体关闭；<code>commands.system = ["curl"]</code> 逐条切回。</td></tr>
     <tr><td>历史检索</td><td>SQLite FTS5 + 重排</td><td>纯 BM25 有两个问题。第一，输入到一半的词（<code>gi</code>）匹配不到 <code>git</code>，需要前缀或 trigram 匹配。第二，BM25 会降低高频词的权重，而历史里高频命令应该排前。做法：FTS5 负责召回，排序 = 文本匹配分 + 使用频率和新近度 + 当前目录 + 退出码。</td></tr>
     <tr><td>候选列表位置</td><td>终端层（GUI）</td><td>VS Code 和 Windows Terminal 用同样的做法：shell 钩子报告提示符位置和命令行文本，终端画候选。这样对所有 shell 生效。</td></tr>
     <tr><td>AI</td><td>接口 + 可换后端</td><td>建议用灰色文字显示，不阻塞输入。纠正和解释都用弹窗显示在输入行旁边，不留在滚动记录里。纠正在命令失败后出现：Enter 把修正后的命令填入输入行，Esc 关闭。解释由 Ctrl-Shift-E 唤出：Enter 或 Esc 关闭。弹窗里的 Enter 不运行命令。解释优先用本地帮助数据，再问模型。<span class="tag risk">隐私</span> 命令行可能含密钥。发送前脱敏，默认需要用户开启。</td></tr>
     <tr><td>图片与视频</td><td><code>ut view</code> 自动降级</td><td>见第 4 节。视频解码依赖 ffmpeg，纯 Rust 没有覆盖 H.264/H.265 的成熟解码器。</td></tr>
-    <tr><td>markdown</td><td><code>ut md</code> + GUI 原生</td><td><code>ut md</code> 在任何终端输出带样式的文本，图片走 <code>view</code> 的降级链，做法同 glow、mdcat。nvim 的 render-markdown.nvim、markview.nvim 用隐藏文本和虚拟文本在编辑器里渲染；image.nvim 用 kitty graphics 显示图片，uni-term 支持该协议后它可直接工作。AI 卡片在 GUI 里原生渲染 markdown。</td></tr>
+    <tr><td>markdown</td><td><code>ut md</code> + GUI 原生</td><td><code>ut md</code> 在任何终端输出带样式的文本，图片走 <code>view</code> 的降级链，做法同 glow、mdcat。nvim 的 render-markdown.nvim、markview.nvim 用隐藏文本和虚拟文本在编辑器里渲染；image.nvim 用 kitty graphics 显示图片，UnifyTerm 支持该协议后它可直接工作。AI 卡片在 GUI 里原生渲染 markdown。</td></tr>
     <tr><td>字符集</td><td>全程 UTF-8</td><td>按字素簇计算宽度（CJK、emoji 组合）。字体回退链：等宽主字体 → CJK → 彩色 emoji → Nerd Font 符号。制表符和 Powerline 符号由程序自己画，保证拼接无缝。旧编码用 <code>ut iconv</code> 转换。</td></tr>
   </table>
 
@@ -327,7 +327,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
   <p><code>ut view</code> 启动时探测终端能力，从上到下选第一个可用的方式。演示页里关闭"图形界面"开关可以看到后几种。</p>
   <table>
     <tr><th>方式</th><th>每格像素</th><th>支持的终端</th><th>说明</th></tr>
-    <tr><td>kitty graphics</td><td>真实像素</td><td>uni-term、kitty、Ghostty、WezTerm、Konsole、iTerm2</td><td>功能最全：真彩色、透明、动画帧、按 id 复用图片。它的 Unicode 占位符模式可以穿过多路复用器，keepane 里显示图片要用这个模式。</td></tr>
+    <tr><td>kitty graphics</td><td>真实像素</td><td>UnifyTerm、kitty、Ghostty、WezTerm、Konsole、iTerm2</td><td>功能最全：真彩色、透明、动画帧、按 id 复用图片。它的 Unicode 占位符模式可以穿过多路复用器，keepane 里显示图片要用这个模式。</td></tr>
     <tr><td>iTerm2 内联图片</td><td>真实像素</td><td>iTerm2、WezTerm、VS Code</td><td>一条 OSC 1337 序列带 base64 文件。实现最简单，没有动画控制。</td></tr>
     <tr><td>sixel</td><td>真实像素</td><td>Windows Terminal 1.22+、foot、xterm、WezTerm</td><td>1980 年代的协议，调色板最多 256 色，体积大。kitty 和 Ghostty 拒绝支持。</td></tr>
     <tr><td>半块字符 ▀</td><td>1×2</td><td>所有支持真彩色的终端</td><td>前景色画上半格，背景色画下半格。chafa、timg、viu 的默认回退。</td></tr>
@@ -345,7 +345,7 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
     <tr><td>M2 命令集 <span class="tag ok">已验收</span></td><td><code>ut</code> multi-call 二进制、PATH 注入、别名移除、整体和逐条开关。Windows 上路径一律显示为 <code>/</code>（<code>UT_NATIVE_PATHS</code> 可恢复 <code>\</code>）；通配符 <code>*.txt</code> 像 Unix shell 一样展开，加引号则保持原样。</td><td>同一组夹具文件上，Windows 与 Linux 的 <code>cat ls grep find sed jq sort</code> 等输出逐字节一致；开关切换后 <code>which cat</code> 结果改变。</td></tr>
     <tr><td>M3 历史与候选 <span class="tag ok">已验收</span></td><td>shell 钩子（pwsh、zsh、bash、fish）、history.db、候选列表、Ctrl-N/P 和方向键。</td><td>10 万条历史下，单次查询 p95 低于 5 ms；失败的命令排在成功的之后；含密钥模式的命令不入库。</td></tr>
     <tr><td>M4 AI <span class="tag ok">已验收</span></td><td>建议、纠正、解释；后端配置；脱敏。</td><td>无网络时终端全部功能照常，AI 功能安静地不可用；脱敏测试集 100% 命中。</td></tr>
-    <tr><td>M5 图形与 markdown <span class="tag ok">已验收</span></td><td>GUI 支持 kitty graphics；<code>ut view</code> 降级链；<code>ut md</code>。</td><td>同一张图在 uni-term、Windows Terminal、纯文本管道里各自选对方式；image.nvim 在 uni-term 里显示图片。</td></tr>
+    <tr><td>M5 图形与 markdown <span class="tag ok">已验收</span></td><td>GUI 支持 kitty graphics；<code>ut view</code> 降级链；<code>ut md</code>。</td><td>同一张图在 UnifyTerm、Windows Terminal、纯文本管道里各自选对方式；image.nvim 在 UnifyTerm 里显示图片。</td></tr>
     <tr><td>M6 agent 接口 <span class="tag ok">已验收</span></td><td>agent 侧栏（读 keepane）、<code>ut mcp</code>、skill 文件。</td><td>Claude Code 通过 MCP 查询历史并得到结果；skill 让 agent 在 Windows 上直接使用 <code>cat</code>、<code>jq</code>。</td></tr>
     <tr><td>M7 视频与发布 <span class="tag ok">已验收</span></td><td>视频播放；MSI 与 winget、Homebrew、deb 与 AppImage；macOS 和 Linux 实机验证。</td><td>三个平台各有一个可安装包；同一份配置和历史文件在三个平台可用。</td></tr>
     <tr><td>自己的 shell <span class="tag">挂账</span></td><td>统一三个平台的 shell 语法。两条路线：嵌入 brush（bash 兼容，约一个里程碑），或从零写（以年计）。先不做，以后再定。</td><td>方案和通过线保留在 <code>docs/plan.md</code> 末尾。</td></tr>
@@ -355,10 +355,10 @@ aside.side { display: flex; flex-direction: column; gap: 14px; }
   <table>
     <tr><th>问题</th><th>我的建议</th></tr>
     <tr><td>"统一"是否包含 shell 语法 <span class="tag q">重要</span></td><td>托管系统 shell 时，Windows 写 <code>$env:FOO = 1</code>，Linux 写 <code>export FOO=1</code>。命令统一了，语法没有统一。建议 M2 之后评估内置一个 bash 兼容 shell（brush），作为可选的统一默认。</td></tr>
-    <tr><td>keepane 里的候选列表</td><td>在 keepane 里运行时，shell 的 OSC 133 标记被 keepane 消费，uni-term 看不到提示符位置。建议在 keepane 加一个小功能：把当前窗格的标记转发给外层终端。</td></tr>
+    <tr><td>keepane 里的候选列表</td><td>在 keepane 里运行时，shell 的 OSC 133 标记被 keepane 消费，UnifyTerm 看不到提示符位置。建议在 keepane 加一个小功能：把当前窗格的标记转发给外层终端。</td></tr>
     <tr><td>默认是否启动 keepane</td><td>建议默认直接启动 shell。在设置里提供"新标签页运行 keepane"。</td></tr>
     <tr><td>默认模型后端</td><td>建议不设默认。第一次使用 AI 功能时让用户选择并说明哪些文本会发送出去。</td></tr>
-    <tr><td>是否开源及许可</td><td>keepane 是 MIT。建议 uni-term 也用 MIT。herdr 是 AGPL：可以参考设计，不能复制代码。</td></tr>
+    <tr><td>是否开源及许可</td><td>keepane 是 MIT。建议 UnifyTerm 也用 MIT。herdr 是 AGPL：可以参考设计，不能复制代码。</td></tr>
   </table>
 </div>
 </section>
@@ -374,23 +374,23 @@ const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">":
 
 // ---------- state ----------
 const OS = {
-  win:   { shell: "pwsh", label: "pwsh 7.6", cwd: "C:/Users/me/proj/uni-term", prompt: (cwd) => `PS ${cwd}> `, sysPath: "C:/Windows/System32" },
-  mac:   { shell: "zsh",  label: "zsh 5.9",  cwd: "~/proj/uni-term", prompt: (cwd) => `tom@mac ${cwd} % `, sysPath: "/bin" },
-  linux: { shell: "bash", label: "bash 5.2", cwd: "~/proj/uni-term", prompt: (cwd) => `tom@linux:${cwd}$ `, sysPath: "/usr/bin" },
+  win:   { shell: "pwsh", label: "pwsh 7.6", cwd: "C:/Users/me/proj/unifyterm", prompt: (cwd) => `PS ${cwd}> `, sysPath: "C:/Windows/System32" },
+  mac:   { shell: "zsh",  label: "zsh 5.9",  cwd: "~/proj/unifyterm", prompt: (cwd) => `tom@mac ${cwd} % `, sysPath: "/bin" },
+  linux: { shell: "bash", label: "bash 5.2", cwd: "~/proj/unifyterm", prompt: (cwd) => `tom@linux:${cwd}$ `, sysPath: "/usr/bin" },
 };
 const state = { os: "win", builtin: true, lig: true, gui: true, agents: false, input: "", sel: -1, open: false, lastOk: true, tick: 1000 };
 
 // ---------- history: recall + ranking (real computation) ----------
 // Each entry: command text, times run, age in hours of the last run, the
 // directory it ran in, and whether it ended with status 0.
-const HERE = "uni-term";
+const HERE = "UnifyTerm";
 const history = [
   ["git status", 212, 0.2, HERE, true], ["git pull --rebase origin main", 48, 3, HERE, true],
   ["git push origin main", 61, 5, HERE, true], ["git log --oneline -n 20", 33, 26, HERE, true],
   ["git commit -m \"wip\"", 90, 1, HERE, true], ["git checkout -b feature/history", 6, 50, HERE, true],
   ["git stash pop", 14, 80, "keepane", true], ["git diff --stat HEAD~1", 19, 9, HERE, true],
-  ["cargo build --release", 77, 2, HERE, true], ["cargo test -p uni-term", 120, 0.5, HERE, true],
-  ["cargo clippy --all-targets", 41, 4, HERE, true], ["cargo run -p uni-term", 66, 1.5, HERE, true],
+  ["cargo build --release", 77, 2, HERE, true], ["cargo test -p UnifyTerm", 120, 0.5, HERE, true],
+  ["cargo clippy --all-targets", 41, 4, HERE, true], ["cargo run -p UnifyTerm", 66, 1.5, HERE, true],
   ["cargo tset", 1, 30, HERE, false],
   ["cat Cargo.toml | grep version", 9, 12, HERE, true], ["cat data.json | jq '.items[] | .name'", 17, 7, HERE, true],
   ["curl -fsSL https://example.com/install.sh -o install.sh", 3, 200, "tmp", true],
@@ -456,8 +456,8 @@ const EXPLAIN = {
   ls: ["列出目录内容。", { "-l": "长格式：权限、大小、时间。", "-a": "包含以点开头的隐藏文件。", "-la": "= -l -a：长格式并包含隐藏文件。" }],
   docker: ["容器工具。", { compose: "按 compose 文件管理一组容器。", up: "创建并启动容器。", "-d": "在后台运行。", ps: "列出容器。", "-a": "包含已停止的容器。" }],
   cat: ["输出文件内容。", {}], rg: ["ripgrep：快速递归搜索文本。", { "-n": "显示行号。" }],
-  view: ["uni-term 内置：显示图片或视频。", { "--mode": "指定显示方式：auto、half、braille、ascii。" }],
-  md: ["uni-term 内置：渲染 markdown 文件。", {}],
+  view: ["UnifyTerm 内置：显示图片或视频。", { "--mode": "指定显示方式：auto、half、braille、ascii。" }],
+  md: ["UnifyTerm 内置：渲染 markdown 文件。", {}],
 };
 function tokenize(cmd) { return cmd.match(/'[^']*'|"[^"]*"|\S+/g) || []; }
 function explain(cmd) {
@@ -586,7 +586,7 @@ const MODE_NAME = { pixels: "kitty graphics（真实像素）", half: "半块字
 
 // ---------- simulated commands (canned output) ----------
 const FILES = {
-  "Cargo.toml": `[package]\nname = "uni-term"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\ngpui = "0.2.2"\nalacritty_terminal = "0.26"\nportable-pty = "0.9"`,
+  "Cargo.toml": `[package]\nname = "UnifyTerm"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\ngpui = "0.2.2"\nalacritty_terminal = "0.26"\nportable-pty = "0.9"`,
   "data.json": `{"items":[{"name":"cat","lang":"rust"},{"name":"jq","lang":"rust"},{"name":"view","lang":"rust"}]}`,
   "README.md": null, "photo.png": null, "demo.mp4": null,
 };
@@ -634,7 +634,7 @@ function runCommand(line) {
     case "which": case "where": {
       const c = args[0]; if (!c) return fail(span("c-red", "which: 缺少命令名"));
       if (!BUILTINS.includes(c)) return fail(span("c-red", `which: no ${c} in PATH`));
-      if (state.builtin) return out(esc(state.os === "win" ? `C:/Users/me/AppData/Local/uni-term/bin/${c}.exe` : `/opt/uni-term/bin/${c}`) + "  " + span("c-green", "← 内置 (Rust)"));
+      if (state.builtin) return out(esc(state.os === "win" ? `C:/Users/me/AppData/Local/unifyterm/bin/${c}.exe` : `/opt/unifyterm/bin/${c}`) + "  " + span("c-green", "← 内置 (Rust)"));
       if (state.os === "win") return ["cat", "ls", "rm", "cp", "mv", "echo", "sort"].includes(c)
         ? out(span("c-yellow", `${c} 是 PowerShell 别名，不是程序`)) : fail(span("c-red", `which: no ${c} in PATH`) + "\n" + span("c-dim", "（Windows 没有自带这个命令。）"));
       return out(esc(`${os.sysPath}/${c}`) + "  " + span("c-dim", "← 系统自带"));
@@ -655,7 +655,7 @@ function runCommand(line) {
       return { ok: true, html: "", node: renderMarkdown() };
     }
     case "git":
-      if (args[0] === "status") return out(`On branch ${span("c-cyan", "main")}\nChanges not staged for commit:\n  ${span("c-red", "modified:   crates/uni-term/src/main.rs")}\nUntracked files:\n  ${span("c-red", "demo/")}`);
+      if (args[0] === "status") return out(`On branch ${span("c-cyan", "main")}\nChanges not staged for commit:\n  ${span("c-red", "modified:   crates/unifyterm/src/main.rs")}\nUntracked files:\n  ${span("c-red", "demo/")}`);
       return out(span("c-dim", `（演示：git ${args.join(" ")} 已模拟执行）`));
     case "cargo": case "docker": case "find": case "grep": case "rg": case "tar": case "curl": case "keepane": case "npm": case "ssh": case "kubectl":
       return out(span("c-dim", `（演示：${name} 已模拟执行）`));
@@ -664,9 +664,9 @@ function runCommand(line) {
 }
 function renderMarkdown() {
   const d = el("div", "md");
-  d.innerHTML = `<h1>uni-term</h1><p>一个终端，三个平台，<b>同一套命令</b>。下面这段由 <code>md README.md</code> 渲染。</p>
-<h2>安装</h2><pre><span class="c-dim"># Windows</span>\n<span class="c-green">winget</span> install uni-term\n<span class="c-dim"># macOS / Linux</span>\n<span class="c-green">brew</span> install uni-term</pre>
-<h2>内置命令</h2><table><tr><th>类别</th><th>命令</th><th>来源</th></tr><tr><td>文件</td><td><code>cat ls cp mv rm find</code></td><td>uutils</td></tr><tr><td>文本</td><td><code>grep rg sed sort jq</code></td><td>uutils · ripgrep · jaq</td></tr><tr><td>媒体</td><td><code>view md</code></td><td>uni-term</td></tr></table>
+  d.innerHTML = `<h1>UnifyTerm</h1><p>一个终端，三个平台，<b>同一套命令</b>。下面这段由 <code>md README.md</code> 渲染。</p>
+<h2>安装</h2><pre><span class="c-dim"># Windows</span>\n<span class="c-green">winget</span> install unifyterm\n<span class="c-dim"># macOS / Linux</span>\n<span class="c-green">brew</span> install UnifyTerm</pre>
+<h2>内置命令</h2><table><tr><th>类别</th><th>命令</th><th>来源</th></tr><tr><td>文件</td><td><code>cat ls cp mv rm find</code></td><td>uutils</td></tr><tr><td>文本</td><td><code>grep rg sed sort jq</code></td><td>uutils · ripgrep · jaq</td></tr><tr><td>媒体</td><td><code>view md</code></td><td>UnifyTerm</td></tr></table>
 <ul><li>历史候选：<code>Ctrl-N</code> / <code>Ctrl-P</code></li><li>解释命令：<code>Ctrl-Shift-E</code></li><li>agent 侧栏：<code>Ctrl-Shift-A</code></li></ul>
 <blockquote>图片在 markdown 里同样走 <code>view</code> 的降级链：</blockquote>`;
   d.append(showMedia(state.gui ? "pixels" : "half", false));
@@ -789,7 +789,7 @@ trap.addEventListener("keydown", (ev) => {
   }
   const k = ev.key, ctrl = ev.ctrlKey;
   if (ev.isComposing) return;
-  // A chosen row is put on the line, not run (as in uni-term); Enter again runs it.
+  // A chosen row is put on the line, not run (as in UnifyTerm); Enter again runs it.
   if (k === "Enter") { ev.preventDefault(); if (state.sel >= 0 && cands[state.sel]) { state.input = cands[state.sel].e.cmd; state.sel = -1; state.open = false; renderInput(); } else submit(); }
   else if (k === "ArrowDown" || (ctrl && k.toLowerCase() === "n")) { ev.preventDefault(); move(1); }
   else if (k === "ArrowUp" || (ctrl && k.toLowerCase() === "p")) { ev.preventDefault(); move(-1); }
@@ -883,7 +883,7 @@ function showPage(name) {
 document.querySelector("nav.pages").addEventListener("click", (ev) => { if (ev.target.dataset.page) { showPage(ev.target.dataset.page); location.hash = ev.target.dataset.page; } });
 
 // ---------- start ----------
-print(span("c-dim", "uni-term 0.1 演示 · 输入 help 查看命令，或点右侧「试一试」"));
+print(span("c-dim", "UnifyTerm 0.1 演示 · 输入 help 查看命令，或点右侧「试一试」"));
 renderAgents(); sync();
 showPage(location.hash === "#plan" ? "plan" : "demo");
 }

@@ -1,4 +1,4 @@
-# Fetches the ConPTY that ships with uni-term on Windows into vendor/conpty/.
+# Fetches the ConPTY that ships with unifyterm on Windows into vendor/conpty/.
 #
 #   pwsh tools/fetch-conpty.ps1
 #
@@ -47,4 +47,4 @@ try {
     $zip.Dispose()
 }
 Set-Content (Join-Path $root "vendor\conpty\VERSION") "Microsoft.Windows.Console.ConPTY $Version (MIT), from $Url`n" -NoNewline
-"conpty $Version is in vendor\conpty. The next cargo build puts it beside uni-term.exe."
+"conpty $Version is in vendor\conpty. The next cargo build puts it beside unifyterm.exe."

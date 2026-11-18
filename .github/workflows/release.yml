@@ -1,0 +1,183 @@
+# A tag v<version> makes a release: the packages for Windows, Linux and macOS,
+# each with a .sha256 beside it, and the scoop and winget manifests committed
+# back to main. Homebrew's formula follows the release by itself (the tap's
+# own workflow, newdee/homebrew-tap). install.sh and install.ps1 take the
+# latest release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  actions: read # to ask whether CI passed on the tagged commit
+
+env:
+  CARGO_TERM_COLOR: always
+  UNIFYTERM_DATA_DIR: ${{ github.workspace }}/ci-data
+
+jobs:
+  windows:
+    name: build and publish (windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for CI on this commit
+        # A tag is released only once CI has passed on the very commit it names.
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $sha = "${{ github.sha }}"
+          $deadline = (Get-Date).AddMinutes(60)
+          while ($true) {
+            $runs = gh run list --workflow ci --commit $sha --json databaseId,status,conclusion | ConvertFrom-Json
+            if ($runs.Count -gt 0 -and $runs[0].status -eq 'completed') {
+              if ($runs[0].conclusion -eq 'success') { "CI passed on $sha"; break }
+              throw "CI ended with '$($runs[0].conclusion)' on $sha: fix main and tag again"
+            }
+            if ((Get-Date) -gt $deadline) { throw "gave up waiting for CI on $sha" }
+            Start-Sleep -Seconds 30
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        shell: pwsh
+        run: |
+          pwsh tools/fetch-conpty.ps1
+          cargo build --workspace --release --locked
+
+      - name: Package (zip)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $name = "unifyterm-$tag-windows-x86_64"
+          New-Item -ItemType Directory -Force "dist/$name" | Out-Null
+          Copy-Item target/release/unifyterm.exe, target/release/ut.exe, target/release/conpty.dll, target/release/OpenConsole.exe, README.md, LICENSE, THIRD-PARTY-NOTICES "dist/$name/"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          "$((Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower())  $name.zip" | Set-Content -NoNewline "dist/$name.zip.sha256"
+          Get-Content "dist/$name.zip.sha256"
+
+      - name: Package (MSI)
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          dotnet tool install --global wix --version 5.0.2
+          $msi = "dist/unifyterm-$version-x64.msi"
+          wix build packaging/windows/unifyterm.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o $msi
+          "$((Get-FileHash $msi -Algorithm SHA256).Hash.ToLower())  $(Split-Path -Leaf $msi)" | Set-Content -NoNewline "$msi.sha256"
+
+      - name: Manifests (scoop, winget)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"; $version = $tag.TrimStart('v')
+          pwsh tools/package-manifests.ps1 -Version $version -ZipPath "dist/unifyterm-$tag-windows-x86_64.zip" -MsiPath "dist/unifyterm-$version-x64.msi"
+
+      - name: Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag dist/*.zip dist/*.msi dist/*.sha256 --title "UnifyTerm $tag" --generate-notes
+
+      - name: Commit the manifests to main
+        # packaging/scoop is what `scoop install <raw url>` reads: it follows every release.
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $keep = Join-Path $env:RUNNER_TEMP 'manifests'
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          Copy-Item packaging/scoop, packaging/windows/winget $keep -Recurse -Force
+          git checkout -- packaging
+          git fetch origin main
+          git checkout -B main origin/main
+          Copy-Item "$keep/scoop/*" packaging/scoop -Force
+          Copy-Item "$keep/winget/*" packaging/windows/winget -Force
+          git add packaging/scoop packaging/windows/winget
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { 'manifests unchanged'; exit 0 }
+          git commit -m "build: package manifests for ${{ github.ref_name }}"
+          git push origin main
+
+  unix:
+    name: build and publish (${{ matrix.name }})
+    needs: windows
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04: an older glibc, so that the build runs on more Linux systems.
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: macos-aarch64, os: macos-14, target: aarch64-apple-darwin }
+          - { name: macos-x86_64, os: macos-14, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev \
+            libvulkan-dev libfontconfig-dev libfreetype-dev dpkg-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
+
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"; version="${tag#v}"
+          name="unifyterm-$tag-${{ matrix.name }}"
+          out="target/${{ matrix.target }}/release"
+          mkdir -p "dist/$name"
+          cp "$out/unifyterm" "$out/ut" README.md LICENSE THIRD-PARTY-NOTICES "dist/$name/"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cp packaging/linux/unifyterm.desktop packaging/icons/unifyterm-256.png "dist/$name/"
+          else
+            # The .app beside the two programs (install.sh puts it in ~/Applications).
+            mkdir -p target/release
+            cp "$out/unifyterm" "$out/ut" target/release/
+            bash packaging/macos/make-app.sh "$version"
+            cp -R target/release/macos/UnifyTerm.app "dist/$name/"
+            mv "target/release/unifyterm-$version-macos-$(uname -m).dmg" "dist/unifyterm-$version-${{ matrix.name }}.dmg"
+          fi
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          cd dist
+          for file in *.tar.gz *.dmg; do
+            [ -f "$file" ] || continue
+            shasum -a 256 "$file" > "$file.sha256"
+            gh release upload "$tag" "$file" "$file.sha256" --clobber
+          done
+
+      - name: Linux packages (.deb, AppImage)
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"; version="${tag#v}"
+          mkdir -p target/release
+          cp target/${{ matrix.target }}/release/unifyterm target/${{ matrix.target }}/release/ut target/release/
+          cargo install cargo-deb --locked
+          cargo deb -p unifyterm --no-build --no-strip
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          LINUXDEPLOY="$PWD/linuxdeploy" APPIMAGE_EXTRACT_AND_RUN=1 bash packaging/linux/appimage.sh "$version"
+          for file in target/debian/*.deb unifyterm-*.AppImage; do
+            shasum -a 256 "$file" | sed "s|  .*/|  |" > "$file.sha256"
+            gh release upload "$tag" "$file" "$file.sha256" --clobber
+          done

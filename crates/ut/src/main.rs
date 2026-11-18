@@ -1,4 +1,4 @@
-//! ut: uni-term's commands. One program that is every command: started
+//! ut: UnifyTerm's commands. One program that is every command: started
 //! under a command's name (`cat`, a link to this program) it is that
 //! command; started as `ut` it takes the command as its first argument
 //! (`ut cat file`).
@@ -268,11 +268,11 @@ fn invoked_as(program: &OsString) -> String {
 const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut --list                         print every command's name
        ut --links DIRECTORY [--skip A,B] make DIRECTORY hold one link a command
-       ut history recent|search|forget   uni-term's command history ('ut history' for more)
+       ut history recent|search|forget   UnifyTerm's command history ('ut history' for more)
        ut view FILE                      a picture in the terminal ('ut view --help')
        ut md [FILE]                      markdown as styled text ('ut md --help')
        ut mcp                            an MCP server for agents: the history, these commands' help
-       ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/uni-term/SKILL.md
+       ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/unifyterm/SKILL.md
        ut --version
 
 Started under a command's name (a link made by --links), ut is that command.
@@ -285,14 +285,14 @@ to keep every wildcard as typed.";
 
 /// `ut 0.1.0 (c5a6513, 99 commands)`: the version, the commit it was built from, the commands.
 fn version() -> String {
-    format!("ut {} ({}, {} commands)", env!("CARGO_PKG_VERSION"), env!("UNI_TERM_COMMIT"), commands().len())
+    format!("ut {} ({}, {} commands)", env!("CARGO_PKG_VERSION"), env!("UNIFYTERM_COMMIT"), commands().len())
 }
 
-/// The skill file that tells an agent how to work in uni-term.
-const SKILL: &str = include_str!("../../../skills/uni-term/SKILL.md");
+/// The skill file that tells an agent how to work in UnifyTerm.
+const SKILL: &str = include_str!("../../../skills/unifyterm/SKILL.md");
 
 /// `ut skill`: prints the skill file; with `--install DIRECTORY`, writes it
-/// to `DIRECTORY/uni-term/SKILL.md` (an agent's skills folder, as the user names it).
+/// to `DIRECTORY/unifyterm/SKILL.md` (an agent's skills folder, as the user names it).
 fn skill(args: &[OsString]) -> i32 {
     let args: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
     match args.as_slice() {
@@ -301,7 +301,7 @@ fn skill(args: &[OsString]) -> i32 {
             0
         }
         ["--install", directory] => {
-            let folder = Path::new(directory).join("uni-term");
+            let folder = Path::new(directory).join("unifyterm");
             let file = folder.join("SKILL.md");
             match std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&file, SKILL)) {
                 Ok(()) => {
@@ -442,9 +442,9 @@ mod tests {
     #[test]
     fn a_program_is_known_by_its_files_name() {
         assert_eq!(invoked_as(&"cat".into()), "cat");
-        assert_eq!(invoked_as(&"/opt/uni-term/bin/sha256sum".into()), "sha256sum");
+        assert_eq!(invoked_as(&"/opt/unifyterm/bin/sha256sum".into()), "sha256sum");
         if cfg!(windows) {
-            assert_eq!(invoked_as(&r"C:\Program Files\uni-term\bin\CAT.EXE".into()), "cat");
+            assert_eq!(invoked_as(&r"C:\Program Files\unifyterm\bin\CAT.EXE".into()), "cat");
             assert_eq!(invoked_as(&"ut.exe".into()), "ut");
         }
     }

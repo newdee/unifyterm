@@ -1,6 +1,6 @@
 [package]
-name = "uni-history"
-description = "uni-term's command history: one SQLite file, searched as the user types."
+name = "unifyterm-history"
+description = "unifyterm's command history: one SQLite file, searched as the user types."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

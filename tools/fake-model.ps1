@@ -1,19 +1,22 @@
 # A stand-in for a language model's service, on this machine only: it
-# answers uni-term's questions in the Messages API's shape with fixed
+# answers unifyterm's questions in the Messages API's shape with fixed
 # answers, and writes every request's body to a log, one JSON a line.
 #
-#   pwsh tools/fake-model.ps1 -Port 8765 -Log requests.jsonl [-DelaySeconds 0]
+#   pwsh tools/fake-model.ps1 -Port 8765 -Log requests.jsonl [-DelaySeconds 0] [-Meanings FILE]
 #
 # What it answers, by the shape the question asks for:
 #   completion       what was typed, then " --from-model"
 #   command, reason  "echo fixed-by-model"
-#   parts            the command cut at its spaces, each part "part N"
+#   parts            the command cut at its spaces, each part "part N" (or, with -Meanings,
+#                    the meaning that JSON file gives the part, as {"tar": "..."})
 # The key `bad-key` gets 401, as a wrong key would.
 param(
     [Parameter(Mandatory)][int]$Port,
     [Parameter(Mandatory)][string]$Log,
-    [int]$DelaySeconds = 0
+    [int]$DelaySeconds = 0,
+    [string]$Meanings = ''
 )
+$known = if ($Meanings) { Get-Content -Raw $Meanings | ConvertFrom-Json -AsHashtable } else { @{} }
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add("http://localhost:$Port/")
 $listener.Start()
@@ -38,7 +41,7 @@ while ($listener.IsListening) {
     } elseif ($schema.parts) {
         $command = [regex]::Match($user, '(?m)^Command: (.*)$').Groups[1].Value
         $n = 0
-        @{ parts = @($command -split ' ' | Where-Object { $_ } | ForEach-Object { $n++; @{ text = $_; meaning = "part $n" } }) }
+        @{ parts = @($command -split ' ' | Where-Object { $_ } | ForEach-Object { $n++; @{ text = $_; meaning = $(if ($known.ContainsKey($_)) { $known[$_] } else { "part $n" }) } }) }
     } else {
         @{ command = 'echo fixed-by-model'; reason = 'the fake model always says this' }
     }

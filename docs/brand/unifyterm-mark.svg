@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>UnifyTerm</title>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#1b1e2b"/>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="none" stroke="#343b58" stroke-width="6"/>
+  <!-- three strands, one for each system, meet in one point; their last stretch is the prompt's > -->
+  <g fill="none" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M48,70 C80,70 100,96 144,128" stroke="#7aa2f7"/>
+    <path d="M48,186 C80,186 100,160 144,128" stroke="#bb9af7"/>
+    <path d="M48,128 L144,128" stroke="#7dcfff"/>
+  </g>
+  <!-- what they make: one terminal, its cursor -->
+  <rect x="164" y="102" width="44" height="52" rx="11" fill="#e0af68"/>
+</svg>

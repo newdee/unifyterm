@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>uni-term</string>
-  <key>CFBundleDisplayName</key><string>uni-term</string>
-  <key>CFBundleIdentifier</key><string>dev.uni-term.uni-term</string>
-  <key>CFBundleExecutable</key><string>uni-term</string>
-  <key>CFBundleIconFile</key><string>uni-term</string>
+  <key>CFBundleName</key><string>UnifyTerm</string>
+  <key>CFBundleDisplayName</key><string>UnifyTerm</string>
+  <key>CFBundleIdentifier</key><string>dev.UnifyTerm.UnifyTerm</string>
+  <key>CFBundleExecutable</key><string>unifyterm</string>
+  <key>CFBundleIconFile</key><string>unifyterm</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>VERSION</string>
   <key>CFBundleVersion</key><string>VERSION</string>

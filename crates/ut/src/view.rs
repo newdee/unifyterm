@@ -3,7 +3,7 @@
 //!
 //! | mode      | how                                   | chosen when                                   |
 //! |-----------|---------------------------------------|-----------------------------------------------|
-//! | `kitty`   | kitty's graphics protocol             | uni-term, kitty, `WezTerm`, ghostty         |
+//! | `kitty`   | kitty's graphics protocol             | UnifyTerm, kitty, `WezTerm`, ghostty         |
 //! | `iterm`   | iTerm2's inline images                | iTerm2                                        |
 //! | `sixel`   | sixel graphics                        | Windows Terminal                              |
 //! | `half`    | `▀` with two true colors a cell       | the terminal says it has true color           |
@@ -90,7 +90,7 @@ pub(crate) fn choose(get: impl Fn(&str) -> Option<String>, output: Output) -> (M
     }
     let program = get("TERM_PROGRAM").unwrap_or_default();
     let term = get("TERM").unwrap_or_default();
-    if matches!(program.as_str(), "uni-term" | "WezTerm" | "ghostty")
+    if matches!(program.as_str(), "unifyterm" | "WezTerm" | "ghostty")
         || get("KITTY_WINDOW_ID").is_some()
         || term == "xterm-kitty"
     {
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn the_mode_follows_the_terminal() {
         let mode = |pairs: &[(&str, &str)]| choose(env(pairs), Output::Terminal).0;
-        assert_eq!(mode(&[("TERM_PROGRAM", "uni-term")]), Mode::Kitty);
+        assert_eq!(mode(&[("TERM_PROGRAM", "unifyterm")]), Mode::Kitty);
         assert_eq!(mode(&[("KITTY_WINDOW_ID", "1")]), Mode::Kitty);
         assert_eq!(mode(&[("TERM_PROGRAM", "iTerm.app")]), Mode::Iterm);
         assert_eq!(mode(&[("WT_SESSION", "x")]), Mode::Sixel);
@@ -416,7 +416,7 @@ mod tests {
             assert_eq!(mode(&[("LANG", "en_US.UTF-8")]), Mode::Braille);
             assert_eq!(mode(&[("LANG", "C")]), Mode::Ascii);
         }
-        assert_eq!(choose(env(&[("TERM_PROGRAM", "uni-term")]), Output::Other).0, Mode::Ascii, "a pipe gets text");
+        assert_eq!(choose(env(&[("TERM_PROGRAM", "unifyterm")]), Output::Other).0, Mode::Ascii, "a pipe gets text");
     }
 
     #[test]

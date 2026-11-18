@@ -1,8 +1,8 @@
-# Starts uni-term, optionally types and clicks in its window, saves pictures of the window.
+# Starts unifyterm, optionally types and clicks in its window, saves pictures of the window.
 #
-#   pwsh tools/shot.ps1 -Out shot.png [-Type 'echo hi{ENTER}'] [-Wait 4] [-After 2] [-Keep] [-App '<uni-term args>']
+#   pwsh tools/shot.ps1 -Out shot.png [-Type 'echo hi{ENTER}'] [-Wait 4] [-After 2] [-Keep] [-App '<unifyterm args>']
 #
-# Input goes to uni-term's own window handle (PostMessage) and the picture
+# Input goes to unifyterm's own window handle (PostMessage) and the picture
 # is taken from the window (PrintWindow): neither needs the window to be in
 # front, and nothing is ever typed into another program.
 #
@@ -17,21 +17,21 @@
 #   {SIZE:w,h}                               resize the window
 #   {KEY:CTRL+C} {KEY:CTRL+SHIFT+T}          a key with Ctrl, Shift or Alt held
 #   {SHOT:name}                              a picture now, saved beside -Out as <name>.png
-#   {MEM:name}                               uni-term's working set now, in bytes, beside -Out as <name>.mem
+#   {MEM:name}                               unifyterm's working set now, in bytes, beside -Out as <name>.mem
 
 param(
     [Parameter(Mandatory)][string]$Out,
-    [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe",
+    [string]$Exe = "$PSScriptRoot\..\target\debug\unifyterm.exe",
     [string]$Type = '',
     [double]$Wait = 4,
     [double]$After = 2,
     [switch]$Keep,
-    # uni-term's own arguments, as one string: -App '-e nvim file.txt'
+    # unifyterm's own arguments, as one string: -App '-e nvim file.txt'
     [string]$App = ''
 )
 
-# uni-term's data for tests, unless the caller chose a directory: never the user's own.
-if (-not $env:UNI_TERM_DATA_DIR) { $env:UNI_TERM_DATA_DIR = Join-Path ([IO.Path]::GetTempPath()) 'uni-term-test-data' }
+# unifyterm's data for tests, unless the caller chose a directory: never the user's own.
+if (-not $env:UNIFYTERM_DATA_DIR) { $env:UNIFYTERM_DATA_DIR = Join-Path ([IO.Path]::GetTempPath()) 'unifyterm-test-data' }
 
 Add-Type -AssemblyName System.Drawing
 Add-Type @'

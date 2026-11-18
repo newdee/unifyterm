@@ -1,5 +1,5 @@
 //! `ut mcp`: an MCP server on standard input and output, for an agent that
-//! works in uni-term. One JSON-RPC message a line. It answers questions
+//! works in UnifyTerm. One JSON-RPC message a line. It answers questions
 //! about the command history and about `ut`'s commands; it runs nothing.
 //!
 //! | tool             | arguments                                    | answer                                   |
@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use std::io::{self, BufRead as _, Write as _};
 
 use serde_json::{Value, json};
-use uni_history::{Candidate, History, Query};
+use unifyterm_history::{Candidate, History, Query};
 
 /// Protocol versions this server speaks, newest first (as keepane's).
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -24,9 +24,9 @@ const MOST: u64 = 100;
 /// The most of a command's help given back, in characters.
 const HELP_CHARS: usize = 16 * 1024;
 
-const INSTRUCTIONS: &str = "You work in uni-term, a terminal that keeps the commands its shells run. \
+const INSTRUCTIONS: &str = "You work in UnifyTerm, a terminal that keeps the commands its shells run. \
 Ask history_search what was run before (with the directory as cwd to rank that directory's first), \
-history_recent for the last commands, list_commands for the Unix commands uni-term provides on every \
+history_recent for the last commands, list_commands for the Unix commands UnifyTerm provides on every \
 system (cat, grep, jq, find, sed, ...), and command_help for how one of them is used. Nothing here \
 runs a command: use your own shell for that.";
 
@@ -49,10 +49,10 @@ fn tools() -> Value {
             &["query"],
         ),
         tool("history_recent", "The commands last run, newest first", &json!({ "cwd": cwd, "limit": limit }), &[]),
-        tool("list_commands", "The names of the commands uni-term provides (ut's)", &json!({}), &[]),
+        tool("list_commands", "The names of the commands UnifyTerm provides (ut's)", &json!({}), &[]),
         tool(
             "command_help",
-            "How one of uni-term's commands is used: its --help",
+            "How one of UnifyTerm's commands is used: its --help",
             &json!({ "name": { "type": "string", "description": "A command's name, as list_commands gives it" } }),
             &["name"],
         ),
@@ -105,7 +105,7 @@ fn call(sources: &Sources, name: &str, arguments: &Value) -> Value {
             let Some(query) = arguments["query"].as_str() else { return failure("query is needed") };
             let Some(history) = &sources.history else { return text(&json!([])) };
             let cwd = cwd.unwrap_or_default();
-            match history.search(&Query { text: query, cwd: &cwd, now_ms: uni_history::now_ms(), limit }) {
+            match history.search(&Query { text: query, cwd: &cwd, now_ms: unifyterm_history::now_ms(), limit }) {
                 Ok(found) => text(&candidates(&found)),
                 Err(error) => failure(&format!("the history could not be read: {error:#}")),
             }
@@ -121,7 +121,7 @@ fn call(sources: &Sources, name: &str, arguments: &Value) -> Value {
         "command_help" => {
             let Some(name) = arguments["name"].as_str() else { return failure("name is needed") };
             if !sources.commands.iter().any(|known| known == name) {
-                return failure(&format!("{name} is not one of uni-term's commands (list_commands names them)"));
+                return failure(&format!("{name} is not one of UnifyTerm's commands (list_commands names them)"));
             }
             match (sources.help)(name) {
                 Some(help) => {
@@ -145,7 +145,7 @@ pub(crate) fn answer(sources: &Sources, message: &Value) -> Option<Value> {
             Ok(json!({
                 "protocolVersion": version,
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "uni-term", "version": env!("CARGO_PKG_VERSION") },
+                "serverInfo": { "name": "unifyterm", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": INSTRUCTIONS,
             }))
         }
@@ -168,7 +168,7 @@ pub(crate) fn main(args: &[OsString], commands: Vec<String>, help: fn(&str) -> O
         let _ = writeln!(io::stderr(), "usage: ut mcp   (an MCP server on standard input and output; no arguments)");
         return 2;
     }
-    let history = match uni_history::default_path().and_then(|path| History::open_read_only(&path)) {
+    let history = match unifyterm_history::default_path().and_then(|path| History::open_read_only(&path)) {
         Ok(history) => history,
         Err(error) => {
             let _ = writeln!(io::stderr(), "ut mcp: the history is not in use: {error:#}");
@@ -199,7 +199,7 @@ pub(crate) fn main(args: &[OsString], commands: Vec<String>, help: fn(&str) -> O
 
 #[cfg(test)]
 mod tests {
-    use uni_history::Run;
+    use unifyterm_history::Run;
 
     use super::*;
 
@@ -243,7 +243,7 @@ mod tests {
         let mut history = History::in_memory().unwrap();
         let run = |text: &str, cwd: &str, exit| Run {
             text: text.into(),
-            at_ms: uni_history::now_ms(),
+            at_ms: unifyterm_history::now_ms(),
             cwd: cwd.into(),
             exit,
             duration_ms: None,
@@ -281,7 +281,7 @@ mod tests {
         );
         let unknown =
             ask(&sources, "tools/call", &json!({ "name": "command_help", "arguments": { "name": "rm -rf" } }));
-        assert_eq!(unknown["result"]["isError"], true, "only uni-term's commands are asked for help");
+        assert_eq!(unknown["result"]["isError"], true, "only UnifyTerm's commands are asked for help");
         assert_eq!(ask(&sources, "tools/call", &json!({ "name": "nothing" }))["result"]["isError"], true);
         let empty: Value =
             serde_json::from_str(&tool_text(&ask(&sources, "tools/call", &json!({ "name": "history_recent" }))))

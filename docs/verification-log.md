@@ -1,5 +1,50 @@
 # 验收记录
 
+## 2026-11-18 · 改名为 UnifyTerm；scoop、brew、curl 安装；宣传视频
+
+本条之前的记录都用旧名 uni-term，保持原样不改写。
+
+范围：
+- **改名**：uni-term → UnifyTerm。给人看的地方（窗口标题、提示文字、安装器、开始菜单、`.desktop`、`.app`、winget、文档正文）写 `UnifyTerm`；给机器用的地方（crate、可执行文件、目录、`TERM_PROGRAM`、MCP 服务名、skill 名、socket 名）写全小写 `unifyterm`。内部库改为 `unifyterm-history`、`unifyterm-assist`；环境变量 `UNI_TERM_*` 改为 `UNIFYTERM_*`。命令名 `ut` 保留。
+- **新 logo**：三股线（三个平台）汇成提示符 `>`，后面是光标。`docs/brand/`、`packaging/icons/`。
+- **安装方式**（与 keepane 相同的结构，并加上一键脚本）：
+  - `brew install newdee/tap/unifyterm`：`packaging/homebrew/` 里是要放进 `newdee/homebrew-tap` 的 formula、跟版本脚本和测试工作流。
+  - `scoop install <raw 地址>`：`packaging/scoop/unifyterm.json`，发布时由工作流填入版本和哈希并提交回 `main`。
+  - `curl -fsSL …/install.sh | sh`（Linux、macOS）和 `irm …/install.ps1 | iex`（Windows）：下载最新版本，校验 SHA-256，只为当前用户安装，不需要管理员或 root。
+  - `.github/workflows/release.yml`：打 `v*` 标签后，等 CI 通过，构建全部安装包，创建 Release，更新清单。
+- **宣传视频**：`tools/promo.ps1` 用真实运行画面逐帧录制，生成 `docs/media/unifyterm-promo.mp4`（46 秒）和 `.gif`（960×540，2.4 MB），放在 README 顶部。
+
+旧数据目录 `%LOCALAPPDATA%\uni-term` 里只有会自动重建的命令链接、shell 钩子和日志，没有历史库和配置，所以没有写迁移代码。改名后它不再被使用，删不删由用户决定。
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 机制通路（实测抓到） | `install.ps1` 根本无法解析：字符串 `"…running from $dir: close it first"` 里，PowerShell 把 `$dir:` 当成带作用域前缀的变量。 | 共性：同一种写法 | 改成 `${dir}`。用解析器检查全部 10 个 PowerShell 脚本，又发现 `package-manifests.ps1` 里的 `$Version:`，一并修掉。之后 10/10 解析通过。 |
+| 2 | 静态一致性 | 机械替换后，有的地方大小写不对：`actions!(UnifyTerm, …)` 是标识符，应为小写；skill 的 `name:` 和 `TERM_PROGRAM=` 被改成 UnifyTerm，应为小写；版本测试和两条实机检查还在找小写的旧格式。 | 替换规则的边界 | 逐处改正；第 2 轮用脚本核对 11 个机器名都是 `unifyterm`、8 个显示名都是 `UnifyTerm`。 |
+| 3 | 隐私（看视频时发现） | 第一版宣传视频里，提示符和输入的路径都是 `C:/Users/<用户名>/Documents/…`，会把用户的 Windows 用户名和目录结构公开。 | 隐私缺陷 | 演示目录用 `subst` 挂成一个单独的盘符，提示符只显示 `U:/`；演示用的 git 仓库作者为 `demo <demo@example.com>`。 |
+| 4 | 内容（看视频时发现） | 第一版视频：字太小；历史一幕被长输出占满，候选列表没拍到；AI 解释是假模型的占位文字 "part N"。 | 演示质量 | 字号 20；预先跑输出短的命令；给假模型加 `-Meanings` 参数（不传时行为不变，实机检查不受影响），返回真实的解释。逐帧检查过：候选列表、Ctrl-N 高亮、Enter 填入、运行，都拍到了。 |
+
+检查工具自身的问题：
+- PowerShell 的 `-ne` 和 `Compare-Object` 默认不区分大小写：改大小写的那一步一度"改了 0 行"，金样对照的差异也一度显示为 0。改用 `-cne` 和 `-CaseSensitive`。
+- 用 `Start-Process` 启动一轮验收收不到完成通知；没有中途杀掉它（上一次中途杀掉留下了坏的编译产物），而是另起一个等待结果文件的后台任务。
+- 静态检查脚本里在 PowerShell 字符串中写了 bash 的 `\"`。
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | 实机 | 其他数字 |
+|---|---|---|---|---|---|
+| 1 | 机制通路存活 + 边界输入 | debug | 207/207 | 110/110，8 个小节都跑完 | `install.ps1`：安装、覆盖更新、哈希不符时拒绝，PATH 和开始菜单未被改动；`install.sh`（dash）：安装、菜单项、图标、更新、哈希不符时拒绝；Windows 写的历史库在 Linux 上读出 4 条，相同；历史文件 87347 → 87347 字节 |
+| 2 | 静态一致性 | release | 207/207 | 110/110，8 个小节都跑完 | 旧名字残留 0 处（109 个文件），文件名 0 处；机器名 11 个都是小写 unifyterm（scoop 的 `unifyterm.exe` 按 scoop 的要求带扩展名）；显示名 8/8 为 UnifyTerm；PowerShell 脚本 10/10 解析通过；sh 和 bash 脚本 4/4 通过 `-n`；scoop 清单是合法 JSON；工作流引用的 6 个文件都在 |
+| 3 | 可复现性 | release | — | — | 通知文件生成两次哈希相同；`install.ps1` 装两次，7 个文件逐字节相同；版本号两次相同；第 1、2 轮实机输出 108 行 0 处不同 |
+
+### 没有在本机验证的
+
+- formula 的 Ruby 语法：WSL 里没有 ruby，由 tap 仓库 CI 的 `brew audit` 检查。
+- `install.ps1` 修改 PATH 和建开始菜单快捷方式这两步：会改用户的配置，测试时关掉了，发布后按 `docs/release.md` 第 2 步验证。
+- `install.sh` 用的是代替 `unifyterm` 的小脚本（本机链接不了 Linux 版 GUI），`ut` 是真的。
+- scoop 安装：会改用户的 scoop 环境，发布后验证。
+
 ## 2026-11-18 · M7 视频、安装包、跨平台、发布准备
 
 范围：

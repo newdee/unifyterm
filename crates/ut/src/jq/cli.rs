@@ -1,7 +1,7 @@
 //! jq's command line. From jaq 3.1.2's `cli.rs` (MIT, © Michael Färber),
 //! changed in three places: the arguments come from the caller and not from
 //! the process, `--run-tests` is left out, and color needs no Windows call
-//! (the terminals uni-term's commands run in take colors as they are).
+//! (the terminals UnifyTerm's commands run in take colors as they are).
 use core::fmt;
 pub(crate) use jaq_all::fmts::Format;
 use std::ffi::OsString;

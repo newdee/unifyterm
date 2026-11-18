@@ -6,12 +6,12 @@
 #   bash tools/linux-test.sh                  (on Linux)
 #
 # The build goes to a directory on the Linux side (UT_TARGET, default
-# ~/.cache/uni-term-target): building in a Windows-mounted checkout would
+# ~/.cache/unifyterm-target): building in a Windows-mounted checkout would
 # mix two systems' files in one target directory, and is slow.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export CARGO_TARGET_DIR="${UT_TARGET:-$HOME/.cache/uni-term-target}"
+export CARGO_TARGET_DIR="${UT_TARGET:-$HOME/.cache/unifyterm-target}"
 cd "$root"
 
 echo "--- build and test ut ($(rustc --version), $(uname -srm)) ---"
@@ -21,11 +21,11 @@ cargo test -p ut --quiet -- --nocapture every_command 2>&1 | grep -E "cases;" ||
 ut="$CARGO_TARGET_DIR/debug/ut"
 echo "--- $("$ut" --version) ---"
 
-# The shells' hooks (crates/uni-term/src/hooks): each shell, run interactively in
+# The shells' hooks (crates/unifyterm/src/hooks): each shell, run interactively in
 # a pty by `script` with a clean environment (no user start files; PATH without
 # the Windows directories WSL adds, whose spaces would break the command line),
 # types two commands; the marks it prints are checked.
-hooks="$root/crates/uni-term/src/hooks"
+hooks="$root/crates/unifyterm/src/hooks"
 marks_ok=0
 marks_missing=0
 expect_marks() { # shell name, output file
@@ -46,7 +46,7 @@ expect_marks bash "$work_hooks/bash.out"
 if command -v zsh >/dev/null; then
     mkdir -p "$work_hooks/zdot"
     cp "$hooks/zshenv" "$work_hooks/zdot/.zshenv"; cp "$hooks/zprofile" "$work_hooks/zdot/.zprofile"; cp "$hooks/zshrc" "$work_hooks/zdot/.zshrc"
-    ( cd "$work_hooks" && printf "$lines" | script -qfec "env -i HOME=$work_hooks TERM=xterm PATH=/usr/local/bin:/usr/bin:/bin UNI_TERM_ZDOTDIR=$work_hooks ZDOTDIR=$work_hooks/zdot zsh -i" /dev/null > "$work_hooks/zsh.out" 2>&1 ) || true
+    ( cd "$work_hooks" && printf "$lines" | script -qfec "env -i HOME=$work_hooks TERM=xterm PATH=/usr/local/bin:/usr/bin:/bin UNIFYTERM_ZDOTDIR=$work_hooks ZDOTDIR=$work_hooks/zdot zsh -i" /dev/null > "$work_hooks/zsh.out" 2>&1 ) || true
     expect_marks zsh "$work_hooks/zsh.out"
 else
     echo "zsh is not installed: not checked"

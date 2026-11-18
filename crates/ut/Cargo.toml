@@ -1,6 +1,6 @@
 [package]
 name = "ut"
-description = "uni-term's commands: the Unix commands, the same on Windows, macOS and Linux, in one program."
+description = "unifyterm's commands: the Unix commands, the same on Windows, macOS and Linux, in one program."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -108,7 +108,7 @@ findutils = "0.11.0"
 sed = "0.3.0"
 diffutils = "0.6.0"
 same-file = "1"
-uni-history = { path = "../history" }
+unifyterm-history = { path = "../history" }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 terminal_size = "0.4"

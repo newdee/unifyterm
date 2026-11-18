@@ -1,0 +1,16 @@
+# winget: the installer. tools/release.ps1 fills in the address and the SHA-256
+# of the MSI attached to the GitHub release; the publisher submits the three files
+# to https://github.com/microsoft/winget-pkgs (that needs the user's account).
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: UnifyTerm.UnifyTerm
+PackageVersion: 0.1.0
+InstallerType: wix
+Scope: machine
+UpgradeBehavior: install
+ProductCode: '{PRODUCT-CODE}'
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/newdee/unifyterm/releases/download/v0.1.0/unifyterm-0.1.0-x64.msi
+    InstallerSha256: SHA256-OF-THE-MSI
+ManifestType: installer
+ManifestVersion: 1.6.0

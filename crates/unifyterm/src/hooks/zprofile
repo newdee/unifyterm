@@ -1,0 +1,7 @@
+# Written by unifyterm: reads your own .zprofile.
+if [[ -f "$UNIFYTERM_ZDOTDIR/.zprofile" ]]; then
+    __unifyterm_here=$ZDOTDIR
+    ZDOTDIR=$UNIFYTERM_ZDOTDIR
+    source "$UNIFYTERM_ZDOTDIR/.zprofile"
+    ZDOTDIR=$__unifyterm_here
+fi

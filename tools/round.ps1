@@ -6,7 +6,7 @@
 # What it runs:
 #   1. cargo fmt --check, cargo clippy with warnings denied, cargo test
 #   2. every one of ut's commands started once (--help), directly and by its link
-#   3. tools/verify.ps1: the built uni-term driven through its own window
+#   3. tools/verify.ps1: the built unifyterm driven through its own window
 #   4. tools/linux-test.sh in WSL: ut's tests on Linux against the same record,
 #      its grep against GNU grep, and a history file made on Windows read on Linux
 #   5. the documents: README.md against the code, THIRD-PARTY-NOTICES up to date
@@ -51,7 +51,7 @@ $notPassed = ($tests | ForEach-Object { [int]([regex]::Match($_, '(\d+) failed')
 Report 'cargo test' ($LASTEXITCODE -eq 0 -and $notPassed -eq 0 -and $passed -gt 0) "$passed passed, $notPassed failed, in $($tests.Count) test programs"
 
 "=== 1b. history: a search among 100 000 commands (release) ==="
-$speed = cargo test --release -p uni-history --test speed -j $jobs -- --ignored --nocapture 2>&1
+$speed = cargo test --release -p unifyterm-history --test speed -j $jobs -- --ignored --nocapture 2>&1
 $line = ($speed | Select-String 'commands;' | Select-Object -First 1)
 Report 'history search p95 < 5 ms' ($LASTEXITCODE -eq 0 -and $line) "$line"
 
@@ -67,12 +67,12 @@ $broken = @(foreach ($name in $names) {
 })
 Report 'ut COMMAND --help' ($names.Count -gt 0 -and $broken.Count -eq 0) "$($names.Count - $broken.Count) of $($names.Count) start and print help$(if ($broken) { '; not: ' + ($broken -join ', ') })"
 
-"=== 3. uni-term through its own window ==="
-$exe = Join-Path $root "target\$Profile\uni-term.exe"
+"=== 3. unifyterm through its own window ==="
+$exe = Join-Path $root "target\$Profile\unifyterm.exe"
 # Everything it says is kept, its errors too: a run that stops half way must not pass as
 # fewer checks. It passed only if it got to its last line ("0 failed") through every section.
 $live = @(pwsh -NoProfile -File "$PSScriptRoot\verify.ps1" -Section all -Exe $exe 2>&1 | ForEach-Object { "$_" })
-$kept = Join-Path ([IO.Path]::GetTempPath()) "uni-term-round-verify-$Profile.txt"
+$kept = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-round-verify-$Profile.txt"
 $live | Set-Content -Path $kept -Encoding utf8
 $livePass = @($live | Where-Object { $_ -match '^PASS' }).Count
 $liveFail = @($live | Where-Object { $_ -match '^FAIL' })
@@ -102,17 +102,17 @@ if (-not $SkipLinux) {
     $linux | Where-Object { $_ -match '^DIFFERS' } | ForEach-Object { "      $_" }
 
     # One history file, made on Windows, read by ut on Windows and on Linux: the same lines.
-    $shared = Join-Path ([IO.Path]::GetTempPath()) "uni-term-shared-$PID"
+    $shared = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-shared-$PID"
     New-Item -ItemType Directory -Force $shared | Out-Null
-    $env:UNI_HISTORY_SHARED = Join-Path $shared 'history.db'
-    cargo test -p uni-history --test shared -j 8 @flag -- --ignored 2>&1 | Out-Null
-    $env:UNI_HISTORY_SHARED = $null
+    $env:UNIFYTERM_HISTORY_SHARED = Join-Path $shared 'history.db'
+    cargo test -p unifyterm-history --test shared -j 8 @flag -- --ignored 2>&1 | Out-Null
+    $env:UNIFYTERM_HISTORY_SHARED = $null
     $row = '^\s+\d+\s+\d+\s+\S+\s\s\S'
-    $env:UNI_TERM_DATA_DIR = $shared
+    $env:UNIFYTERM_DATA_DIR = $shared
     $onWindows = @(& (Join-Path $root "target\$Profile\ut.exe") history recent --long | Where-Object { $_ -match $row })
-    $env:UNI_TERM_DATA_DIR = $null
+    $env:UNIFYTERM_DATA_DIR = $null
     $linuxShared = "/mnt/" + $shared.Substring(0, 1).ToLower() + ($shared.Substring(2) -replace '\\', '/')
-    $onLinux = @(wsl -- env "UNI_TERM_DATA_DIR=$linuxShared" bash -lc '"${UT_TARGET:-$HOME/.cache/uni-term-target}/debug/ut" history recent --long' 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match $row })
+    $onLinux = @(wsl -- env "UNIFYTERM_DATA_DIR=$linuxShared" bash -lc '"${UT_TARGET:-$HOME/.cache/unifyterm-target}/debug/ut" history recent --long' 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match $row })
     Remove-Item $shared -Recurse -Force -ErrorAction SilentlyContinue
     Report 'a Windows history file, read on Linux' ($onWindows.Count -eq 4 -and ($onWindows -join "`n") -ceq ($onLinux -join "`n")) "$($onWindows.Count) commands on Windows, $($onLinux.Count) on Linux, the same: $(($onWindows -join "`n") -ceq ($onLinux -join "`n"))"
 }

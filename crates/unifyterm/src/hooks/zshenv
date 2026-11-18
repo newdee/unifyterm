@@ -1,0 +1,9 @@
+# Written by unifyterm: reads your own .zshenv, then lets zsh go on in unifyterm's directory.
+__unifyterm_here=$ZDOTDIR
+if [[ -f "$UNIFYTERM_ZDOTDIR/.zshenv" ]]; then
+    ZDOTDIR=$UNIFYTERM_ZDOTDIR
+    source "$UNIFYTERM_ZDOTDIR/.zshenv"
+    # Your .zshenv may move your start files: follow it.
+    [[ "$ZDOTDIR" != "$UNIFYTERM_ZDOTDIR" ]] && UNIFYTERM_ZDOTDIR=$ZDOTDIR
+    ZDOTDIR=$__unifyterm_here
+fi

@@ -1,5 +1,5 @@
-# Checks the built uni-term by running it: types into its window, reads back
-# what its programs printed (UNI_TERM_RAW_LOG, replayed to text) and compares
+# Checks the built unifyterm by running it: types into its window, reads back
+# what its programs printed (UNIFYTERM_RAW_LOG, replayed to text) and compares
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
@@ -10,15 +10,15 @@
 # own handle.
 param(
     [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'graphics', 'agents')][string]$Section = 'all',
-    [string]$Exe = "$PSScriptRoot\..\target\debug\uni-term.exe"
+    [string]$Exe = "$PSScriptRoot\..\target\debug\unifyterm.exe"
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $Exe = (Resolve-Path $Exe).Path
-$work = Join-Path ([IO.Path]::GetTempPath()) "uni-term-verify-$PID"
-# uni-term's data (command links, start scripts, history, log) for these checks only:
-# never the user's own. Every uni-term started below inherits it.
-$env:UNI_TERM_DATA_DIR = Join-Path $work 'data'
+$work = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-verify-$PID"
+# unifyterm's data (command links, start scripts, history, log) for these checks only:
+# never the user's own. Every unifyterm started below inherits it.
+$env:UNIFYTERM_DATA_DIR = Join-Path $work 'data'
 New-Item -ItemType Directory -Force $work | Out-Null
 $env:NO_COLOR = $null   # PowerShell drops colors from its output when this is set.
 $script:failed = 0
@@ -43,12 +43,12 @@ function Report([string]$name, [bool]$ok, [string]$detail) {
 # not written either: PSReadLine keeps a line with the word "password" in it out of the file.
 # The screen is cleared, so what follows starts in the first row as it did without this line.
 $NoHistory = "Set-PSReadLineOption -HistorySaveStyle SaveNothing; cls # password: a test's lines stay out of your history{ENTER}{WAIT:700}"
-# The same without clearing the screen, for a check that reads what uni-term said before the shell started.
+# The same without clearing the screen, for a check that reads what unifyterm said before the shell started.
 $NoHistoryKeep = $NoHistory.Replace('; cls ', ' ')
 # After one typed line: the same for a shell that did not get the line above (a second tab, a shell fallen back to).
 $Unsaved = ' # password: not for your history'
 
-# Runs uni-term with a settings file's text, types, and saves a picture.
+# Runs unifyterm with a settings file's text, types, and saves a picture.
 # Returns the text its programs' output draws (replayed at a size big
 # enough that nothing scrolls away), or with -Screen at the window's size.
 function Run([string]$name, [string]$type, [string]$toml = '', [string]$more = '', [double]$after = 1, [string]$screen = '', [switch]$keep) {
@@ -60,10 +60,10 @@ function Run([string]$name, [string]$type, [string]$toml = '', [string]$more = '
     if ($powershell) { $type = $(if ($keep) { $NoHistoryKeep } else { $NoHistory }) + $type }
     Set-Content $config $toml -Encoding utf8
     Remove-Item "$log*" -ErrorAction SilentlyContinue
-    $env:UNI_TERM_RAW_LOG = $log
+    $env:UNIFYTERM_RAW_LOG = $log
     try {
         & pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work "$name.png") -Type $type -Wait 4 -After $after -App:" --config `"$config`" $more" | Out-Null
-    } finally { $env:UNI_TERM_RAW_LOG = $null }
+    } finally { $env:UNIFYTERM_RAW_LOG = $null }
     if (-not (Test-Path $log)) { return '' }
     $size = if ($screen) { $screen } else { '250x2000' }
     # Each tab has its own log (name, name.2, name.3): each is its own screen.
@@ -110,8 +110,8 @@ function PixelAt([string]$a, [int]$x, [int]$y) {
     try { '#{0:x6}' -f ($i.GetPixel($x, $y).ToArgb() -band 0xFFFFFF) } finally { $i.Dispose() }
 }
 function Count([string]$text, [string]$needle) { ([regex]::Matches($text, [regex]::Escape($needle))).Count }
-# uni-term processes and the console hosts started from its folder.
-function Leftovers { @(Get-Process uni-term, OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Split-Path $Exe)) }).Count }
+# unifyterm processes and the console hosts started from its folder.
+function Leftovers { @(Get-Process unifyterm, OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Split-Path $Exe)) }).Count }
 
 # The first text row of the window, in window pixels (title bar and tab bar above it).
 $Row = @{ Y = 66; H = 22 }
@@ -136,7 +136,7 @@ if ($Section -in 'all', 'input') {
     $saved = Get-Clipboard -Raw
     try {
         # The clipboard is the whole machine's. When another program writes it while a check
-        # runs, the check says nothing about uni-term: it runs again, three times at most,
+        # runs, the check says nothing about unifyterm: it runs again, three times at most,
         # and the detail says which try it was (more than one: something else used the clipboard).
         $try = 0
         do {
@@ -161,8 +161,8 @@ if ($Section -in 'all', 'input') {
     Report 'nvim: full screen, mouse, wheel' ($last -match '^top 4\b' -and $t -match '(?m)^line 4$') "last line: '$last' (one notch of wheel is nvim's 3 lines: the top line goes from 1 to 4)"
 
     $out = (& pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work 'exit.png') -Type ($NoHistory + "exit{ENTER}") -Wait 4 -After 3) -join ' '
-    Report "'exit' in the last tab ends uni-term" ($out -match 'exited: 0') "the runner saw: $(if ($out -match 'exited: (-?\d+)') { "ended with code $($Matches[1])" } else { 'still running after 3 s' })"    Start-Sleep 1
-    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) uni-term or console-host processes still running"
+    Report "'exit' in the last tab ends unifyterm" ($out -match 'exited: 0') "the runner saw: $(if ($out -match 'exited: (-?\d+)') { "ended with code $($Matches[1])" } else { 'still running after 3 s' })"    Start-Sleep 1
+    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) unifyterm or console-host processes still running"
 }
 
 if ($Section -in 'all', 'settings') {
@@ -226,14 +226,14 @@ if ($Section -in 'all', 'edges') {
     Report 'a misspelt setting: opens, names it' ((Count $t 'sise') -ge 1 -and (Count $t 'still-works') -eq 2) "'sise' seen $(Count $t 'sise') times, 'still-works' $(Count $t 'still-works')"
 
     $garbage = Join-Path $work 'garbage.toml'; [IO.File]::WriteAllBytes($garbage, [byte[]](0..255))
-    $log = Join-Path $work 'garbage.raw'; $env:UNI_TERM_RAW_LOG = $log
-    try { & pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work 'garbage.png') -Type ($NoHistoryKeep + "echo alive{ENTER}") -Wait 4 -After 1 -App:" --config `"$garbage`"" | Out-Null } finally { $env:UNI_TERM_RAW_LOG = $null }
+    $log = Join-Path $work 'garbage.raw'; $env:UNIFYTERM_RAW_LOG = $log
+    try { & pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work 'garbage.png') -Type ($NoHistoryKeep + "echo alive{ENTER}") -Wait 4 -After 1 -App:" --config `"$garbage`"" | Out-Null } finally { $env:UNIFYTERM_RAW_LOG = $null }
     $t = if (Test-Path $log) { Replay $log '250x2000' } else { '' }
     Report 'a settings file of random bytes: opens, says so' ((Count $t 'settings not used') -ge 1 -and (Count $t 'alive') -eq 2) "'settings not used' $(Count $t 'settings not used'), 'alive' $(Count $t 'alive')"
 
     $dir = Join-Path $work 'a-directory'; New-Item -ItemType Directory -Force $dir | Out-Null
-    $log = Join-Path $work 'dir.raw'; $env:UNI_TERM_RAW_LOG = $log
-    try { & pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work 'dir.png') -Type ($NoHistoryKeep + "echo alive{ENTER}") -Wait 4 -After 1 -App:" --config `"$dir`"" | Out-Null } finally { $env:UNI_TERM_RAW_LOG = $null }
+    $log = Join-Path $work 'dir.raw'; $env:UNIFYTERM_RAW_LOG = $log
+    try { & pwsh -NoProfile -File "$PSScriptRoot\shot.ps1" -Exe $Exe -Out (Join-Path $work 'dir.png') -Type ($NoHistoryKeep + "echo alive{ENTER}") -Wait 4 -After 1 -App:" --config `"$dir`"" | Out-Null } finally { $env:UNIFYTERM_RAW_LOG = $null }
     $t = if (Test-Path $log) { Replay $log '250x2000' } else { '' }
     Report 'a directory as the settings file: opens, says so' ((Count $t 'settings not used') -ge 1 -and (Count $t 'alive') -eq 2) "'settings not used' $(Count $t 'settings not used'), 'alive' $(Count $t 'alive')"
 
@@ -262,17 +262,17 @@ if ($Section -in 'all', 'edges') {
     $t = Run 'zero' "1..40 | % { `"z `$_`" }{ENTER}{WAIT:800}{WHEEL:400,300,5}{WAIT:300}echo zero-ok{ENTER}" "[terminal]`nscrollback = 0"
     Report 'no scrollback at all: the wheel does no harm' ((Count $t 'zero-ok') -eq 2) "'zero-ok' seen $(Count $t 'zero-ok') times"
 
-    # Typed in a terminal (uni-term itself), with nothing redirected: a release
+    # Typed in a terminal (unifyterm itself), with nothing redirected: a release
     # build is a window program and must still print there. It does not hold
     # the shell, so its text lands after the next prompt; nothing more is
     # typed in the same run, or the shell's line editor would draw over it.
     $t = Run 'cli-version' "& '$Exe' --version{ENTER}{WAIT:1500}"
-    $version = [regex]::Match($t, 'uni-term \d+\.\d+\.\d+').Value
+    $version = [regex]::Match($t, 'UnifyTerm \d+\.\d+\.\d+').Value
     Report '--version prints in a terminal' ([bool]$version) "printed '$version'"
     $t = Run 'cli-wrong' "& '$Exe' --nope{ENTER}{WAIT:1500}"
-    Report 'a wrong argument is named in a terminal' ((Count $t 'unknown argument: --nope') -eq 1 -and (Count $t 'usage: uni-term') -eq 1) "'unknown argument: --nope' $(Count $t 'unknown argument: --nope'), 'usage: uni-term' $(Count $t 'usage: uni-term')"
+    Report 'a wrong argument is named in a terminal' ((Count $t 'unknown argument: --nope') -eq 1 -and (Count $t 'usage: unifyterm') -eq 1) "'unknown argument: --nope' $(Count $t 'unknown argument: --nope'), 'usage: unifyterm' $(Count $t 'usage: unifyterm')"
     Start-Sleep 1
-    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) uni-term or console-host processes still running"
+    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) unifyterm or console-host processes still running"
 }
 
 if ($Section -in 'all', 'commands') {
@@ -280,8 +280,8 @@ if ($Section -in 'all', 'commands') {
     $json = Join-Path $work 'data.json'; [IO.File]::WriteAllText($json, '{"items":[{"name":"alpha"},{"name":"beta"}]}')
     $kind = 'echo "cat=$((Get-Command cat).CommandType) ls=$((Get-Command ls).CommandType)"{ENTER}{WAIT:500}'
     $t = Run 'cmd-on' ($kind + 'echo "from=$((Get-Command cat).Source)"{ENTER}{WAIT:500}' + "cat '$json' | jq -r '.items[].name'{ENTER}{WAIT:900}ls --version{ENTER}{WAIT:700}")
-    Report 'cat and ls are uni-term''s programs' ((Count $t 'cat=Application ls=Application') -eq 1) "the shell says: $([regex]::Match($t, 'cat=\w+ ls=\w+').Value)"
-    Report 'they come from uni-term''s command directory' ($t -match ('from=' + [regex]::Escape("$env:UNI_TERM_DATA_DIR\bin\cat.exe"))) "$([regex]::Match(($t -replace "`n", ''), 'from=[A-Z]:\\\S+').Value)"
+    Report 'cat and ls are unifyterm''s programs' ((Count $t 'cat=Application ls=Application') -eq 1) "the shell says: $([regex]::Match($t, 'cat=\w+ ls=\w+').Value)"
+    Report 'they come from unifyterm''s command directory' ($t -match ('from=' + [regex]::Escape("$env:UNIFYTERM_DATA_DIR\bin\cat.exe"))) "$([regex]::Match(($t -replace "`n", ''), 'from=[A-Z]:\\\S+').Value)"
     Report 'cat | jq works in PowerShell' ($t -match '(?m)^alpha$' -and $t -match '(?m)^beta$') "'alpha' and 'beta' on lines of their own: $($t -match '(?m)^alpha$'), $($t -match '(?m)^beta$')"
     Report 'ls is the uutils one' ((Count $t 'uutils') -ge 1) "'uutils' in ls --version: $(Count $t 'uutils')"
 
@@ -302,7 +302,7 @@ if ($Section -in 'all', 'commands') {
     Report 'UT_NATIVE_PATHS gives Windows'' own \ back' ($nativePrompts -ge 1 -and $nativePrinted -eq 1) "after it is set: $nativePrompts prompt(s) and $nativePrinted pwd with \"
 
     # Wildcards: replaced by the commands as a Unix shell does it; a quoted one stays (the start script marks it).
-    # The lines are typed, so this is also what says that a typed `cat` is uni-term's program and no other.
+    # The lines are typed, so this is also what says that a typed `cat` is unifyterm's program and no other.
     'one' | Set-Content "$made\a\x1.txt"; 'two' | Set-Content "$made\a\x2.txt"; 'deep' | Set-Content "$made\a\b\x3.txt"
     $t = Run 'cmd-wild' "cd '$made\a'{ENTER}{WAIT:700}echo W1 x*.txt{ENTER}{WAIT:900}echo W2 `"x*.txt`" 'x?.txt'{ENTER}{WAIT:900}find . -name `"x*.txt`" | sort | tr '\n' ' '{ENTER}{WAIT:1200}cat x*.txt | wc -l{ENTER}{WAIT:1200}Get-History | ForEach-Object { 'H' + [int][bool](`$_.CommandLine -match [char]0xE000) } | Select-Object -Last 1{ENTER}{WAIT:900}"
     Report 'a wildcard becomes the names it matches' ($t -match '(?m)^W1 x1\.txt x2\.txt$') "'echo W1 x*.txt' printed: $([regex]::Match($t, '(?m)^W1 .*$').Value)"
@@ -311,8 +311,8 @@ if ($Section -in 'all', 'commands') {
     Report 'cat x*.txt reads both files' ($t -match '(?m)^2$') "wc -l printed '2' on a line: $($t -match '(?m)^2$')"
 
     # The same without a profile, in both PowerShells: the start script alone must install the marking.
-    # The start script is the one uni-term wrote for the default settings; it is given by hand, as uni-term would.
-    $start = (Join-Path $env:UNI_TERM_DATA_DIR 'shell\bin.ps1').Replace("'", "''")
+    # The start script is the one unifyterm wrote for the default settings; it is given by hand, as unifyterm would.
+    $start = (Join-Path $env:UNIFYTERM_DATA_DIR 'shell\bin.ps1').Replace("'", "''")
     foreach ($shell in 'pwsh.exe', 'powershell.exe') {
         $bare = "[shell]`nprogram = `"$shell`"`nargs = [`"-NoProfile`", `"-NoExit`", `"-Command`", `". '$($start.Replace('\', '\\'))'`"]"
         $t = Run "cmd-bare-$shell" ($NoHistory + "cd '$made\a'{ENTER}{WAIT:700}echo B1 x*.txt `"x*.txt`"{ENTER}{WAIT:1200}") $bare
@@ -328,24 +328,24 @@ if ($Section -in 'all', 'commands') {
 
     $t = Run 'cmd-cmd' "where cat{ENTER}{WAIT:900}cat --version{ENTER}" "[shell]`nprogram = `"cmd.exe`""
     $first = ($t -split "`n" | Where-Object { $_ -match 'cat\.exe' } | Select-Object -First 1)
-    Report 'cmd.exe finds uni-term''s cat first' ($first -match [regex]::Escape("$env:UNI_TERM_DATA_DIR\bin\cat.exe") -and (Count $t 'uutils') -ge 1) "first match of 'where cat': $first"
+    Report 'cmd.exe finds unifyterm''s cat first' ($first -match [regex]::Escape("$env:UNIFYTERM_DATA_DIR\bin\cat.exe") -and (Count $t 'uutils') -ge 1) "first match of 'where cat': $first"
 
-    # uni-term without ut beside it: it says so and runs without its commands.
+    # unifyterm without ut beside it: it says so and runs without its commands.
     $alone = Join-Path $work 'alone'; New-Item -ItemType Directory -Force $alone | Out-Null
-    Get-ChildItem (Split-Path $Exe) -File | Where-Object { $_.Name -in 'uni-term.exe', 'conpty.dll', 'OpenConsole.exe' } | Copy-Item -Destination $alone
-    $kept = $Exe; $Exe = Join-Path $alone 'uni-term.exe'
+    Get-ChildItem (Split-Path $Exe) -File | Where-Object { $_.Name -in 'unifyterm.exe', 'conpty.dll', 'OpenConsole.exe' } | Copy-Item -Destination $alone
+    $kept = $Exe; $Exe = Join-Path $alone 'unifyterm.exe'
     try { $t = Run 'cmd-alone' $kind -keep } finally { $Exe = $kept }
-    Report 'without ut beside it: says so, still a terminal' ((Count $t "uni-term's commands are not in use") -eq 1 -and (Count $t 'cat=Alias ls=Alias') -eq 1) "'commands are not in use' $(Count $t "uni-term's commands are not in use"); the shell says: $([regex]::Match($t, 'cat=\w+ ls=\w+').Value)"
+    Report 'without ut beside it: says so, still a terminal' ((Count $t "UnifyTerm's commands are not in use") -eq 1 -and (Count $t 'cat=Alias ls=Alias') -eq 1) "'commands are not in use' $(Count $t "UnifyTerm's commands are not in use"); the shell says: $([regex]::Match($t, 'cat=\w+ ls=\w+').Value)"
 
     Start-Sleep 1
-    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) uni-term or console-host processes still running"
+    Report 'no process is left behind' ((Leftovers) -eq 0) "$(Leftovers) unifyterm or console-host processes still running"
 }
 
 if ($Section -in 'all', 'history') {
     "--- history ---"
     # A data directory of this section's own: the history starts empty, whatever ran before.
-    $keptData = $env:UNI_TERM_DATA_DIR
-    $env:UNI_TERM_DATA_DIR = Join-Path $work 'data-history'
+    $keptData = $env:UNIFYTERM_DATA_DIR
+    $env:UNIFYTERM_DATA_DIR = Join-Path $work 'data-history'
     $ut = Join-Path (Split-Path $Exe) 'ut.exe'
     function Read-UtHistory([string[]]$words) { @(& $ut history @words 2>&1 | ForEach-Object { "$_" }) }
     # The list is drawn over the text, not in it: it is seen in pictures. The same input
@@ -406,14 +406,14 @@ if ($Section -in 'all', 'history') {
             $listed = ListPixels "hist-$name-list" "hist-$name-nolist"
             Report "$($shell): kept, and the list shows" ($keptLine -match "echo $name-one" -and $listed -gt 300) "kept: '$($keptLine.Trim())'; list pixels: $listed"
         }
-    } finally { $env:UNI_TERM_DATA_DIR = $keptData }
-    $real = Join-Path $env:LOCALAPPDATA 'uni-term\history.db'
+    } finally { $env:UNIFYTERM_DATA_DIR = $keptData }
+    $real = Join-Path $env:LOCALAPPDATA 'unifyterm\history.db'
     Report "the user's own history file is not touched" (-not (Test-Path $real)) "$real exists: $(Test-Path $real)"
 }
 if ($Section -in 'all', 'ai') {
     "--- ai ---"
-    $keptData = $env:UNI_TERM_DATA_DIR
-    $env:UNI_TERM_DATA_DIR = Join-Path $work 'data-ai'
+    $keptData = $env:UNIFYTERM_DATA_DIR
+    $env:UNIFYTERM_DATA_DIR = Join-Path $work 'data-ai'
     # A stand-in for the model's service on this machine (tools/fake-model.ps1); nothing leaves it.
     $port = 8765
     $requests = Join-Path $work 'model-requests.jsonl'
@@ -421,10 +421,10 @@ if ($Section -in 'all', 'ai') {
         Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$requests`" -DelaySeconds $delay" -PassThru -WindowStyle Hidden
     }
     function Sent { @(Get-Content $requests -ErrorAction Ignore) }
-    $env:UNI_TERM_TEST_KEY = 'test-key'
+    $env:UNIFYTERM_TEST_KEY = 'test-key'
     # The history's own list is off throughout: the pictures are of the model's help alone.
     $quiet = "[history]`ncandidates = false"
-    $model = "$quiet`n[ai]`nprovider = `"anthropic`"`nmodel = `"claude-haiku-5-5`"`nbase_url = `"http://localhost:$port`"`napi_key_env = `"UNI_TERM_TEST_KEY`""
+    $model = "$quiet`n[ai]`nprovider = `"anthropic`"`nmodel = `"claude-haiku-5-5`"`nbase_url = `"http://localhost:$port`"`napi_key_env = `"UNIFYTERM_TEST_KEY`""
     $noFix = "$quiet`n[ai]`nfix = false"
     function Below([string]$a, [string]$b) { PixelDiff $a $b 0 ($Row.Y + $Row.H) 900 220 }
     $server = Start-Model 0
@@ -449,7 +449,7 @@ if ($Section -in 'all', 'ai') {
         # Enter is yes: the suggestion comes, Right takes it.
         $t = Run 'ai-yes' "echo hel{WAIT:1500}{ENTER}{WAIT:2000}{RIGHT}{WAIT:800}" $model
         $last = @($t -split "`n" | Where-Object { $_.Trim() })[-1]
-        $agreed = Join-Path $env:UNI_TERM_DATA_DIR 'ai-consent'
+        $agreed = Join-Path $env:UNIFYTERM_DATA_DIR 'ai-consent'
         Report 'after yes, the suggestion is shown and Right takes it' ($last -match '> echo hel --from-model$' -and (Test-Path $agreed)) "last line: '$last'; the answer kept: $(Test-Path $agreed)"
 
         $t = Run 'ai-fix' "zzqqxx-nothing{ENTER}{WAIT:3000}{ENTER}{WAIT:800}" $model
@@ -477,10 +477,10 @@ if ($Section -in 'all', 'ai') {
         Report 'a secret on the line is not sent' ($all -notmatch 'abc123secretvalue' -and $all -match 'redacted') "requests: $((Sent).Count); the secret in them: $($all -match 'abc123secretvalue'); '‹redacted›' in them: $($all -match 'redacted')"
 
         # A wrong key: no suggestion, and the log says why.
-        $env:UNI_TERM_TEST_KEY = 'bad-key'
+        $env:UNIFYTERM_TEST_KEY = 'bad-key'
         Run 'ai-badkey' "echo bad{WAIT:2000}" $model | Out-Null
-        $env:UNI_TERM_TEST_KEY = 'test-key'
-        $logged = Get-Content (Join-Path $env:UNI_TERM_DATA_DIR 'uni-term.log') -Raw -ErrorAction Ignore
+        $env:UNIFYTERM_TEST_KEY = 'test-key'
+        $logged = Get-Content (Join-Path $env:UNIFYTERM_DATA_DIR 'unifyterm.log') -Raw -ErrorAction Ignore
         Report 'a refused key is written to the log' ($logged -match 'suggestion: .*401.*invalid x-api-key') "the log has the 401: $($logged -match 'suggestion: .*401')"
 
         # A service that takes 20 s: the terminal goes on, nothing waits for it.
@@ -488,12 +488,12 @@ if ($Section -in 'all', 'ai') {
         $t = Run 'ai-slow' "zzqqyy-nothing{ENTER}{WAIT:500}echo still-alive{ENTER}{WAIT:1200}" $model
         Report 'a slow model holds nothing up' ((Count $t 'still-alive') -eq 2) "'still-alive' seen $(Count $t 'still-alive') times (the line, then its output)"
 
-        $t = Run 'ai-nokey' "echo x{ENTER}" ($model -replace 'UNI_TERM_TEST_KEY', 'UNI_TERM_NO_SUCH_KEY_7Q') -keep
-        Report 'a key that is not set is named, the terminal works' ((Count $t 'UNI_TERM_NO_SUCH_KEY_7Q') -ge 1 -and (Count $t 'x') -ge 1) "the notice names the variable: $((Count $t 'UNI_TERM_NO_SUCH_KEY_7Q') -ge 1)"
+        $t = Run 'ai-nokey' "echo x{ENTER}" ($model -replace 'UNIFYTERM_TEST_KEY', 'UNIFYTERM_NO_SUCH_KEY_7Q') -keep
+        Report 'a key that is not set is named, the terminal works' ((Count $t 'UNIFYTERM_NO_SUCH_KEY_7Q') -ge 1 -and (Count $t 'x') -ge 1) "the notice names the variable: $((Count $t 'UNIFYTERM_NO_SUCH_KEY_7Q') -ge 1)"
     } finally {
         Stop-Process -Id $server.Id -Force -ErrorAction Ignore
-        $env:UNI_TERM_DATA_DIR = $keptData
-        Remove-Item Env:UNI_TERM_TEST_KEY -ErrorAction Ignore
+        $env:UNIFYTERM_DATA_DIR = $keptData
+        Remove-Item Env:UNIFYTERM_TEST_KEY -ErrorAction Ignore
     }
 }
 if ($Section -in 'all', 'graphics') {
@@ -550,7 +550,7 @@ if ($Section -in 'all', 'graphics') {
     if (Get-Command wt -ErrorAction SilentlyContinue) {
         $said = Join-Path $work 'wt-choice.txt'
         $utExe = Join-Path (Split-Path $Exe) 'ut.exe'
-        Start-Process wt -ArgumentList @('-w', 'new', '--title', 'uni-term-verify', 'cmd', '/c', "`"$utExe`" view `"$png`" --width 8 --verbose 2> `"$said`" & ping -n 2 127.0.0.1 >nul")
+        Start-Process wt -ArgumentList @('-w', 'new', '--title', 'unifyterm-verify', 'cmd', '/c', "`"$utExe`" view `"$png`" --width 8 --verbose 2> `"$said`" & ping -n 2 127.0.0.1 >nul")
         for ($i = 0; $i -lt 50 -and -not ((Test-Path $said) -and (Get-Item $said).Length -gt 0); $i++) { Start-Sleep -Milliseconds 200 }
         $choice = if (Test-Path $said) { (Get-Content $said -Raw).Trim() } else { '(nothing said)' }
         Report 'in Windows Terminal, ut view chooses sixel by itself' ($choice -match '^ut view: sixel') $choice
@@ -600,11 +600,11 @@ if ($Section -in 'all', 'graphics') {
 if ($Section -in 'all', 'agents') {
     "--- agents ---"
     $utExe = Join-Path (Split-Path $Exe) 'ut.exe'
-    # Made-up agents in keepane's shape (crates/uni-term/tests/fixtures/agents.json): two of them.
+    # Made-up agents in keepane's shape (crates/unifyterm/tests/fixtures/agents.json): two of them.
     $fixture = Join-Path $work 'agents.json'
-    Copy-Item (Join-Path $PSScriptRoot '..\crates\uni-term\tests\fixtures\agents.json') $fixture
+    Copy-Item (Join-Path $PSScriptRoot '..\crates\unifyterm\tests\fixtures\agents.json') $fixture
     $list = "command = ['$utExe', 'cat', '$fixture']"
-    $logFile = Join-Path $env:UNI_TERM_DATA_DIR 'uni-term.log'
+    $logFile = Join-Path $env:UNIFYTERM_DATA_DIR 'unifyterm.log'
     function Logged { if (Test-Path $logFile) { Get-Content $logFile -Raw } else { '' } }
     # The sidebar's cards: runs of the card color, at least 40 px tall, down a column inside them.
     function Cards([string]$name) {
@@ -639,38 +639,38 @@ if ($Section -in 'all', 'agents') {
     $saved = Get-Clipboard -Raw
     try {
         Set-Clipboard 'nothing yet'
-        Run 'agents-copy' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}" "[agents]`nsidebar = true`n$list`nfocus = ['uni-term-no-such-program', '{pane}']" | Out-Null
+        Run 'agents-copy' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}" "[agents]`nsidebar = true`n$list`nfocus = ['unifyterm-no-such-program', '{pane}']" | Out-Null
         $copied = Get-Clipboard -Raw
         Report 'when going there fails, the place is copied' ($copied -eq 'work:1.0' -and (Logged) -match 'going to %12') "clipboard: '$copied'; logged: $((Logged) -match 'going to %12')"
     } finally { if ($null -ne $saved) { Set-Clipboard -Value $saved } }
 
     # keepane's troubles: a line in the sidebar and one in the log, and the terminal works on.
-    $t = Run 'agents-noserver' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`npoll_ms = 500`ncommand = ['keepane', '-L', 'uni-term-test-none', 'list-agents', '-J']"
+    $t = Run 'agents-noserver' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`npoll_ms = 500`ncommand = ['keepane', '-L', 'unifyterm-test-none', 'list-agents', '-J']"
     $noServer = ([regex]::Matches((Logged), 'agents: keepane: no server running')).Count
     Report 'no keepane server: said once, and the terminal works on' ($noServer -eq 1 -and (Count $t 'still-fine') -ge 2 -and (Cards 'agents-noserver') -eq 0) "log lines: $noServer (asked every 500 ms for 3 s: about 6 times); 'still-fine' on the screen: $(Count $t 'still-fine')"
-    $t = Run 'agents-noprogram' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`ncommand = ['uni-term-no-such-program']"
-    Report 'no keepane program: said, and the terminal works on' ((Logged) -match 'agents: uni-term-no-such-program was not found' -and (Count $t 'still-fine') -ge 2) "logged: $((Logged) -match 'was not found'); 'still-fine' on the screen: $(Count $t 'still-fine')"
+    $t = Run 'agents-noprogram' "{WAIT:2500}echo still-fine{ENTER}{WAIT:600}" "[agents]`nsidebar = true`ncommand = ['unifyterm-no-such-program']"
+    Report 'no keepane program: said, and the terminal works on' ((Logged) -match 'agents: unifyterm-no-such-program was not found' -and (Count $t 'still-fine') -ge 2) "logged: $((Logged) -match 'was not found'); 'still-fine' on the screen: $(Count $t 'still-fine')"
     if (Get-Command keepane -ErrorAction SilentlyContinue) {
-        # A test server of our own (socket uni-term-test), with two panes and no agent in them.
+        # A test server of our own (socket unifyterm-test), with two panes and no agent in them.
         # keepane saves a server's sessions when it stops, and keeps a copy of PowerShell's history
         # for each pane: each session is stopped and forgotten first, then the socket's folder goes.
         function Clear-TestKeepane {
-            foreach ($name in @(keepane -L uni-term-test list-saved 2>$null | ForEach-Object { if ($_ -match '^([^:]+): saved') { $Matches[1] } })) {
-                keepane -L uni-term-test kill-session -t $name 2>&1 | Out-Null
-                keepane -L uni-term-test delete-saved $name 2>&1 | Out-Null
+            foreach ($name in @(keepane -L unifyterm-test list-saved 2>$null | ForEach-Object { if ($_ -match '^([^:]+): saved') { $Matches[1] } })) {
+                keepane -L unifyterm-test kill-session -t $name 2>&1 | Out-Null
+                keepane -L unifyterm-test delete-saved $name 2>&1 | Out-Null
             }
-            keepane -L uni-term-test kill-server 2>&1 | Out-Null
-            Remove-Item (Join-Path $env:LOCALAPPDATA 'keepane\sessions-uni-term-test') -Recurse -Force -ErrorAction SilentlyContinue
+            keepane -L unifyterm-test kill-server 2>&1 | Out-Null
+            Remove-Item (Join-Path $env:LOCALAPPDATA 'keepane\sessions-unifyterm-test') -Recurse -Force -ErrorAction SilentlyContinue
         }
         Clear-TestKeepane
-        keepane -L uni-term-test new-session -d -s verify -x 160 -y 50 2>&1 | Out-Null
-        keepane -L uni-term-test split-window -t verify 2>&1 | Out-Null
-        $panes = @(keepane -L uni-term-test list-panes -a 2>$null).Count
+        keepane -L unifyterm-test new-session -d -s verify -x 160 -y 50 2>&1 | Out-Null
+        keepane -L unifyterm-test split-window -t verify 2>&1 | Out-Null
+        $panes = @(keepane -L unifyterm-test list-panes -a 2>$null).Count
         try {
-            Run 'agents-keepane' "{WAIT:2500}" "[agents]`nsidebar = true`ncommand = ['keepane', '-L', 'uni-term-test', 'list-agents', '-J']" | Out-Null
+            Run 'agents-keepane' "{WAIT:2500}" "[agents]`nsidebar = true`ncommand = ['keepane', '-L', 'unifyterm-test', 'list-agents', '-J']" | Out-Null
         } finally { Clear-TestKeepane }
-        $left = Test-Path (Join-Path $env:LOCALAPPDATA 'keepane\sessions-uni-term-test')
-        Report 'a real keepane with no agents: no cards, nothing logged' ($panes -eq 2 -and (Cards 'agents-keepane') -eq 0 -and (Logged) -notmatch 'uni-term-test[^-]' -and -not $left) "panes in the test server: $panes (2 made); cards: $(Cards 'agents-keepane'); its folder left after: $left"
+        $left = Test-Path (Join-Path $env:LOCALAPPDATA 'keepane\sessions-unifyterm-test')
+        Report 'a real keepane with no agents: no cards, nothing logged' ($panes -eq 2 -and (Cards 'agents-keepane') -eq 0 -and (Logged) -notmatch 'unifyterm-test[^-]' -and -not $left) "panes in the test server: $panes (2 made); cards: $(Cards 'agents-keepane'); its folder left after: $left"
     } else {
         "SKIP  a real keepane with no agents: keepane is not installed here"
     }
@@ -684,18 +684,18 @@ if ($Section -in 'all', 'agents') {
     $polled = if (Test-Path $count) { @(Get-Content $count).Count } else { 0 }
     Report 'hidden: the list is never asked for; shown: every poll_ms' ($idle -eq 0 -and $polled -ge 4 -and $polled -le 8) "runs in 6 s hidden: $idle; in 3 s shown at 500 ms, then 3 s hidden: $polled (6 expected, 4 to 8 allowed)"
 
-    # ut mcp, as an agent's client: what a shell in uni-term ran is found.
+    # ut mcp, as an agent's client: what a shell in unifyterm ran is found.
     Run 'agents-record' "echo mcp-probe-4217{ENTER}{WAIT:1200}" "" | Out-Null
     function Ask-Mcp([string[]]$lines, [string]$data) {
-        $saved = $env:UNI_TERM_DATA_DIR; $env:UNI_TERM_DATA_DIR = $data
-        try { $lines | & $utExe mcp 2>$null | ForEach-Object { $_ | ConvertFrom-Json } } finally { $env:UNI_TERM_DATA_DIR = $saved }
+        $saved = $env:UNIFYTERM_DATA_DIR; $env:UNIFYTERM_DATA_DIR = $data
+        try { $lines | & $utExe mcp 2>$null | ForEach-Object { $_ | ConvertFrom-Json } } finally { $env:UNIFYTERM_DATA_DIR = $saved }
     }
     $answers = @(Ask-Mcp @(
         '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
         '{"jsonrpc":"2.0","method":"notifications/initialized"}',
         '{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
         '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"history_search","arguments":{"query":"mcp-probe"}}}'
-    ) $env:UNI_TERM_DATA_DIR)
+    ) $env:UNIFYTERM_DATA_DIR)
     $found = if ($answers.Count -eq 3) { @($answers[2].result.content[0].text | ConvertFrom-Json) } else { @() }
     Report 'ut mcp: a client finds the command a shell ran' ($answers.Count -eq 3 -and $answers[1].result.tools.Count -eq 4 -and $found.Count -ge 1 -and $found[0].command -eq 'echo mcp-probe-4217') "answers: $($answers.Count); tools: $($answers[1].result.tools.Count); found: $($found | ForEach-Object command)"
     $empty = Join-Path $work 'no-data'

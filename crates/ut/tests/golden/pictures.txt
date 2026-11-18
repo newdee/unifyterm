@@ -79,7 +79,7 @@
 ::::::::::::::::::::::::::::::::**************************##%##*\n
 ::::::::::::::::::::::::::::::::****************************#%%#\n
 === md --width 60 (a pipe: no styles)
-# uni-term\n
+# UnifyTerm\n
 \n
 One terminal for Windows, macOS and Linux, with ut commands\n
 and a history you can search as you type.\n
@@ -111,7 +111,7 @@ See the plan (docs/plan.md) and [image: a picture].\n
 \n
 \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n
 === md --width 60 --color=always
-\u{1b}[1;4muni-term\u{1b}[0m\n
+\u{1b}[1;4mUnifyTerm\u{1b}[0m\n
 \n
 One terminal for \u{1b}[3mWindows\u{1b}[0m, \u{1b}[1mmacOS\u{1b}[0m and Linux, with \u{1b}[36mut\u{1b}[0m commands\n
 and a history you can search as you type.\n

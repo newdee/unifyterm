@@ -12,8 +12,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # uni-term's data (history, log, links) in the run's own folder, never a home directory.
-  UNI_TERM_DATA_DIR: ${{ github.workspace }}/ci-data
+  # unifyterm's data (history, log, links) in the run's own folder, never a home directory.
+  UNIFYTERM_DATA_DIR: ${{ github.workspace }}/ci-data
 
 jobs:
   build:
@@ -38,7 +38,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: The ConPTY beside uni-term.exe (Windows)
+      - name: The ConPTY beside unifyterm.exe (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: pwsh tools/fetch-conpty.ps1
@@ -65,11 +65,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:UNI_TERM_RAW_LOG = "$PWD/smoke.raw"
-          $p = Start-Process target/release/uni-term.exe -ArgumentList '-e','cmd','/c','echo smoke-ok' -PassThru
-          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'uni-term did not end' }
+          $env:UNIFYTERM_RAW_LOG = "$PWD/smoke.raw"
+          $p = Start-Process target/release/unifyterm.exe -ArgumentList '-e','cmd','/c','echo smoke-ok' -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'unifyterm did not end' }
           # A release build is a window program: PowerShell waits for it only like this.
-          $null = Start-Process target/release/uni-term.exe -ArgumentList '--replay','smoke.raw' -RedirectStandardOutput smoke.txt -Wait -NoNewWindow
+          $null = Start-Process target/release/unifyterm.exe -ArgumentList '--replay','smoke.raw' -RedirectStandardOutput smoke.txt -Wait -NoNewWindow
           $screen = Get-Content -Raw smoke.txt
           if ($screen -notmatch 'smoke-ok') { throw "not on the screen: $screen" }
           'smoke-ok on the screen'
@@ -77,32 +77,32 @@ jobs:
       - name: The window starts and runs a command (Linux, X11 on xvfb, lavapipe)
         if: runner.os == 'Linux'
         run: |
-          export UNI_TERM_RAW_LOG="$PWD/smoke.raw"
-          timeout 60 xvfb-run -a target/release/uni-term -e sh -c 'echo smoke-ok'
-          target/release/uni-term --replay smoke.raw | grep smoke-ok
+          export UNIFYTERM_RAW_LOG="$PWD/smoke.raw"
+          timeout 60 xvfb-run -a target/release/unifyterm -e sh -c 'echo smoke-ok'
+          target/release/unifyterm --replay smoke.raw | grep smoke-ok
 
       - name: The window starts and runs a command (macOS)
         if: runner.os == 'macOS'
         continue-on-error: true
         run: |
-          export UNI_TERM_RAW_LOG="$PWD/smoke.raw"
-          ( target/release/uni-term -e sh -c 'echo smoke-ok' & pid=$!; sleep 30; kill $pid 2>/dev/null || true ) || true
-          target/release/uni-term --replay smoke.raw | grep smoke-ok
+          export UNIFYTERM_RAW_LOG="$PWD/smoke.raw"
+          ( target/release/unifyterm -e sh -c 'echo smoke-ok' & pid=$!; sleep 30; kill $pid 2>/dev/null || true ) || true
+          target/release/unifyterm --replay smoke.raw | grep smoke-ok
 
       - name: Package (Windows MSI, WiX)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 5.0.2
-          $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages | Where-Object name -eq 'uni-term' | ForEach-Object version
-          wix build packaging/windows/uni-term.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o "uni-term-$version-x64.msi"
+          $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages | Where-Object name -eq 'unifyterm' | ForEach-Object version
+          wix build packaging/windows/unifyterm.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o "unifyterm-$version-x64.msi"
 
       - name: Package (Linux .deb and AppImage)
         if: runner.os == 'Linux'
         run: |
           cargo install cargo-deb --locked
-          cargo deb -p uni-term --no-build
-          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="uni-term") | .version')
+          cargo deb -p unifyterm --no-build
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="unifyterm") | .version')
           curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy
           LINUXDEPLOY="$PWD/linuxdeploy" APPIMAGE_EXTRACT_AND_RUN=1 bash packaging/linux/appimage.sh "$version"
@@ -110,12 +110,12 @@ jobs:
       - name: Package (macOS .app and .dmg)
         if: runner.os == 'macOS'
         run: |
-          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="uni-term") | .version')
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="unifyterm") | .version')
           bash packaging/macos/make-app.sh "$version"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: uni-term-${{ matrix.os }}
+          name: unifyterm-${{ matrix.os }}
           if-no-files-found: error
           path: |
             *.msi

@@ -22,7 +22,7 @@ fn picture(path: &Path) {
     image.save(path).expect("write the picture");
 }
 
-const DOCUMENT: &str = "# uni-term
+const DOCUMENT: &str = "# UnifyTerm
 
 One terminal for *Windows*, **macOS** and Linux, with `ut` commands and a history you can search as you type.
 

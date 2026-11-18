@@ -1,5 +1,5 @@
 //! `ut mcp` as an agent sees it: JSON-RPC lines in, lines out, with the
-//! history in a directory of the test's own (`UNI_TERM_DATA_DIR`).
+//! history in a directory of the test's own (`UNIFYTERM_DATA_DIR`).
 
 use std::io::Write as _;
 use std::path::Path;
@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 fn talk(data: &Path, messages: &[Value]) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ut"))
         .arg("mcp")
-        .env("UNI_TERM_DATA_DIR", data)
+        .env("UNIFYTERM_DATA_DIR", data)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -43,11 +43,11 @@ fn result_text(answer: &Value) -> &str {
 #[test]
 fn an_agent_asks_the_history() {
     let data = tempfile::tempdir().expect("a directory");
-    let mut history = uni_history::History::open(&data.path().join("history.db")).expect("a history");
+    let mut history = unifyterm_history::History::open(&data.path().join("history.db")).expect("a history");
     for (text, cwd) in [("cargo build --release", "C:/work"), ("cargo test", "C:/work"), ("git push", "C:/other")] {
-        let run = uni_history::Run {
+        let run = unifyterm_history::Run {
             text: text.into(),
-            at_ms: uni_history::now_ms(),
+            at_ms: unifyterm_history::now_ms(),
             cwd: cwd.into(),
             exit: Some(0),
             duration_ms: Some(5),
@@ -115,14 +115,14 @@ fn the_skill_is_printed_and_installed() {
     let dir = tempfile::tempdir().expect("a directory");
     let printed = Command::new(env!("CARGO_BIN_EXE_ut")).arg("skill").output().expect("ut skill");
     let text = String::from_utf8(printed.stdout).expect("text");
-    assert!(text.starts_with("---\nname: uni-term\n"), "{}", &text[..40.min(text.len())]);
+    assert!(text.starts_with("---\nname: unifyterm\n"), "{}", &text[..40.min(text.len())]);
     let installed = Command::new(env!("CARGO_BIN_EXE_ut"))
         .args(["skill", "--install"])
         .arg(dir.path())
         .output()
         .expect("ut skill --install");
     assert!(installed.status.success());
-    assert_eq!(std::fs::read_to_string(dir.path().join("uni-term/SKILL.md")).expect("the file"), text);
+    assert_eq!(std::fs::read_to_string(dir.path().join("unifyterm/SKILL.md")).expect("the file"), text);
     assert!(!String::from_utf8_lossy(&installed.stdout).contains('\\'), "the path is said with /");
     assert_eq!(
         Command::new(env!("CARGO_BIN_EXE_ut")).args(["skill", "--other"]).status().expect("ut skill").code(),

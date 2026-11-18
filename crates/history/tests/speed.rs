@@ -1,6 +1,6 @@
 //! How fast a search is in a large history. Run in release:
 //!
-//!     cargo test --release -p uni-history --test speed -- --ignored --nocapture
+//!     cargo test --release -p unifyterm-history --test speed -- --ignored --nocapture
 //!
 //! The commands and the queries come from a fixed generator, so every run
 //! measures the same work.
@@ -8,7 +8,7 @@
 use std::fmt::Write as _;
 use std::time::Instant;
 
-use uni_history::{History, Query, Run};
+use unifyterm_history::{History, Query, Run};
 
 const COMMANDS: usize = 100_000;
 const QUERIES: usize = 1_000;

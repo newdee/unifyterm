@@ -1,4 +1,4 @@
-//! uni-term's help with commands from a language model: a suggestion while
+//! UnifyTerm's help with commands from a language model: a suggestion while
 //! typing, a fix for a command that failed, the meaning of each part of a
 //! command. Also the fix that needs no model: a misspelt command name.
 //!
@@ -78,7 +78,7 @@ pub const REDACTED: &str = "‹redacted›";
 /// Text as it may be sent: secrets replaced, the home directory as `~`.
 #[must_use]
 pub fn clean(text: &str) -> String {
-    let redacted = uni_history::redact(text, REDACTED);
+    let redacted = unifyterm_history::redact(text, REDACTED);
     let Some(home) = dirs::home_dir() else { return redacted };
     let home = home.to_string_lossy().into_owned();
     if home.len() < 3 {
@@ -275,8 +275,8 @@ mod tests {
     #[test]
     fn a_suggestion_must_begin_with_what_was_typed() {
         let recent = vec!["cargo build".to_owned()];
-        let good = Fixed::new(vec![Ok(r#"{"completion": "cargo test -p uni-term"}"#.into())]);
-        assert_eq!(suggest(&good, &context("car", &recent)).unwrap().as_deref(), Some("cargo test -p uni-term"));
+        let good = Fixed::new(vec![Ok(r#"{"completion": "cargo test -p unifyterm"}"#.into())]);
+        assert_eq!(suggest(&good, &context("car", &recent)).unwrap().as_deref(), Some("cargo test -p unifyterm"));
         let fenced = Fixed::new(vec![Ok("```json\n{\"completion\": \"git status\"}\n```".into())]);
         assert_eq!(suggest(&fenced, &context("git", &recent)).unwrap().as_deref(), Some("git status"));
         let off = Fixed::new(vec![Ok(r#"{"completion": "ls -la"}"#.into())]);

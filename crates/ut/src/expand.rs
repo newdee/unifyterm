@@ -8,7 +8,7 @@
 //!
 //! An argument in quotes is not a pattern (`find . -name "*.rs"`). cmd.exe
 //! passes the quotes on, and they are seen here. PowerShell takes them
-//! away, so uni-term's PowerShell start script puts [`LITERAL`] first in a
+//! away, so UnifyTerm's PowerShell start script puts [`LITERAL`] first in a
 //! quoted argument instead; it is taken off here and the rest is left alone.
 //!
 //! A program that starts a command (`find -exec`, `xargs`, `env`) gives it
@@ -24,7 +24,7 @@ pub(crate) const AS_GIVEN: &str = "UT_NO_GLOB";
 
 /// First in an argument: the rest is to be taken as it is, not as a
 /// pattern. A character from the private-use area, which no file's name and
-/// no option begins with. uni-term's PowerShell start script writes the same one.
+/// no option begins with. UnifyTerm's PowerShell start script writes the same one.
 pub(crate) const LITERAL: char = '\u{E000}';
 
 /// This program's arguments, its own name first: on Windows with the

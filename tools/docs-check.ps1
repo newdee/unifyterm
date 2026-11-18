@@ -17,7 +17,7 @@ function Compare-Sets([string]$what, [string[]]$code, [string[]]$documented) {
 }
 
 # Settings: each `pub(crate) key:` of each `...Config` section in config.rs.
-$config = & $read 'crates/uni-term/src/config.rs'
+$config = & $read 'crates/unifyterm/src/config.rs'
 $settings = foreach ($section in [regex]::Matches($config, '(?s)pub\(crate\) struct (\w+)Config \{(.*?)\n\}')) {
     if ($section.Groups[1].Value -eq '') { continue }
     foreach ($key in [regex]::Matches($section.Groups[2].Value, 'pub\(crate\) (\w+):')) { "$($section.Groups[1].Value.ToLower()).$($key.Groups[1].Value)" }
@@ -27,11 +27,11 @@ $documentedSettings = [regex]::Matches($settingsTable, '(?m)^\| `([a-z_]+\.[a-z_
 Compare-Sets 'settings' @($settings) @($documentedSettings)
 
 # Keys: the window's (key_bindings in main.rs) and the terminal view's (terminal.rs).
-$main = & $read 'crates/uni-term/src/main.rs'
+$main = & $read 'crates/unifyterm/src/main.rs'
 $bindings = ($main -split 'fn key_bindings')[1].Split('/// Lets a release build')[0]
 $spelled = { param($key) ($key -split '-' | ForEach-Object { switch ($_) { 'ctrl' { 'Ctrl' } 'shift' { 'Shift' } 'cmd' { 'Cmd' } 'alt' { 'Alt' } 'insert' { 'Insert' } 'tab' { 'Tab' } default { $_.ToUpper() } } }) -join '-' }
 $windowKeys = [regex]::Matches($bindings, '\("([a-z-]+)", \d\)') | ForEach-Object { & $spelled $_.Groups[1].Value } | Sort-Object -Unique
-$terminal = & $read 'crates/uni-term/src/terminal.rs'
+$terminal = & $read 'crates/unifyterm/src/terminal.rs'
 $viewKeys = @()
 if ($terminal -match 'key\.key == "e" && held\.control && held\.shift') { $viewKeys += 'Ctrl-Shift-E' }
 foreach ($m in [regex]::Matches($terminal, '"([np])" if held\.control')) { $viewKeys += "Ctrl-$($m.Groups[1].Value.ToUpper())" }
@@ -44,13 +44,13 @@ $named = [regex]::Matches($keysTable, '(?m)^\| ([^|]+) \| ([^|]+) \|') | Where-O
 $documentedAll = @($documentedKeys) + @($named | Where-Object { $_ -notin $codeKeys })
 Compare-Sets 'keys' @($codeKeys | Sort-Object -Unique) @($documentedAll | Sort-Object -Unique)
 
-# Environment variables the code reads, less the ones that are not uni-term's own.
-# Not uni-term's own: the system's, an internal one, and conventions other programs share (named in a sentence below the table).
-$notOwn = 'PATH', 'PATHEXT', 'PROMPT', 'SHELL', 'ZDOTDIR', 'UNI_TERM_COMMANDS'
+# Environment variables the code reads, less the ones that are not unifyterm's own.
+# Not unifyterm's own: the system's, an internal one, and conventions other programs share (named in a sentence below the table).
+$notOwn = 'PATH', 'PATHEXT', 'PROMPT', 'SHELL', 'ZDOTDIR', 'UNIFYTERM_COMMANDS'
 $conventions = 'NO_COLOR', 'JQ_COLORS'
 $sources = Get-ChildItem (Join-Path $root 'crates') -Recurse -Include *.rs | Where-Object { $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -ne 'build.rs' } | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }
 $variables = foreach ($text in $sources) {
-    foreach ($m in [regex]::Matches($text, 'env::var(?:_os)?\("([A-Z_]+)"\)|const [A-Z_]+: &str = "((?:UNI_TERM|UT)_[A-Z_]+)"|get\("([A-Z_]+)"\)')) { ($m.Groups[1..2] | Where-Object Success | Select-Object -First 1).Value }
+    foreach ($m in [regex]::Matches($text, 'env::var(?:_os)?\("([A-Z_]+)"\)|const [A-Z_]+: &str = "((?:UNIFYTERM|UT)_[A-Z_]+)"|get\("([A-Z_]+)"\)')) { ($m.Groups[1..2] | Where-Object Success | Select-Object -First 1).Value }
 }
 # `get(...)` in ut view reads how the terminal names itself (TERM_PROGRAM and the like): the terminal's, not ours.
 $terminalSays = 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'WT_SESSION', 'KITTY_WINDOW_ID', 'LANG', 'LC_ALL', 'LC_CTYPE', 'WEZTERM_EXECUTABLE', 'GHOSTTY_RESOURCES_DIR'

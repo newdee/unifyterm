@@ -1,7 +1,0 @@
-# Written by uni-term: reads your own .zprofile.
-if [[ -f "$UNI_TERM_ZDOTDIR/.zprofile" ]]; then
-    __uni_term_here=$ZDOTDIR
-    ZDOTDIR=$UNI_TERM_ZDOTDIR
-    source "$UNI_TERM_ZDOTDIR/.zprofile"
-    ZDOTDIR=$__uni_term_here
-fi

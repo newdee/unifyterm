@@ -11,4 +11,4 @@ allow-expect-in-tests = true
 allow-print-in-tests = true
 
 # Names that are written as they are, not as code, in doc comments.
-doc-valid-idents = ["ConPTY", "PowerShell", "uni-term", ".."]
+doc-valid-idents = ["UnifyTerm", "ConPTY", "PowerShell", "unifyterm", ".."]
