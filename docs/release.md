@@ -19,6 +19,7 @@
    - 用刚构建的文件生成 scoop 和 winget 清单（`tools/package-manifests.ps1`），并提交回 `main`。从此 `scoop install <raw 地址>` 装的就是这个版本。
 3. Homebrew：tap 仓库 `newdee/homebrew-tap` 的工作流 `unifyterm.yml` 每 6 小时跟一次最新版本，在 macOS 和 Linux 上装好并测试通过后，才提交新的 formula。想马上更新，就在 tap 仓库里手动运行一次这个工作流。
 4. `install.sh` 和 `install.ps1` 总是安装最新的 Release，不需要改。
+5. 网页：`site/` 有改动并推送到 `main` 时，`.github/workflows/pages.yml` 把它发布到 https://dfine.tech/unifyterm/ 。版本号和命令数量写在网页里，发新版本时要改；`pwsh tools/site-check.ps1` 会核对命令数量和安装命令。
 
 ## 2. 检查发布出来的东西
 

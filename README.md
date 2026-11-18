@@ -4,7 +4,7 @@
 
 # UnifyTerm
 
-One terminal for Windows, macOS and Linux.
+One terminal for Windows, macOS and Linux. The page that introduces it: [dfine.tech/unifyterm](https://dfine.tech/unifyterm/).
 
 ![UnifyTerm: the same Unix commands on Windows, history as you type, pictures and markdown, a model's explanation, agents beside the terminal](docs/media/unifyterm-promo.gif)
 

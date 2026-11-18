@@ -2,7 +2,9 @@
 
 ## 本期（M0–M7）
 
-- 已验收：M0、M1、M2、M3、M4、M5、M6、M7。M7 的发布步骤（推送、CI、签名、提交到 winget 和 Homebrew）等用户确认，见 `docs/release.md`。每轮验收的数字见 `docs/verification-log.md`。
+- 已验收：M0、M1、M2、M3、M4、M5、M6、M7。每轮验收的数字见 `docs/verification-log.md`。
+- 已发布：**0.1.0**，2026-11-18，标签 `v0.1.0`（提交 `b93e5ff`）。Release 里有 9 个安装文件，各带一个 `.sha256`。scoop 清单已由工作流提交回 `main`；formula 在 `newdee/homebrew-tap`；网页在 https://dfine.tech/unifyterm/ 。
+- 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
 - 方案总览见 `demo/index.html` 的"方案"页。
