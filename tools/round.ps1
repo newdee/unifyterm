@@ -123,6 +123,9 @@ $docs | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" 
 Report 'README against the code' ($LASTEXITCODE -eq 0) "$(@($docs | Where-Object { $_ -match '^PASS' }).Count) of $(@($docs | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) tables agree"
 $notices = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'notices.ps1') -Check 2>&1 | Select-Object -Last 1
 Report 'THIRD-PARTY-NOTICES is up to date' ($LASTEXITCODE -eq 0) "$notices"
+$page = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'site-check.ps1') 2>&1
+$page | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" }
+Report 'the product page against the code' ($LASTEXITCODE -eq 0) "$(@($page | Where-Object { $_ -match '^PASS' }).Count) of $(@($page | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) checks pass"
 
 $historyAfter = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
 Report 'the user''s history is not written' ($historyAfter -eq $historyBefore) "the history file: $historyBefore bytes before the round, $historyAfter after"

@@ -4,13 +4,15 @@
 # with ffmpeg. Nothing is mocked up, and nothing touches the user's own data:
 # every scene has a throwaway data directory and settings file.
 #
-#   pwsh tools/promo.ps1 [-Exe target/release/unifyterm.exe] [-Out docs/media]
+#   pwsh tools/promo.ps1 [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img]
 #
-# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif. Needs ffmpeg and
-# Microsoft Edge (for the cards).
+# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif. With -Stills, also one
+# picture of the window for each scene (the site's pictures, cut to the rows that have
+# something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png. Needs ffmpeg and Microsoft Edge (for the cards).
 param(
     [string]$Exe = (Join-Path (Split-Path $PSScriptRoot) 'target/release/unifyterm.exe'),
-    [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media')
+    [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media'),
+    [string]$Stills = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
@@ -84,6 +86,14 @@ function Join-Scene([string]$scene, [string]$backdrop, [double]$hold) {
     ffmpeg -v error -y -i $backdrop -f concat -safe 0 -i $list -filter_complex "[1:v]crop=960:620:8:31,fps=$fps[w];[0:v][w]overlay=160:72,format=yuv420p,fade=t=in:st=0:d=0.3[v]" -map '[v]' -r $fps $clip
     $clip
 }
+# The window's own picture at one moment of a scene (the last frame unless told which), without the frame around it.
+function Save-Still([string]$scene, [string]$name, [int]$height, [int]$frame = 0) {
+    if (-not $Stills) { return }
+    $frames = @(Get-ChildItem $work -Filter "$scene-0*.png" | Sort-Object Name)
+    $pick = if ($frame -gt 0) { $frames[$frame - 1] } else { $frames[-1] }
+    New-Item -ItemType Directory -Force $Stills | Out-Null
+    ffmpeg -v error -y -i $pick.FullName -vf "crop=960:${height}:8:31" -frames:v 1 (Join-Path $Stills "$name.png")
+}
 function Join-Card([string]$card, [double]$seconds, [string]$name) {
     $clip = Join-Path $work "$name.mp4"
     ffmpeg -v error -y -loop 1 -t $seconds -i $card -vf "format=yuv420p,fade=t=in:st=0:d=0.4,fade=t=out:st=$($seconds - 0.4):d=0.4" -r $fps $clip
@@ -100,6 +110,7 @@ $script:frame = 0
 $keys = (Typed 's2' "cat Cargo.toml | grep -n version") + "{ENTER}" + (Shots 's2' 10) + (Typed 's2' "echo '[1,2,3]' | jq add") + "{ENTER}" + (Shots 's2' 10) + (Typed 's2' "ls | wc -l") + "{ENTER}" + (Shots 's2' 8)
 Record 's2' "" $keys
 $clips += Join-Scene 's2' (Save-Backdrop 'b2' 'The same Unix commands, on <b>Windows</b> too') 1.6
+Save-Still 's2' 'commands' 310
 
 # 3. The history, as you type.
 $script:frame = 0
@@ -107,12 +118,15 @@ $seed = "git --version{ENTER}{WAIT:900}git log --oneline -3{ENTER}{WAIT:900}git 
 $keys = $seed + (Typed 's3' "git") + (Shots 's3' 6) + "{KEY:CTRL+N}" + (Shots 's3' 4) + "{KEY:CTRL+N}" + (Shots 's3' 6) + "{ENTER}" + (Shots 's3' 4) + "{ENTER}" + (Shots 's3' 10)
 Record 's3' "" $keys
 $clips += Join-Scene 's3' (Save-Backdrop 'b3' 'Your <b>history</b>, as you type: Ctrl-N, Enter') 1.6
+# Frame 19: "git" typed, the list open, the second command chosen (3 + 6 + 4 + 6 pictures in).
+Save-Still 's3' 'history' 300 19
 
 # 4. Pictures and markdown.
 $script:frame = 0
 $keys = (Typed 's4' "ut view unifyterm.png --width 12") + "{ENTER}" + (Shots 's4' 12) + (Typed 's4' "ut md notes.md") + "{ENTER}" + (Shots 's4' 10)
 Record 's4' "" $keys
 $clips += Join-Scene 's4' (Save-Backdrop 'b4' '<b>Pictures</b>, video and <b>markdown</b>, in the terminal') 1.8
+Save-Still 's4' 'media' 620
 
 # 5. What a command means (a model on this machine: tools/fake-model.ps1).
 $script:frame = 0
@@ -133,6 +147,7 @@ try {
     Record 's5' $ai $keys @{ 'ai-consent' = "Anthropic claude-haiku-5-5 http://localhost:$port" }
 } finally { Stop-Process -Id $model.Id -Force -ErrorAction SilentlyContinue; Remove-Item Env:UNIFYTERM_PROMO_KEY -ErrorAction SilentlyContinue }
 $clips += Join-Scene 's5' (Save-Backdrop 'b5' 'Ask what a command means: <b>Ctrl-Shift-E</b>') 1.6
+Save-Still 's5' 'explain' 300
 
 # 6. The agents beside the terminal (made-up agents, from the tests' fixture).
 $script:frame = 0
@@ -142,6 +157,15 @@ $agents = "[agents]`nsidebar = true`ncommand = ['$ut', 'cat', '$fixture']"
 $keys = (Shots 's6' 4 200) + (Typed 's6' "cat notes.md | head -4") + "{ENTER}" + (Shots 's6' 8)
 Record 's6' $agents $keys
 $clips += Join-Scene 's6' (Save-Backdrop 'b6' 'Your <b>agents</b>, beside the terminal: Ctrl-Shift-A') 1.6
+Save-Still 's6' 'agents' 330
+
+# For the site alone: one picture with two commands and a picture in the terminal.
+if ($Stills) {
+    $script:frame = 0
+    $keys = "cat Cargo.toml | grep -n version{ENTER}{WAIT:700}echo '[1,2,3]' | jq add{ENTER}{WAIT:700}ut view unifyterm.png --width 10{ENTER}{WAIT:1500}" + (Shots 'sh' 2 300)
+    Record 'sh' "" $keys
+    Save-Still 'sh' 'hero' 430
+}
 
 # 7. How to get it.
 $end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#e6e9f5'>Unify<b>Term</b></div></div><div style='font-size:24px;line-height:2;text-align:left'><code>brew install newdee/tap/unifyterm</code><br><code>scoop install https://…/packaging/scoop/unifyterm.json</code><br><code>curl -fsSL https://…/install.sh | sh</code></div><div style='font-size:28px;margin-top:8px'>github.com/<b>newdee/unifyterm</b> &middot; MIT</div></div>"

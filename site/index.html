@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UnifyTerm · one terminal, valid on Windows, macOS and Linux</title>
+    <meta
+      name="description"
+      content="UnifyTerm is a terminal that behaves the same on Windows, macOS and Linux. It runs your own shell and brings the same Unix commands to all three: cat, grep, jq and about a hundred more, on Windows too."
+    />
+    <meta property="og:title" content="UnifyTerm" />
+    <meta property="og:description" content="One terminal, valid on Windows, macOS and Linux: the same Unix commands everywhere, a history that answers while you type." />
+    <meta property="og:image" content="img/promo-poster.png" />
+    <meta name="theme-color" content="#151a30" />
+    <link rel="icon" href="img/mark.svg" type="image/svg+xml" />
+    <!-- Light or dark before the first paint: the visitor's pick, else the system's. -->
+    <script>
+      (function () {
+        var theme, lang;
+        try {
+          theme = localStorage.getItem("unifyterm-theme");
+          lang = localStorage.getItem("unifyterm-lang");
+        } catch (e) {}
+        // ?theme=light or ?theme=dark shows that one, whatever was picked before.
+        var asked = /[?&]theme=(light|dark)/.exec(location.search);
+        if (asked) theme = asked[1];
+        if (theme !== "light" && theme !== "dark") theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
+        // The switches, the tabs and Copy need the script: without it they are not shown.
+        document.documentElement.classList.add("js");
+        if (/[?&]lang=zh/.test(location.search)) lang = "zh";
+        if (lang === "zh") document.documentElement.dataset.lang = "zh";
+      })();
+    </script>
+    <!-- The fonts ship with the page: it renders where a font CDN is unreachable. -->
+    <link rel="preload" href="fonts/B612-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="fonts/CastoroTitling-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#document" data-i18n="skip">Skip to the document</a>
+
+    <!-- The ink of a rubber stamp: its edge a little uneven, its fill not quite even. -->
+    <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <defs>
+        <filter id="ink" x="-6%" y="-6%" width="112%" height="112%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.035 0.05" numOctaves="2" seed="7" result="warp" />
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="3" result="pressed" />
+          <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="3" result="grain" />
+          <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.7 1.3" result="gaps" />
+          <feComposite in="pressed" in2="gaps" operator="in" />
+        </filter>
+      </defs>
+    </svg>
+
+    <header class="top">
+      <a class="brand" href="#document" aria-label="UnifyTerm">
+        <img src="img/mark.svg" alt="" width="34" height="34" />
+        <span class="brand__name">Unify<b>Term</b></span>
+      </a>
+      <nav aria-label="Pages of this document" data-i18n-attr="aria-label:nav.label">
+        <a href="#commands" data-i18n="nav.commands">Commands</a>
+        <a href="#history" data-i18n="nav.history">History</a>
+        <a href="#media" data-i18n="nav.media">Pictures</a>
+        <a href="#help" data-i18n="nav.help">Help</a>
+        <a href="#agents" data-i18n="nav.agents">Agents</a>
+        <a href="#observations" data-i18n="nav.observations">Limits</a>
+        <a href="#install" data-i18n="nav.install">Install</a>
+      </nav>
+      <div class="top__tools">
+        <button class="tool" id="lang" type="button" aria-label="切换到中文" data-other="中文">中文</button>
+        <button class="tool tool--icon" id="theme" type="button" aria-label="Switch between the light and the dark page" data-i18n-attr="aria-label:theme.label">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path class="sun" d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+            <circle class="sun" cx="12" cy="12" r="4" />
+            <path class="moon" d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />
+          </svg>
+        </button>
+        <a class="tool" href="https://github.com/newdee/unifyterm" rel="noopener">GitHub</a>
+      </div>
+    </header>
+
+    <main id="document">
+      <!-- The data page -->
+      <section class="page page--data" aria-labelledby="title">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="rosette" aria-hidden="true"></div>
+        <div class="data">
+          <figure class="photo">
+            <img src="img/hero.png" width="960" height="430" alt="UnifyTerm on Windows, in PowerShell: cat Cargo.toml | grep -n version prints three numbered lines; echo '[1,2,3]' | jq add prints 6; ut view unifyterm.png shows the logo as a picture, in the terminal." data-i18n-attr="alt:hero.alt" />
+            <svg class="stamp stamp--seal" viewBox="0 0 220 220" role="img" aria-label="Stamp: UnifyTerm 0.1.0, valid on three systems" data-i18n-attr="aria-label:stamp.seal" style="--turn: -11deg">
+              <defs>
+                <path id="seal-top" d="M 28 110 A 82 82 0 0 1 192 110" />
+                <path id="seal-bottom" d="M 22 110 A 88 88 0 0 0 198 110" />
+              </defs>
+              <g filter="url(#ink)">
+                <circle cx="110" cy="110" r="104" />
+                <circle cx="110" cy="110" r="97" class="thin" />
+                <circle cx="110" cy="110" r="62" class="thin" />
+                <text class="arc"><textPath href="#seal-top" startOffset="50%">UNIFYTERM</textPath></text>
+                <text class="arc arc--small"><textPath href="#seal-bottom" startOffset="50%">VALID ON THREE SYSTEMS</textPath></text>
+                <text class="mid" x="110" y="106">0.1.0</text>
+                <text class="mid mid--small" x="110" y="130">MIT</text>
+              </g>
+            </svg>
+          </figure>
+
+          <div class="holder">
+            <p class="titling" id="title">UnifyTerm</p>
+            <h1 data-i18n="hero.h1">One terminal. Valid on Windows, macOS and Linux.</h1>
+            <p class="lede" data-i18n="hero.lede">
+              Change machines and the commands change with them. UnifyTerm keeps them the same: it runs your own shell, and brings <code>cat</code>, <code>grep</code>, <code>jq</code> and about a hundred more to every system, Windows included.
+            </p>
+            <dl class="fields">
+              <div>
+                <dt>Type <span lang="zh">类型</span></dt>
+                <dd data-i18n="field.type">Terminal, with a window</dd>
+              </div>
+              <div>
+                <dt>Shell <span lang="zh">外壳</span></dt>
+                <dd data-i18n="field.shell">Your own: PowerShell, cmd, bash, zsh, fish</dd>
+              </div>
+              <div>
+                <dt>Commands <span lang="zh">命令</span></dt>
+                <dd data-i18n="field.commands">99 on Windows, 114 on Linux</dd>
+              </div>
+              <div>
+                <dt>Issued by <span lang="zh">签发</span></dt>
+                <dd><a href="https://github.com/newdee" rel="noopener">newdee</a>, <span data-i18n="field.issued">in Rust, under MIT</span></dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <ul class="entries" aria-label="Systems it is valid on" data-i18n-attr="aria-label:entries.label">
+          <li class="entry" style="--turn: -3deg; --ink: var(--ink-blue)">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" aria-hidden="true"><g filter="url(#ink)"><rect x="4" y="4" width="252" height="88" rx="10" /><rect x="11" y="11" width="238" height="74" rx="6" class="thin" /></g></svg>
+            <b>Windows</b><span data-i18n="entry.windows">10 (1809) or later</span>
+          </li>
+          <li class="entry" style="--turn: 2deg; --ink: var(--ink-purple)">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" aria-hidden="true"><g filter="url(#ink)"><rect x="4" y="4" width="252" height="88" rx="44" /><rect x="11" y="11" width="238" height="74" rx="37" class="thin" /></g></svg>
+            <b>macOS</b><span data-i18n="entry.macos">11 or later</span>
+          </li>
+          <li class="entry" style="--turn: -1.5deg; --ink: var(--ink-teal)">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" aria-hidden="true"><g filter="url(#ink)"><path d="M22 4h216l18 18v52l-18 18H22L4 74V22Z" /><path d="M25 11h210l14 14v46l-14 14H25L11 71V25Z" class="thin" /></g></svg>
+            <b>Linux</b><span data-i18n="entry.linux">x86_64, Vulkan</span>
+          </li>
+        </ul>
+
+        <!-- The machine-readable zone: the command that installs it. -->
+        <div class="mrz" id="take">
+          <div class="mrz__tabs" role="tablist" aria-label="How to install" data-i18n-attr="aria-label:mrz.label">
+            <button role="tab" type="button" id="tab-brew" aria-controls="mrz-line" aria-selected="true" data-command="brew install newdee/tap/unifyterm">brew</button>
+            <button role="tab" type="button" id="tab-scoop" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json">scoop</button>
+            <button role="tab" type="button" id="tab-curl" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh">curl</button>
+            <button role="tab" type="button" id="tab-irm" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex">PowerShell</button>
+          </div>
+          <div class="mrz__line" id="mrz-line" role="tabpanel" aria-labelledby="tab-brew">
+            <code id="command">brew install newdee/tap/unifyterm</code>
+            <span class="mrz__fill" aria-hidden="true">&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</span>
+            <button class="copy" id="copy" type="button" data-i18n="mrz.copy">Copy</button>
+            <span class="copied" id="copied" role="status" aria-live="polite"></span>
+          </div>
+          <p class="mrz__note" id="mrz-note" data-i18n="mrz.note.brew">macOS and Linux, with Homebrew. The other three are one line each, without administrator rights.</p>
+        </div>
+      </section>
+
+      <!-- Commands -->
+      <section class="page page--blue" id="commands" aria-labelledby="h-commands">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread">
+          <div class="spread__text">
+            <h2 id="h-commands" data-i18n="commands.h">The same commands at every border</h2>
+            <p data-i18n="commands.p1">
+              PowerShell says <code>Get-Content</code>. bash says <code>cat</code>. Your fingers say <code>cat</code> either way. UnifyTerm ships the Unix commands as one program, <code>ut</code>, and puts them ahead of PowerShell's aliases, so <code>cat</code>, <code>ls</code>, <code>grep</code>, <code>find</code>, <code>sed</code> and <code>jq</code> mean the same thing on all three systems.
+            </p>
+            <p data-i18n="commands.p2">
+              Paths come out with <code>/</code> everywhere. A wildcard expands the way a Unix shell expands it; in quotes it stays as you typed it. No WSL, no Git Bash, nothing else to install.
+            </p>
+            <details class="names">
+              <summary data-i18n="commands.all">All 99 names on Windows</summary>
+              <p class="names__list">[ arch b2sum base32 base64 basename basenc cat cksum cmp comm cp csplit cut date dd df diff dir dircolors dirname du echo env expand expr factor false find fmt fold grep head hostid hostname join jq kill link ln ls md5sum mkdir mktemp more mv nice nl nohup nproc numfmt od paste pathchk pr printenv printf ptx pwd readlink realpath rm rmdir sed seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split sum sync tac tail tee test timeout touch tr true truncate tsort tty uname unexpand uniq unlink uptime vdir wc which whoami xargs yes</p>
+            </details>
+          </div>
+          <figure class="plate">
+            <img src="img/commands.png" width="960" height="310" loading="lazy" alt="In PowerShell on Windows, cat, grep, jq, ls and wc run as they do on Linux." data-i18n-attr="alt:commands.alt" />
+            <svg class="stamp stamp--round" viewBox="0 0 200 200" role="img" aria-label="Stamp: 99 commands on Windows" data-i18n-attr="aria-label:stamp.commands" style="--turn: 9deg; --ink: var(--ink-blue)">
+              <defs><path id="c-top" d="M 26 100 A 74 74 0 0 1 174 100" /><path id="c-bottom" d="M 20 100 A 80 80 0 0 0 180 100" /></defs>
+              <g filter="url(#ink)">
+                <circle cx="100" cy="100" r="94" /><circle cx="100" cy="100" r="58" class="thin" />
+                <text class="arc"><textPath href="#c-top" startOffset="50%">UNIX COMMANDS</textPath></text>
+                <text class="arc arc--small"><textPath href="#c-bottom" startOffset="50%">ON WINDOWS TOO</textPath></text>
+                <text class="mid" x="100" y="112">99</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section class="page page--lilac" id="history" aria-labelledby="h-history">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread spread--flip">
+          <div class="spread__text">
+            <h2 id="h-history" data-i18n="history.h">A history that answers while you type</h2>
+            <p data-i18n="history.p1">
+              Every command your shells run is kept in one small SQLite file, with the directory it ran in, how it ended and how long it took. Start typing and the matches show under the line. <kbd>Ctrl</kbd>+<kbd>N</kbd> walks down, <kbd>Enter</kbd> puts one on the line, and it runs only when you press <kbd>Enter</kbd> again.
+            </p>
+            <p data-i18n="history.p2">
+              Commands you ran in this directory rank higher, and ones that failed rank lower. Anything that looks like a password, a token or a key is never written down. Copy the file to another machine and it works there too: a history made on Windows reads the same on Linux.
+            </p>
+          </div>
+          <figure class="plate">
+            <img src="img/history.png" width="960" height="300" loading="lazy" alt="Typing git shows three earlier git commands under the line; the second is chosen." data-i18n-attr="alt:history.alt" />
+            <svg class="stamp stamp--box" viewBox="0 0 250 120" role="img" aria-label="Stamp: a search among 100 000 commands in under 5 milliseconds, 95th percentile" data-i18n-attr="aria-label:stamp.history" style="--turn: -7deg; --ink: var(--ink-purple)">
+              <g filter="url(#ink)">
+                <rect x="4" y="4" width="242" height="112" rx="6" /><rect x="11" y="11" width="228" height="98" rx="3" class="thin" />
+                <text class="row" x="125" y="40">100 000 COMMANDS</text>
+                <text class="mid" x="125" y="78">&lt; 5 ms</text>
+                <text class="row row--small" x="125" y="99">ONE SEARCH · P95</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Pictures, video, markdown -->
+      <section class="page page--cyan" id="media" aria-labelledby="h-media">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread">
+          <div class="spread__text">
+            <h2 id="h-media" data-i18n="media.h">Pictures, video and markdown, where the text is</h2>
+            <p data-i18n="media.p1">
+              <code>ut view photo.png</code> puts the picture in the terminal. It scrolls away with the text above it and clears with the screen. <code>ut view clip.mp4</code> plays a video through ffmpeg, without sound; <kbd>q</kbd> stops it.
+            </p>
+            <p data-i18n="media.p2">
+              <code>ut md README.md</code> lays markdown out with real tables, lists and links. In another terminal <code>ut view</code> takes the best that terminal can do, down to plain characters when the output goes to a pipe.
+            </p>
+          </div>
+          <figure class="plate">
+            <img src="img/media.png" width="960" height="620" loading="lazy" alt="ut view shows the UnifyTerm logo as a picture in the terminal; ut md shows a markdown file with a heading, a list and a table." data-i18n-attr="alt:media.alt" />
+            <svg class="stamp stamp--oval" viewBox="0 0 250 130" role="img" aria-label="Stamp: ut view and ut md" data-i18n-attr="aria-label:stamp.media" style="--turn: 6deg; --ink: var(--ink-teal)">
+              <g filter="url(#ink)">
+                <ellipse cx="125" cy="65" rx="120" ry="60" /><ellipse cx="125" cy="65" rx="111" ry="51" class="thin" />
+                <text class="row" x="125" y="50">UT VIEW · UT MD</text>
+                <text class="row row--small" x="125" y="74">PNG · JPEG · GIF · WEBP</text>
+                <text class="row row--small" x="125" y="93">MP4 · MKV · WEBM</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Help -->
+      <section class="page page--blue" id="help" aria-labelledby="h-help">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread spread--flip">
+          <div class="spread__text">
+            <h2 id="h-help" data-i18n="help.h">Ask what a command means</h2>
+            <p data-i18n="help.p1">
+              Mistype a command and a corrected one is offered. That guess is made on your machine, from the commands it can find, and needs no model. Name a model in the settings, and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> explains the command on the line part by part, and the rest of a command shows in grey as you type.
+            </p>
+            <p data-i18n="help.p2">
+              The model's help stays off until you have named the model yourself and said yes once in the window. What will be sent is shown before you agree, and passwords, tokens and keys are replaced first. Refuse, and nothing is sent.
+            </p>
+          </div>
+          <figure class="plate">
+            <img src="img/explain.png" width="960" height="300" loading="lazy" alt="Under tar -czf site.tgz public, a box explains tar, -czf, site.tgz and public, one line each." data-i18n-attr="alt:help.alt" />
+            <svg class="stamp stamp--box" viewBox="0 0 250 120" role="img" aria-label="Stamp: nothing is sent unless you agree" data-i18n-attr="aria-label:stamp.help" style="--turn: 5deg; --ink: var(--ink-blue)">
+              <g filter="url(#ink)">
+                <rect x="4" y="4" width="242" height="112" rx="6" /><rect x="11" y="11" width="228" height="98" rx="3" class="thin" />
+                <text class="row" x="125" y="44">NOTHING IS SENT</text>
+                <text class="row" x="125" y="70">UNLESS YOU AGREE</text>
+                <text class="row row--small" x="125" y="96">SECRETS REPLACED FIRST</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Agents -->
+      <section class="page page--lilac" id="agents" aria-labelledby="h-agents">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread">
+          <div class="spread__text">
+            <h2 id="h-agents" data-i18n="agents.h">For the agents you run</h2>
+            <p data-i18n="agents.p1">
+              <code>ut mcp</code> gives a coding agent four tools: search the history, list the last commands, list the commands <code>ut</code> has, read one command's help. It only reads; it runs nothing. Tell Claude Code about it with <code>claude mcp add unifyterm -- ut mcp</code>.
+            </p>
+            <p data-i18n="agents.p2">
+              A skill file tells the agent what works here, so it stops guessing whether <code>grep</code> exists on Windows. If you use <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> shows its agents beside the terminal: model, cost, context, memory.
+            </p>
+          </div>
+          <figure class="plate">
+            <img src="img/agents.png" width="960" height="330" loading="lazy" alt="A sidebar on the right of the terminal lists two agents with their model, pane, cost and memory." data-i18n-attr="alt:agents.alt" />
+            <svg class="stamp stamp--round" viewBox="0 0 200 200" role="img" aria-label="Stamp: MCP, four tools, read only" data-i18n-attr="aria-label:stamp.agents" style="--turn: -8deg; --ink: var(--ink-purple)">
+              <defs><path id="a-top" d="M 26 100 A 74 74 0 0 1 174 100" /><path id="a-bottom" d="M 20 100 A 80 80 0 0 0 180 100" /></defs>
+              <g filter="url(#ink)">
+                <circle cx="100" cy="100" r="94" /><circle cx="100" cy="100" r="58" class="thin" />
+                <text class="arc"><textPath href="#a-top" startOffset="50%">FOUR TOOLS</textPath></text>
+                <text class="arc arc--small"><textPath href="#a-bottom" startOffset="50%">READ ONLY</textPath></text>
+                <text class="mid mid--word" x="100" y="110">MCP</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- The film -->
+      <section class="page page--film" id="film" aria-labelledby="h-film">
+        <div class="guilloche" aria-hidden="true"></div>
+        <h2 id="h-film" data-i18n="film.h">Forty-six seconds of it working</h2>
+        <p class="film__note" data-i18n="film.p">Recorded from the program itself, one picture for every key pressed. Nothing in it is drawn by hand.</p>
+        <video class="film" controls preload="none" playsinline poster="img/promo-poster.png" width="1280" height="720">
+          <source src="media/unifyterm-promo.mp4" type="video/mp4" />
+          <a href="media/unifyterm-promo.mp4" data-i18n="film.link">The video (MP4, 0.4 MB)</a>
+        </video>
+      </section>
+
+      <!-- Observations -->
+      <section class="page page--cyan" id="observations" aria-labelledby="h-observations">
+        <div class="guilloche" aria-hidden="true"></div>
+        <h2 id="h-observations" data-i18n="obs.h">Observations</h2>
+        <p class="obs__lede" data-i18n="obs.lede">What is not done, said here so that you do not find it out later.</p>
+        <ul class="obs">
+          <li data-i18n="obs.1"><b>The builds are not signed.</b> Windows SmartScreen and macOS Gatekeeper each ask once before the first start.</li>
+          <li data-i18n="obs.2"><b>Nobody has used the macOS build by hand yet.</b> It is built, tested and started on a Mac in CI, and that is all.</li>
+          <li data-i18n="obs.3"><b>Video has no sound</b>, and needs ffmpeg installed.</li>
+          <li data-i18n="obs.4"><b>PowerShell's own Tab completion still writes <code>\</code> paths.</b> What the commands print uses <code>/</code>.</li>
+          <li data-i18n="obs.5"><b>It draws pictures sent with kitty's protocol only.</b> Sixel and iTerm2 pictures are for <code>ut view</code> in other terminals.</li>
+          <li data-i18n="obs.6"><b>This is version 0.1.0.</b> The checks behind it are in the repository: 207 tests, and 110 more that drive the real window.</li>
+        </ul>
+      </section>
+
+      <!-- Install -->
+      <section class="page page--data page--entry" id="install" aria-labelledby="h-install">
+        <div class="guilloche" aria-hidden="true"></div>
+        <h2 id="h-install" data-i18n="install.h">Entry</h2>
+        <div class="ways">
+          <div class="way">
+            <h3 data-i18n="install.unix">macOS and Linux</h3>
+            <pre><code>brew install newdee/tap/unifyterm</code></pre>
+            <p data-i18n="install.unix.or">Or one line, for you alone, no root:</p>
+            <pre><code>curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh</code></pre>
+          </div>
+          <div class="way">
+            <h3>Windows</h3>
+            <pre><code>scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json</code></pre>
+            <p data-i18n="install.win.or">Or one line, for you alone, no administrator rights:</p>
+            <pre><code>irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex</code></pre>
+          </div>
+        </div>
+        <p class="packages" data-i18n="install.packages">
+          Packages are on the <a href="https://github.com/newdee/unifyterm/releases" rel="noopener">releases page</a>, each with its SHA-256 beside it: an MSI and a zip for Windows, a .dmg for each kind of Mac, a .deb and an AppImage for Linux. Both one-line scripts check that SHA-256 before they install anything.
+        </p>
+        <p class="packages" data-i18n="install.source">
+          The source is at <a href="https://github.com/newdee/unifyterm" rel="noopener">github.com/newdee/unifyterm</a>, under the MIT license. Settings, keys and environment variables are in the <a href="https://github.com/newdee/unifyterm#readme" rel="noopener">README</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p class="foot__mrz" aria-hidden="true">P&lt;UNIFYTERM&lt;&lt;ONE&lt;TERMINAL&lt;&lt;&lt;WINDOWS&lt;MACOS&lt;LINUX&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br />MIT&lt;&lt;GITHUB.COM/NEWDEE/UNIFYTERM&lt;&lt;&lt;&lt;V0&lt;1&lt;0&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</p>
+      <p data-i18n="foot.by">
+        Made by <a href="https://github.com/newdee" rel="noopener">newdee</a>. The panes, the agents and the messages between them are <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>'s work; UnifyTerm is the window they run in.
+      </p>
+    </footer>
+
+    <script src="site.js" defer></script>
+  </body>
+</html>

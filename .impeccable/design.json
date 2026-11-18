@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-18T00:00:00Z",
+  "title": "Design System: UnifyTerm",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Security paper"
+      },
+      "desk": {
+        "role": "neutral",
+        "displayName": "Desk"
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Document ink"
+      },
+      "ink-blue": {
+        "role": "secondary",
+        "displayName": "Stamp blue"
+      },
+      "ink-purple": {
+        "role": "secondary",
+        "displayName": "Stamp purple"
+      },
+      "ink-teal": {
+        "role": "secondary",
+        "displayName": "Stamp teal"
+      },
+      "foil": {
+        "role": "tertiary",
+        "displayName": "Foil"
+      }
+    },
+    "typographyMeta": {
+      "titling": {
+        "displayName": "Titling",
+        "purpose": "The name, once, on the data page."
+      },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "One per page of the document."
+      },
+      "statement": {
+        "displayName": "Statement",
+        "purpose": "The single h1."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field names, tabs, navigation: uppercase, tracked."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Commands and field values."
+      }
+    },
+    "shadows": [
+      {
+        "value": "0 1px 0 rgb(255 255 255 / 0.7) inset, 0 22px 44px -26px rgb(21 26 46 / 0.5)",
+        "purpose": "A page lying on the desk.",
+        "name": "page"
+      },
+      {
+        "value": "0 14px 28px -18px rgb(21 26 46 / 0.55)",
+        "purpose": "A picture mounted on a page.",
+        "name": "mount"
+      }
+    ],
+    "motion": [
+      {
+        "value": "0.28s cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "A stamp lands once when its page comes into view.",
+        "name": "stamp-land"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "nav-wraps",
+        "value": "1040px"
+      },
+      {
+        "name": "one-column",
+        "value": "860px"
+      },
+      {
+        "name": "phone",
+        "value": "520px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Copy button",
+      "kind": "button",
+      "refersTo": "button-copy",
+      "description": "The only filled button: copies the chosen install command.",
+      "html": "<button class=\"ds-copy\">Copy</button>",
+      "css": ".ds-copy { padding: 0.62em 1.35em; border: 1.5px solid var(--ink, #151a2e); border-radius: 6px; background: var(--ink, #151a2e); color: var(--paper, #f2f5fa); font: 700 0.8125rem/1 B612, system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: background-color 0.15s, color 0.15s; } .ds-copy:hover { background: transparent; color: var(--ink, #151a2e); } .ds-copy:focus-visible { outline: 2px solid var(--foil, #7b4e06); outline-offset: 3px; }"
+    },
+    {
+      "name": "Top-bar tool",
+      "kind": "button",
+      "refersTo": "tool",
+      "description": "Language, theme and GitHub in the top bar.",
+      "html": "<button class=\"ds-tool\">中文</button>",
+      "css": ".ds-tool { display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border: 1.5px solid var(--rule, #b7c0d5); border-radius: 999px; background: none; color: var(--ink, #151a2e); font: 700 0.75rem/1 B612, system-ui, sans-serif; letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.15s; } .ds-tool:hover { border-color: var(--ink, #151a2e); } .ds-tool:focus-visible { outline: 2px solid var(--foil, #7b4e06); outline-offset: 3px; }"
+    },
+    {
+      "name": "Field",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "A label over a value on a dotted rule, as on a passport's data page.",
+      "html": "<div class=\"ds-field\"><span class=\"ds-field-label\">Commands</span><span class=\"ds-field-value\">99 on Windows, 114 on Linux</span></div>",
+      "css": ".ds-field { display: grid; gap: 3px; max-width: 280px; } .ds-field-label { font: 700 0.75rem/1.4 B612, system-ui, sans-serif; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-2, #434a69); } .ds-field-value { padding-bottom: 7px; border-bottom: 1px dotted var(--ink-2, #434a69); font: 400 0.9375rem/1.4 \"Overpass Mono\", Consolas, monospace; color: var(--ink, #151a2e); }"
+    },
+    {
+      "name": "Command block",
+      "kind": "card",
+      "refersTo": "command-block",
+      "description": "One install command, wrapped where it must be.",
+      "html": "<pre class=\"ds-command\"><code>brew install newdee/tap/unifyterm</code></pre>",
+      "css": ".ds-command { margin: 0; padding: 14px 16px; border-radius: 6px; background: var(--panel, #151a2e); color: var(--panel-ink, #e8ecf6); font: 400 0.875rem/1.5 \"Overpass Mono\", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }"
+    },
+    {
+      "name": "Entry stamp",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "A system the product is valid on, as an entry stamp in one of the three inks.",
+      "html": "<div class=\"ds-entry\"><b>LINUX</b><span>x86_64, Vulkan</span></div>",
+      "css": ".ds-entry { display: inline-grid; justify-items: center; gap: 3px; padding: 18px 34px; border: 3px double var(--ink-teal, #0a6672); border-radius: 10px; color: var(--ink-teal, #0a6672); transform: rotate(-1.5deg); } .ds-entry b { font: 400 1.3rem/1 \"Castoro Titling\", serif; letter-spacing: 0.16em; } .ds-entry span { font: 700 0.75rem/1.2 B612, system-ui, sans-serif; letter-spacing: 0.07em; text-transform: uppercase; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A travel document, valid in three systems",
+    "overview": "Each section is a page of a passport lying on a desk: security paper with fine line work, a picture of the real program mounted like the holder's photograph, a rubber stamp carrying one measured fact, and a machine-readable band holding the install command. The dark theme is the cover: navy with gold foil.",
+    "keyCharacteristics": [
+      "Guilloche line work as CSS masks in the logo's three inks",
+      "Stamps as inline SVG through one ink filter",
+      "Real pictures and measured numbers only",
+      "Fonts, pictures and video ship with the page"
+    ],
+    "rules": [
+      {
+        "body": "A stamp sits on the paper below its picture and bites one corner; it never lies over the dark picture.",
+        "section": "colors",
+        "name": "Ink goes on paper"
+      },
+      {
+        "body": "Line work is black SVG used as a mask over a gradient of the inks.",
+        "section": "colors",
+        "name": "One mask, two themes"
+      },
+      {
+        "body": "Its punctuation sits at the left of the cell, so addresses read wrongly. Commands use Overpass Mono.",
+        "section": "typography",
+        "name": "No B612 Mono"
+      }
+    ],
+    "dos": [
+      "Put one measured fact on a stamp and repeat it in the aria-label.",
+      "Record pictures from the program with tools/promo.ps1 -Stills.",
+      "Add the Chinese for every data-i18n key."
+    ],
+    "donts": [
+      "Don't load anything from another host.",
+      "Don't animate anything but the stamps.",
+      "Don't quote users, downloads or stars."
+    ]
+  }
+}

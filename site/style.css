@@ -1,0 +1,934 @@
+/* UnifyTerm's page: a travel document. Pale security paper with guilloche
+   line work in the logo's three inks, rubber stamps that carry measured
+   facts, a machine-readable band that holds the install command. The dark
+   theme is the document's cover: navy, with gold foil. */
+
+@font-face {
+  font-family: "B612";
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/B612-400-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "B612";
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/B612-700-latin.woff2") format("woff2");
+}
+/* Overpass Mono, not B612 Mono: B612 Mono sets "." and ":" at the left of
+   their cell, and an address then reads "https: //raw. github". */
+@font-face {
+  font-family: "Overpass Mono";
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("fonts/OverpassMono-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Castoro Titling";
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/CastoroTitling-400-latin.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+  /* the desk the document lies on, and its paper */
+  --desk: #c6cedd;
+  --paper: #f2f5fa;
+  --paper-blue: #e9effb;
+  --paper-lilac: #f0eafa;
+  --paper-cyan: #e4f3f4;
+  --mount: #ffffff;
+  /* what is written on it */
+  --ink: #151a2e;
+  --ink-2: #434a69;
+  --rule: #b7c0d5;
+  /* the three stamp inks, and the foil */
+  --ink-blue: #2c4bbd;
+  --ink-purple: #6a3cb4;
+  --ink-teal: #0a6672;
+  --foil: #7b4e06;
+  --panel: #151a2e;
+  --panel-ink: #e8ecf6;
+  --line-work: 0.2;
+  --band-work: 0.5;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 22px 44px -26px rgb(21 26 46 / 0.5);
+  --stamp-blend: multiply;
+
+  --sans: "B612", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --mono: "Overpass Mono", "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+  --titling: "Castoro Titling", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", SimSun, serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --desk: #070a14;
+  --paper: #141a30;
+  --paper-blue: #131c38;
+  --paper-lilac: #1a1935;
+  --paper-cyan: #10202e;
+  --mount: #232b48;
+  --ink: #ece7d6;
+  --ink-2: #b5af9a;
+  --rule: #2e3657;
+  --ink-blue: #7aa2f7;
+  --ink-purple: #bb9af7;
+  --ink-teal: #7dcfff;
+  --foil: #d9b160;
+  --panel: #0a0e1c;
+  --panel-ink: #e6e1cf;
+  --line-work: 0.2;
+  --band-work: 0.6;
+  --shadow: 0 1px 0 rgb(217 177 96 / 0.18) inset, 0 26px 50px -24px rgb(0 0 0 / 0.8);
+  --stamp-blend: screen;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 84px;
+  scrollbar-color: var(--ink-2) var(--desk);
+}
+
+body {
+  margin: 0;
+  background: var(--desk);
+  color: var(--ink);
+  font: 400 1.0625rem/1.65 var(--sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+::selection {
+  background: var(--ink-blue);
+  color: var(--paper);
+}
+
+a {
+  color: inherit;
+  text-decoration-color: var(--ink-blue);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.2em;
+}
+a:hover {
+  text-decoration-color: var(--foil);
+}
+
+:focus-visible {
+  outline: 2px solid var(--foil);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.defs {
+  position: absolute;
+}
+
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 20;
+  padding: 10px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 6px;
+}
+.skip:focus {
+  top: 12px;
+}
+
+/* ---- the strip across the top ------------------------------------- */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 12px clamp(16px, 4vw, 44px);
+  background: var(--desk);
+  border-bottom: 1px solid var(--rule);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.brand img {
+  display: block;
+}
+.brand__name {
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+}
+.brand__name b {
+  color: var(--ink-blue);
+}
+
+.top nav {
+  display: flex;
+  gap: clamp(12px, 2vw, 26px);
+  margin-inline-start: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.top nav a {
+  padding: 6px 0;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.top nav a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--foil);
+}
+
+.top__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid var(--rule);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+  font: 700 0.75rem/1 var(--sans);
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.tool:hover {
+  border-color: var(--ink);
+}
+.tool--icon {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.tool--icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tool--icon .sun {
+  display: none;
+}
+[data-theme="dark"] .tool--icon .sun {
+  display: block;
+}
+[data-theme="dark"] .tool--icon .moon {
+  display: none;
+}
+
+/* Without the script these would do nothing, so they are not there. */
+html:not(.js) :is(#lang, #theme, .copy, .mrz__tabs) {
+  display: none;
+}
+
+/* ---- a page of the document --------------------------------------- */
+
+main {
+  display: grid;
+  gap: clamp(20px, 3vw, 34px);
+  padding: clamp(14px, 1.6vw, 20px) clamp(12px, 3vw, 34px) clamp(28px, 4vw, 48px);
+}
+
+.page {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 1180px);
+  margin-inline: auto;
+  padding: 0 clamp(20px, 4.5vw, 60px) clamp(34px, 5vw, 62px);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.page--blue {
+  background: var(--paper-blue);
+}
+.page--lilac {
+  background: var(--paper-lilac);
+}
+.page--cyan {
+  background: var(--paper-cyan);
+}
+
+/* the fine waves printed across the whole page */
+.page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(100deg, var(--ink-blue), var(--ink-purple) 48%, var(--ink-teal));
+  -webkit-mask: url("img/guilloche-ground.svg") 0 0 / 480px 240px;
+  mask: url("img/guilloche-ground.svg") 0 0 / 480px 240px;
+  opacity: var(--line-work);
+  pointer-events: none;
+}
+
+/* the interlaced band along the page's top edge */
+.guilloche {
+  height: 44px;
+  margin: 0 calc(-1 * clamp(20px, 4.5vw, 60px)) clamp(26px, 4vw, 46px);
+  background: linear-gradient(90deg, var(--ink-blue), var(--ink-purple) 50%, var(--ink-teal));
+  -webkit-mask: url("img/guilloche-band.svg") 0 50% / 440px 44px repeat-x;
+  mask: url("img/guilloche-band.svg") 0 50% / 440px 44px repeat-x;
+  opacity: var(--band-work);
+}
+/* The data page is one viewport: its band sits closer to what follows. */
+.page--data > .guilloche {
+  margin-bottom: clamp(16px, 2vw, 24px);
+}
+
+.rosette {
+  position: absolute;
+  z-index: -1;
+  right: -190px;
+  top: -150px;
+  width: 460px;
+  aspect-ratio: 1;
+  background: conic-gradient(from 200deg, var(--ink-blue), var(--ink-purple), var(--ink-teal), var(--ink-blue));
+  -webkit-mask: url("img/rosette.svg") center / contain no-repeat;
+  mask: url("img/rosette.svg") center / contain no-repeat;
+  opacity: calc(var(--line-work) * 1.25);
+  pointer-events: none;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+ul,
+figure,
+pre {
+  margin: 0;
+}
+
+h2 {
+  max-width: 22ch;
+  margin-bottom: 0.65em;
+  font: 400 clamp(1.5rem, 2.7vw, 2.2rem) / 1.14 var(--titling);
+  letter-spacing: 0.035em;
+  text-wrap: balance;
+}
+[data-theme="dark"] h2,
+[data-theme="dark"] .titling {
+  color: var(--foil);
+}
+
+p + p {
+  margin-top: 1em;
+}
+
+code,
+kbd {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+:not(pre) > code {
+  padding: 0.08em 0.34em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+kbd {
+  padding: 0.05em 0.42em;
+  border: 1px solid var(--ink-2);
+  border-radius: 5px;
+  box-shadow: 0 1px 0 var(--ink-2);
+  background: var(--paper);
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+
+/* ---- the data page ------------------------------------------------- */
+
+.data {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+}
+
+.photo,
+.plate {
+  position: relative;
+}
+.photo img,
+.plate img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.photo img {
+  border: 7px solid var(--mount);
+  outline: 1px solid var(--rule);
+  box-shadow: 0 16px 30px -18px rgb(21 26 46 / 0.6);
+}
+.plate img {
+  border: 5px solid var(--mount);
+  outline: 1px solid var(--rule);
+  box-shadow: 0 14px 28px -18px rgb(21 26 46 / 0.55);
+}
+
+.titling {
+  font: 400 clamp(2.4rem, 4.6vw, 3.7rem) / 1 var(--titling);
+  letter-spacing: 0.1em;
+  margin-inline-end: -0.1em;
+}
+
+h1 {
+  max-width: 26ch;
+  margin-top: 0.5em;
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 50ch;
+  margin-top: 1em;
+  color: var(--ink-2);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 26px;
+  margin-top: 1.3em;
+}
+.fields dt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.fields dt span {
+  margin-inline-start: 0.5em;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+}
+/* Chinese in a fixed-width face gets a full cell for every space. */
+[data-lang="zh"] .fields dd {
+  font-family: var(--sans);
+}
+.fields dd {
+  margin-top: 3px;
+  padding-bottom: 7px;
+  border-bottom: 1px dotted var(--ink-2);
+  font: 400 0.9375rem/1.4 var(--mono);
+}
+
+/* the three entry stamps */
+.entries {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px clamp(18px, 4vw, 46px);
+  padding: 0;
+  margin-top: clamp(22px, 2.6vw, 30px);
+  list-style: none;
+}
+.entry {
+  position: relative;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  width: 236px;
+  aspect-ratio: 260 / 90;
+  padding: 0 22px;
+  color: var(--ink);
+  text-align: center;
+  transform: rotate(var(--turn));
+  mix-blend-mode: var(--stamp-blend);
+}
+.entry svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.2;
+}
+.entry b {
+  font: 400 1.3rem/1 var(--titling);
+  letter-spacing: 0.16em;
+  margin-inline-end: -0.16em;
+}
+.entry span {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* the machine-readable zone */
+.mrz {
+  margin: clamp(22px, 2.6vw, 30px) calc(-1 * clamp(20px, 4.5vw, 60px)) calc(-1 * clamp(34px, 5vw, 62px));
+  padding: 14px clamp(20px, 4.5vw, 60px) 20px;
+  background: color-mix(in srgb, var(--ink) 7%, var(--paper));
+  border-top: 1px solid var(--rule);
+}
+.mrz__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+}
+.mrz__tabs button {
+  padding: 6px 0 5px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--ink-2);
+  font: 700 0.75rem/1 var(--sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mrz__tabs button:hover {
+  color: var(--ink);
+}
+.mrz__tabs button[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--foil);
+}
+.mrz__line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  min-height: 46px;
+}
+.mrz__line code {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  font-size: clamp(0.8125rem, 1.2vw, 0.9375rem);
+  font-weight: 700;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mrz__fill {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font: 400 1rem/1 var(--mono);
+  letter-spacing: 0.22em;
+  color: var(--ink-2);
+  opacity: 0.55;
+  user-select: none;
+  /* Where the command leaves it two or three cells, it fades out and leaves no stub. */
+  -webkit-mask: linear-gradient(90deg, transparent, #000 5ch);
+  mask: linear-gradient(90deg, transparent, #000 5ch);
+}
+.copy {
+  flex: none;
+  padding: 0.62em 1.35em;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 700 0.8125rem/1 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.copy:hover {
+  background: transparent;
+  color: var(--ink);
+}
+.copied {
+  flex: none;
+  min-width: 0;
+}
+.copied:not(:empty) {
+  padding: 5px 10px 4px;
+  border: 2.5px solid var(--foil);
+  border-radius: 5px;
+  color: var(--foil);
+  font: 400 0.95rem/1 var(--titling);
+  letter-spacing: 0.14em;
+  transform: rotate(-5deg);
+  animation: land 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mrz__note {
+  margin-top: 8px;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+/* ---- a feature's spread -------------------------------------------- */
+
+.spread {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(28px, 5vw, 66px);
+  align-items: center;
+}
+/* Flipped: the picture keeps the wide column, on the left. */
+.spread--flip {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+.spread--flip .spread__text {
+  order: 2;
+}
+.spread__text p {
+  max-width: 58ch;
+}
+
+.names {
+  margin-top: 0.6em;
+}
+.names summary {
+  width: fit-content;
+  padding: 12px 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.names__list {
+  margin-top: 0;
+  font: 400 0.8125rem/1.75 var(--mono);
+  color: var(--ink-2);
+  word-spacing: 0.35em;
+}
+
+/* ---- stamps --------------------------------------------------------- */
+
+.stamp {
+  position: absolute;
+  color: var(--ink, currentColor);
+  transform: rotate(var(--turn, 0deg));
+  mix-blend-mode: var(--stamp-blend);
+  overflow: visible;
+}
+.stamp :is(circle, rect, ellipse, path) {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.6;
+}
+.stamp .thin {
+  stroke-width: 1.3;
+}
+.stamp text {
+  fill: currentColor;
+  stroke: none;
+  text-anchor: middle;
+  font-family: var(--sans);
+  font-weight: 700;
+}
+.stamp .arc {
+  font-size: 17px;
+  letter-spacing: 3.2px;
+}
+.stamp .arc--small {
+  font-size: 11.5px;
+  letter-spacing: 2.4px;
+}
+.stamp .mid {
+  font: 400 46px/1 var(--titling);
+}
+.stamp .mid--small {
+  font: 700 15px/1 var(--sans);
+  letter-spacing: 3px;
+}
+.stamp .mid--word {
+  font-size: 36px;
+  letter-spacing: 2px;
+}
+.stamp .row {
+  font-size: 17px;
+  letter-spacing: 1.8px;
+}
+.stamp .row--small {
+  font-size: 11px;
+  letter-spacing: 1.6px;
+}
+.stamp--box .mid {
+  font-size: 34px;
+}
+/* A stamp sits on the paper under its picture and bites one corner of it:
+   ink on paper shows in both themes, ink over a dark picture would not.
+   The figure keeps room below the picture for it. */
+.stamp {
+  right: 10px;
+  bottom: 0;
+}
+.stamp--seal {
+  width: clamp(112px, 13vw, 150px);
+  --ink: var(--foil);
+}
+.photo:has(.stamp--seal) {
+  padding-bottom: clamp(84px, 10vw, 118px);
+}
+.stamp--round {
+  width: clamp(104px, 12vw, 138px);
+}
+.plate:has(.stamp--round) {
+  padding-bottom: clamp(78px, 9.3vw, 108px);
+}
+.stamp--box,
+.stamp--oval {
+  width: clamp(150px, 18vw, 206px);
+}
+.plate:has(.stamp--box),
+.plate:has(.stamp--oval) {
+  padding-bottom: clamp(50px, 6.2vw, 74px);
+}
+.spread--flip .stamp {
+  right: auto;
+  left: 10px;
+}
+
+/* A stamp lands once, when its page comes into view. Without JavaScript,
+   and for readers who asked for less motion, it is simply there. */
+.js .stamp.is-waiting,
+.js .entry.is-waiting {
+  opacity: 0;
+  filter: blur(3px);
+  transform: rotate(calc(var(--turn, 0deg) - 7deg)) scale(1.34);
+}
+.js .stamp,
+.js .entry {
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.14s linear, filter 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes land {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: rotate(-12deg) scale(1.4);
+  }
+}
+
+/* ---- the film -------------------------------------------------------- */
+
+.film__note,
+.obs__lede {
+  max-width: 58ch;
+  color: var(--ink-2);
+}
+.film {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: clamp(20px, 3vw, 30px);
+  border: 5px solid var(--mount);
+  outline: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #0b0e1a;
+  box-shadow: 0 14px 28px -18px rgb(21 26 46 / 0.55);
+}
+
+/* ---- observations: entries on ruled lines ---------------------------- */
+
+.obs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 clamp(24px, 4vw, 52px);
+  padding: 0;
+  margin-top: clamp(18px, 3vw, 28px);
+  list-style: none;
+}
+.obs li {
+  padding: 15px 0 14px;
+  border-top: 1px solid var(--ink-2);
+}
+.obs b {
+  font-weight: 700;
+}
+
+/* ---- entry: how to install ------------------------------------------- */
+
+/* One column: the longest command is 99 letters, and a line that long must not be cut in two. */
+.ways {
+  display: grid;
+  gap: clamp(22px, 3vw, 34px);
+}
+.way h3 {
+  margin-bottom: 0.75em;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.way p {
+  margin: 0.95em 0 0.55em;
+  font-size: 0.9375rem;
+}
+pre {
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--panel-ink);
+  overflow-x: auto;
+  scrollbar-color: var(--ink-2) var(--panel);
+}
+/* A long command wraps where it must, so that all of it is read; copied, it is still one line. */
+pre code {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.packages {
+  max-width: 76ch;
+  margin-top: 1.5em;
+}
+.packages + .packages {
+  margin-top: 0.8em;
+}
+
+/* ---- the foot --------------------------------------------------------- */
+
+.foot {
+  width: min(100%, 1180px);
+  margin-inline: auto;
+  padding: 0 clamp(20px, 4.5vw, 60px) 46px;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+}
+.foot__mrz {
+  margin-bottom: 18px;
+  overflow: hidden;
+  white-space: nowrap;
+  font: 400 clamp(0.72rem, 1.35vw, 1rem) / 1.7 var(--mono);
+  letter-spacing: 0.2em;
+  opacity: 0.75;
+}
+
+/* ---- narrower screens -------------------------------------------------- */
+
+@media (max-width: 1040px) {
+  .top {
+    flex-wrap: wrap;
+    gap: 10px 20px;
+  }
+  .top nav {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .top nav a {
+    flex: none;
+  }
+  .top__tools {
+    margin-inline-start: auto;
+  }
+  html {
+    scroll-padding-top: 118px;
+  }
+}
+
+@media (max-width: 860px) {
+  .data,
+  .spread,
+  .obs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .spread--flip .spread__text {
+    order: 0;
+  }
+  .spread--flip .stamp {
+    left: auto;
+    right: 10px;
+  }
+  .rosette {
+    width: 360px;
+    right: -140px;
+  }
+  .mrz__fill {
+    display: none;
+  }
+  .mrz__line {
+    flex-wrap: wrap;
+  }
+  .mrz__line code {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  body {
+    font-size: 1rem;
+  }
+  .fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entry {
+    width: 232px;
+  }
+  .page {
+    border-radius: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .js .stamp,
+  .js .entry,
+  .copied:not(:empty) {
+    transition: none;
+    animation: none;
+  }
+  .js .stamp.is-waiting,
+  .js .entry.is-waiting {
+    opacity: 1;
+    filter: none;
+    transform: rotate(var(--turn, 0deg));
+  }
+}
+
+@media print {
+  .top,
+  .film,
+  .copy {
+    display: none;
+  }
+  .js .stamp.is-waiting,
+  .js .entry.is-waiting {
+    opacity: 1;
+    filter: none;
+    transform: rotate(var(--turn, 0deg));
+  }
+  .page {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+}
