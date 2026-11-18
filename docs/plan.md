@@ -12,7 +12,7 @@
 
 下一期（通信功能、可观测平台）见 `docs/roadmap.md`，M7 之后再规划。
 
-**挂账，不在当前顺序里：自己的 shell。** 用户 2026-11-17 决定先不做，等以后做自己的 shell 时再定路线。调研结果和验证方案保留在本文件末尾。在那之前，UnifyTerm 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。
+**挂账，不在当前顺序里：自己的 shell。** 用户 2026-11-17 决定先不做；2026-11-18 决定另起一个项目 UnifyShell（命令 `ush`）来做，见 `docs/roadmap.md`。调研结果和验证方案保留在本文件末尾。在那之前，UnifyTerm 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。
 
 ---
 

@@ -9,8 +9,8 @@ license.workspace = true
 # `cargo deb -p unifyterm --no-build` after `cargo build --release`: the .deb with both programs.
 [package.metadata.deb]
 name = "unifyterm"
-maintainer = "UnifyTerm <unifyterm@users.noreply.github.com>"
-copyright = "2026, the UnifyTerm authors"
+maintainer = "newdee <newdee@users.noreply.github.com>"
+copyright = "2026, newdee"
 license-file = ["../../LICENSE", "0"]
 extended-description = "One terminal for Windows, macOS and Linux: the same Unix commands everywhere (ut), a command history you can search as you type, pictures and markdown in the terminal."
 section = "x11"

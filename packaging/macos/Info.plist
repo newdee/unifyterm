@@ -4,7 +4,7 @@
 <dict>
   <key>CFBundleName</key><string>UnifyTerm</string>
   <key>CFBundleDisplayName</key><string>UnifyTerm</string>
-  <key>CFBundleIdentifier</key><string>dev.UnifyTerm.UnifyTerm</string>
+  <key>CFBundleIdentifier</key><string>io.github.newdee.unifyterm</string>
   <key>CFBundleExecutable</key><string>unifyterm</string>
   <key>CFBundleIconFile</key><string>unifyterm</string>
   <key>CFBundlePackageType</key><string>APPL</string>

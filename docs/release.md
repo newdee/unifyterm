@@ -36,7 +36,7 @@
 
 ## 4. winget
 
-工作流已经把清单写进 `packaging/windows/winget/`。把这三个 YAML 提交到 https://github.com/microsoft/winget-pkgs 的 `manifests/u/UnifyTerm/UnifyTerm/<版本>/`（需要用户的账号）。
+工作流已经把清单写进 `packaging/windows/winget/`。把这三个 YAML 提交到 https://github.com/microsoft/winget-pkgs 的 `manifests/n/newdee/unifyterm/<版本>/`（需要用户的账号）。
 
 ## 5. 发布后
 
