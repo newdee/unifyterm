@@ -64,6 +64,7 @@
   - Pages 的工作流不能自己开启 Pages（`Resource not accessible by integration`）。我在 `pages.yml` 里写的"`enablement: true` 会自动开启"是错的。由仓库所有者用 `gh api` 开启一次，工作流里去掉这个参数，注释改成事实。
   - `brew audit` 拒绝了 formula：描述 81 个字符，上限 80。改成 76 个字符，tap 里和 `packaging/homebrew/` 里两份一起改。
 - 网页文案换成用户自己写的中英文两份（英文粘贴时缺了结尾一段，缺的部分按中文稿补）。结构跟着变了：加了小标题、列表和命令块。有 5 处和程序的实际行为不符，按实际行为改了，并告诉了用户：侧栏显示的是内存不是"记忆"；窗口只显示 Kitty 协议的图片，Sixel 和 iTerm2 是 `ut view` 在别的终端里的输出；macOS 版没有人工用过，不是"没有充分测试"；模型的同意只问一次，不是每次请求都问；MCP 是四个工具，不是四类。
+- `brew install newdee/tap/unifyterm`：tap 的工作流在 macOS 和 Linux 上各跑了 10 步，都通过（`brew audit --strict --online`、安装、`brew test`、核对版本号、卸载）。macOS 那个任务第一次没有分配到运行器（GitHub 容量不足，0 步，被取消），重跑后通过。
 - 换文案之后的数字：`site-check` 7/7（文字 104 段都有中文；安装命令只查安装那一页的 4 条）；中文切换改了 84 处，切回后逐字相同；4 个标签各自显示自己的命令；320、390、768、1440 px 横向溢出 0；小于 24 px 的点击目标先量出 1 个（新加的仓库链接），加内边距后 0。
 ### 没有在本机验证的
 
@@ -112,7 +113,7 @@
 
 ### 没有在本机验证的
 
-- formula 的 Ruby 语法：WSL 里没有 ruby，由 tap 仓库 CI 的 `brew audit` 检查。
+- formula 的 Ruby 语法：WSL 里没有 ruby，由 tap 仓库 CI 的 `brew audit` 检查。（2026-11-18 发布后已由 tap 的 CI 在 macOS 和 Linux 上验证，见上一条记录。）
 - `install.ps1` 修改 PATH 和建开始菜单快捷方式这两步：会改用户的配置，测试时关掉了，发布后按 `docs/release.md` 第 2 步验证。
 - `install.sh` 用的是代替 `unifyterm` 的小脚本（本机链接不了 Linux 版 GUI），`ut` 是真的。
 - scoop 安装：会改用户的 scoop 环境，发布后验证。
