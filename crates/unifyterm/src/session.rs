@@ -1120,10 +1120,12 @@ pub(crate) mod tests {
             if cfg!(windows) { ("cmd.exe", b"set /a 6*7\r") } else { ("sh", b"echo $((6*7))\r") };
         let args = if cfg!(windows) { vec!["/q".to_owned()] } else { Vec::new() };
         let (mut session, events) = start(shell_command(Some(program), &args).unwrap());
-        // 6 * 7 is typed, 42 is only ever printed.
+        // 6 * 7 is typed, 42 is only ever printed. The line may be typed before the shell's
+        // prompt shows (a slow machine): then 42 follows the prompt on its row ("$ 42").
         session.write(line).unwrap();
-        let rows = pump(&mut session, &events, |s| s.rows().iter().any(|row| row.trim() == "42"));
-        assert!(rows.iter().any(|row| row.trim() == "42"), "{rows:?}");
+        let printed = |row: &String| row.split_whitespace().last() == Some("42") && !row.contains("6*7");
+        let rows = pump(&mut session, &events, |s| s.rows().iter().any(printed));
+        assert!(rows.iter().any(printed), "{rows:?}");
     }
 
     #[test]

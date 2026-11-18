@@ -29,13 +29,18 @@
         <Component Id="Ut">
           <File Id="UtExe" Source="$(var.BinDir)\ut.exe" KeyPath="yes" />
         </Component>
+        <!-- One file a component: WiX makes each one's GUID from its path. -->
         <Component Id="ConPty">
           <File Id="ConPtyDll" Source="$(var.BinDir)\conpty.dll" KeyPath="yes" />
-          <File Id="OpenConsoleExe" Source="$(var.BinDir)\OpenConsole.exe" />
         </Component>
-        <Component Id="Licenses">
+        <Component Id="OpenConsole">
+          <File Id="OpenConsoleExe" Source="$(var.BinDir)\OpenConsole.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="License">
           <File Id="License" Source="$(var.Root)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
-          <File Id="Notices" Source="$(var.Root)\THIRD-PARTY-NOTICES" Name="THIRD-PARTY-NOTICES.txt" />
+        </Component>
+        <Component Id="Notices">
+          <File Id="Notices" Source="$(var.Root)\THIRD-PARTY-NOTICES" Name="THIRD-PARTY-NOTICES.txt" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -44,7 +49,9 @@
       <ComponentRef Id="UnifyTerm" />
       <ComponentRef Id="Ut" />
       <ComponentRef Id="ConPty" />
-      <ComponentRef Id="Licenses" />
+      <ComponentRef Id="OpenConsole" />
+      <ComponentRef Id="License" />
+      <ComponentRef Id="Notices" />
     </Feature>
   </Package>
 </Wix>
