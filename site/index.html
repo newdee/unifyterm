@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>UnifyTerm · one terminal, valid on Windows, macOS and Linux</title>
+    <title>UnifyTerm · One terminal across Windows, macOS and Linux</title>
     <meta
       name="description"
-      content="UnifyTerm is a terminal that behaves the same on Windows, macOS and Linux. It runs your own shell and brings the same Unix commands to all three: cat, grep, jq and about a hundred more, on Windows too."
+      content="UnifyTerm is a cross-platform terminal application that works with your existing shell and provides a consistent set of Unix utilities, including cat, grep, sed and jq. On Windows, you can use these commands without installing WSL or Git Bash."
     />
     <meta property="og:title" content="UnifyTerm" />
-    <meta property="og:description" content="One terminal, valid on Windows, macOS and Linux: the same Unix commands everywhere, a history that answers while you type." />
+    <meta property="og:description" content="One terminal across Windows, macOS and Linux. Use the same commands on all three." />
     <meta property="og:image" content="img/promo-poster.png" />
     <meta name="theme-color" content="#151a30" />
     <link rel="icon" href="img/mark.svg" type="image/svg+xml" />
@@ -61,8 +61,8 @@
       <nav aria-label="Pages of this document" data-i18n-attr="aria-label:nav.label">
         <a href="#commands" data-i18n="nav.commands">Commands</a>
         <a href="#history" data-i18n="nav.history">History</a>
-        <a href="#media" data-i18n="nav.media">Pictures</a>
-        <a href="#help" data-i18n="nav.help">Help</a>
+        <a href="#media" data-i18n="nav.media">Media</a>
+        <a href="#help" data-i18n="nav.help">Assistance</a>
         <a href="#agents" data-i18n="nav.agents">Agents</a>
         <a href="#observations" data-i18n="nav.observations">Limits</a>
         <a href="#install" data-i18n="nav.install">Install</a>
@@ -107,26 +107,33 @@
 
           <div class="holder">
             <p class="titling" id="title">UnifyTerm</p>
-            <h1 data-i18n="hero.h1">One terminal. Valid on Windows, macOS and Linux.</h1>
-            <p class="lede" data-i18n="hero.lede">
-              Change machines and the commands change with them. UnifyTerm keeps them the same: it runs your own shell, and brings <code>cat</code>, <code>grep</code>, <code>jq</code> and about a hundred more to every system, Windows included.
-            </p>
+            <h1 data-i18n="hero.h1">One terminal across Windows, macOS and Linux.</h1>
+            <p class="sub" data-i18n="hero.sub">Use the same commands across Windows, macOS and Linux.</p>
+            <p class="lede" data-i18n="hero.lede">UnifyTerm is a cross-platform terminal application that works with your existing shell and provides a consistent set of Unix utilities, including <code>cat</code>, <code>grep</code>, <code>sed</code> and <code>jq</code>.</p>
+            <p class="lede" data-i18n="hero.lede2">On Windows, you can use these commands without installing WSL or Git Bash.</p>
             <dl class="fields">
               <div>
-                <dt>Type <span lang="zh">类型</span></dt>
-                <dd data-i18n="field.type">Terminal, with a window</dd>
+                <dt>Application <span lang="zh">终端类型</span></dt>
+                <dd data-i18n="field.type">Desktop terminal</dd>
               </div>
               <div>
-                <dt>Shell <span lang="zh">外壳</span></dt>
-                <dd data-i18n="field.shell">Your own: PowerShell, cmd, bash, zsh, fish</dd>
+                <dt>Supported shells <span lang="zh">支持 Shell</span></dt>
+                <dd data-i18n="field.shell">PowerShell, cmd, bash, zsh, fish</dd>
               </div>
               <div>
-                <dt>Commands <span lang="zh">命令</span></dt>
+                <dt>Built-in commands <span lang="zh">内置命令</span></dt>
                 <dd data-i18n="field.commands">99 on Windows, 114 on Linux</dd>
               </div>
               <div>
-                <dt>Issued by <span lang="zh">签发</span></dt>
-                <dd><a href="https://github.com/newdee" rel="noopener">newdee</a>, <span data-i18n="field.issued">in Rust, under MIT</span></dd>
+                <dt>Built with <span lang="zh">技术栈</span></dt>
+                <dd>Rust</dd>
+              </div>
+              <div>
+                <dt>License <span lang="zh">开源协议</span></dt>
+                <dd>MIT</dd>
+              </div>
+              <div class="fields__link">
+                <a href="https://github.com/newdee/unifyterm" rel="noopener" data-i18n="field.repo">GitHub Repository</a>
               </div>
             </dl>
           </div>
@@ -161,7 +168,7 @@
             <button class="copy" id="copy" type="button" data-i18n="mrz.copy">Copy</button>
             <span class="copied" id="copied" role="status" aria-live="polite"></span>
           </div>
-          <p class="mrz__note" id="mrz-note" data-i18n="mrz.note.brew">macOS and Linux, with Homebrew. The other three are one line each, without administrator rights.</p>
+          <p class="mrz__note" id="mrz-note" data-i18n="mrz.note.brew">macOS and Linux, with Homebrew.</p>
         </div>
       </section>
 
@@ -170,15 +177,14 @@
         <div class="guilloche" aria-hidden="true"></div>
         <div class="spread">
           <div class="spread__text">
-            <h2 id="h-commands" data-i18n="commands.h">The same commands at every border</h2>
-            <p data-i18n="commands.p1">
-              PowerShell says <code>Get-Content</code>. bash says <code>cat</code>. Your fingers say <code>cat</code> either way. UnifyTerm ships the Unix commands as one program, <code>ut</code>, and puts them ahead of PowerShell's aliases, so <code>cat</code>, <code>ls</code>, <code>grep</code>, <code>find</code>, <code>sed</code> and <code>jq</code> mean the same thing on all three systems.
-            </p>
-            <p data-i18n="commands.p2">
-              Paths come out with <code>/</code> everywhere. A wildcard expands the way a Unix shell expands it; in quotes it stays as you typed it. No WSL, no Git Bash, nothing else to install.
-            </p>
+            <h2 id="h-commands" data-i18n="commands.h">A consistent command environment</h2>
+            <p data-i18n="commands.p1">Windows and Unix systems handle many everyday command-line tasks differently. The same operation may require different commands depending on the operating system.</p>
+            <p data-i18n="commands.p2">UnifyTerm provides a consistent set of Unix utilities across Windows, macOS and Linux. Common commands such as <code>cat</code>, <code>ls</code>, <code>grep</code>, <code>find</code>, <code>sed</code> and <code>jq</code> work the same way across platforms.</p>
+            <p data-i18n="commands.p3">It also handles platform-specific path formats and wildcard expansion, making commands and scripts easier to reuse across systems.</p>
+            <p data-i18n="commands.p4">On Windows, these commands work directly without setting up a separate Unix shell environment.</p>
+            <p data-i18n="commands.p5">The Windows build currently includes 99 commands covering common file operations, text processing and data queries.</p>
             <details class="names">
-              <summary data-i18n="commands.all">All 99 names on Windows</summary>
+              <summary data-i18n="commands.all">All 99 commands on Windows</summary>
               <p class="names__list">[ arch b2sum base32 base64 basename basenc cat cksum cmp comm cp csplit cut date dd df diff dir dircolors dirname du echo env expand expr factor false find fmt fold grep head hostid hostname join jq kill link ln ls md5sum mkdir mktemp more mv nice nl nohup nproc numfmt od paste pathchk pr printenv printf ptx pwd readlink realpath rm rmdir sed seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split sum sync tac tail tee test timeout touch tr true truncate tsort tty uname unexpand uniq unlink uptime vdir wc which whoami xargs yes</p>
             </details>
           </div>
@@ -202,13 +208,17 @@
         <div class="guilloche" aria-hidden="true"></div>
         <div class="spread spread--flip">
           <div class="spread__text">
-            <h2 id="h-history" data-i18n="history.h">A history that answers while you type</h2>
-            <p data-i18n="history.p1">
-              Every command your shells run is kept in one small SQLite file, with the directory it ran in, how it ended and how long it took. Start typing and the matches show under the line. <kbd>Ctrl</kbd>+<kbd>N</kbd> walks down, <kbd>Enter</kbd> puts one on the line, and it runs only when you press <kbd>Enter</kbd> again.
-            </p>
-            <p data-i18n="history.p2">
-              Commands you ran in this directory rank higher, and ones that failed rank lower. Anything that looks like a password, a token or a key is never written down. Copy the file to another machine and it works there too: a history made on Windows reads the same on Linux.
-            </p>
+            <h2 id="h-history" data-i18n="history.h">Command history and search</h2>
+            <p data-i18n="history.p1">UnifyTerm stores command history locally in a SQLite database.</p>
+            <p data-i18n="history.p2">Each entry includes the command, working directory, exit status and execution time. As you type, matching commands appear based on your history and current working directory.</p>
+            <ul class="points">
+              <li data-i18n="history.l1">Commands used in the current directory receive higher priority.</li>
+              <li data-i18n="history.l2">Failed commands receive lower priority.</li>
+              <li data-i18n="history.l3">Use <kbd>Ctrl</kbd>+<kbd>N</kbd> to navigate suggestions.</li>
+              <li data-i18n="history.l4">Press <kbd>Enter</kbd> to select a command, then press it again to execute.</li>
+              <li data-i18n="history.l5">Passwords, tokens and keys are filtered before storage.</li>
+            </ul>
+            <p data-i18n="history.p3">History is stored in a local database that can be moved between machines. Commands recorded on Windows can also be used on Linux.</p>
           </div>
           <figure class="plate">
             <img src="img/history.png" width="960" height="300" loading="lazy" alt="Typing git shows three earlier git commands under the line; the second is chosen." data-i18n-attr="alt:history.alt" />
@@ -229,13 +239,17 @@
         <div class="guilloche" aria-hidden="true"></div>
         <div class="spread">
           <div class="spread__text">
-            <h2 id="h-media" data-i18n="media.h">Pictures, video and markdown, where the text is</h2>
-            <p data-i18n="media.p1">
-              <code>ut view photo.png</code> puts the picture in the terminal. It scrolls away with the text above it and clears with the screen. <code>ut view clip.mp4</code> plays a video through ffmpeg, without sound; <kbd>q</kbd> stops it.
-            </p>
-            <p data-i18n="media.p2">
-              <code>ut md README.md</code> lays markdown out with real tables, lists and links. In another terminal <code>ut view</code> takes the best that terminal can do, down to plain characters when the output goes to a pipe.
-            </p>
+            <h2 id="h-media" data-i18n="media.h">Images, video and Markdown in the terminal</h2>
+            <p data-i18n="media.p1">A terminal doesn't have to display text only.</p>
+            <p data-i18n="media.p2">UnifyTerm can display images, play videos and render Markdown directly in the terminal.</p>
+            <h3 data-i18n="media.h1">Images and video</h3>
+            <pre><code>ut view photo.png
+ut view clip.mp4</code></pre>
+            <p data-i18n="media.p3">Video playback requires FFmpeg and currently does not support audio.</p>
+            <h3>Markdown</h3>
+            <pre><code>ut md README.md</code></pre>
+            <p data-i18n="media.p4">Markdown documents are rendered directly in the terminal, including headings, lists, tables and links.</p>
+            <p data-i18n="media.p5">When the terminal does not support image rendering, UnifyTerm falls back to text output where possible.</p>
           </div>
           <figure class="plate">
             <img src="img/media.png" width="960" height="620" loading="lazy" alt="ut view shows the UnifyTerm logo as a picture in the terminal; ut md shows a markdown file with a heading, a list and a table." data-i18n-attr="alt:media.alt" />
@@ -256,13 +270,14 @@
         <div class="guilloche" aria-hidden="true"></div>
         <div class="spread spread--flip">
           <div class="spread__text">
-            <h2 id="h-help" data-i18n="help.h">Ask what a command means</h2>
-            <p data-i18n="help.p1">
-              Mistype a command and a corrected one is offered. That guess is made on your machine, from the commands it can find, and needs no model. Name a model in the settings, and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> explains the command on the line part by part, and the rest of a command shows in grey as you type.
-            </p>
-            <p data-i18n="help.p2">
-              The model's help stays off until you have named the model yourself and said yes once in the window. What will be sent is shown before you agree, and passwords, tokens and keys are replaced first. Refuse, and nothing is sent.
-            </p>
+            <h2 id="h-help" data-i18n="help.h">Command assistance</h2>
+            <p data-i18n="help.p1">UnifyTerm provides both local command correction and LLM-powered assistance.</p>
+            <h3 data-i18n="help.h1">Local command correction</h3>
+            <p data-i18n="help.p2">When a command is mistyped, UnifyTerm checks available commands and suggests a correction. This works locally without an internet connection or an AI model.</p>
+            <h3 data-i18n="help.h2">AI-powered explanations</h3>
+            <p data-i18n="help.p3">After configuring an LLM, you can use <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to get explanations of commands and their arguments. UnifyTerm can also provide command completion suggestions as you type.</p>
+            <p data-i18n="help.p4">AI assistance is disabled by default.</p>
+            <p data-i18n="help.p5">Before you enable it, UnifyTerm shows what information will be shared and asks you to agree once. Passwords, tokens and keys are filtered from every request. You decide whether to enable AI assistance.</p>
           </div>
           <figure class="plate">
             <img src="img/explain.png" width="960" height="300" loading="lazy" alt="Under tar -czf site.tgz public, a box explains tar, -czf, site.tgz and public, one line each." data-i18n-attr="alt:help.alt" />
@@ -283,13 +298,20 @@
         <div class="guilloche" aria-hidden="true"></div>
         <div class="spread">
           <div class="spread__text">
-            <h2 id="h-agents" data-i18n="agents.h">For the agents you run</h2>
-            <p data-i18n="agents.p1">
-              <code>ut mcp</code> gives a coding agent four tools: search the history, list the last commands, list the commands <code>ut</code> has, read one command's help. It only reads; it runs nothing. Tell Claude Code about it with <code>claude mcp add unifyterm -- ut mcp</code>.
-            </p>
-            <p data-i18n="agents.p2">
-              A skill file tells the agent what works here, so it stops guessing whether <code>grep</code> exists on Windows. If you use <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> shows its agents beside the terminal: model, cost, context, memory.
-            </p>
+            <h2 id="h-agents" data-i18n="agents.h">Integration with AI agents</h2>
+            <p data-i18n="agents.p1">UnifyTerm provides an MCP server and a Skill file for AI coding agents.</p>
+            <p data-i18n="agents.p2">The MCP server currently exposes four read-only tools:</p>
+            <ul class="points">
+              <li data-i18n="agents.l1">Search command history.</li>
+              <li data-i18n="agents.l2">List recently executed commands.</li>
+              <li data-i18n="agents.l3">List available commands.</li>
+              <li data-i18n="agents.l4">Retrieve command help.</li>
+            </ul>
+            <p data-i18n="agents.p3">The MCP server does not provide command execution capabilities. Agents cannot execute shell commands through these tools.</p>
+            <p data-i18n="agents.p4">For example, add UnifyTerm to Claude Code:</p>
+            <pre><code>claude mcp add unifyterm -- ut mcp</code></pre>
+            <p data-i18n="agents.p5">The accompanying Skill describes available commands and platform-specific behavior, helping agents work with a consistent command environment across operating systems.</p>
+            <p data-i18n="agents.p6">When used alongside <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>, UnifyTerm can also show information about running agents in the terminal, including model, cost, context usage and memory usage.</p>
           </div>
           <figure class="plate">
             <img src="img/agents.png" width="960" height="330" loading="lazy" alt="A sidebar on the right of the terminal lists two agents with their model, pane, cost and memory." data-i18n-attr="alt:agents.alt" />
@@ -309,61 +331,59 @@
       <!-- The film -->
       <section class="page page--film" id="film" aria-labelledby="h-film">
         <div class="guilloche" aria-hidden="true"></div>
-        <h2 id="h-film" data-i18n="film.h">Forty-six seconds of it working</h2>
-        <p class="film__note" data-i18n="film.p">Recorded from the program itself, one picture for every key pressed. Nothing in it is drawn by hand.</p>
+        <h2 id="h-film" data-i18n="film.h">See it in action</h2>
+        <p class="film__note" data-i18n="film.p">A recording of UnifyTerm running in a real environment: command execution, history search, content viewing and agent integration.</p>
         <video class="film" controls preload="none" playsinline poster="img/promo-poster.png" width="1280" height="720">
           <source src="media/unifyterm-promo.mp4" type="video/mp4" />
-          <a href="media/unifyterm-promo.mp4" data-i18n="film.link">The video (MP4, 0.4 MB)</a>
+          <a href="media/unifyterm-promo.mp4" data-i18n="film.link">Watch the demo video</a>
         </video>
       </section>
 
       <!-- Observations -->
       <section class="page page--cyan" id="observations" aria-labelledby="h-observations">
         <div class="guilloche" aria-hidden="true"></div>
-        <h2 id="h-observations" data-i18n="obs.h">Observations</h2>
-        <p class="obs__lede" data-i18n="obs.lede">What is not done, said here so that you do not find it out later.</p>
+        <h2 id="h-observations" data-i18n="obs.h">Current limitations</h2>
+        <p class="obs__lede" data-i18n="obs.lede">UnifyTerm is currently at version 0.1.0, and some areas are still incomplete:</p>
         <ul class="obs">
-          <li data-i18n="obs.1"><b>The builds are not signed.</b> Windows SmartScreen and macOS Gatekeeper each ask once before the first start.</li>
-          <li data-i18n="obs.2"><b>Nobody has used the macOS build by hand yet.</b> It is built, tested and started on a Mac in CI, and that is all.</li>
-          <li data-i18n="obs.3"><b>Video has no sound</b>, and needs ffmpeg installed.</li>
-          <li data-i18n="obs.4"><b>PowerShell's own Tab completion still writes <code>\</code> paths.</b> What the commands print uses <code>/</code>.</li>
-          <li data-i18n="obs.5"><b>It draws pictures sent with kitty's protocol only.</b> Sixel and iTerm2 pictures are for <code>ut view</code> in other terminals.</li>
-          <li data-i18n="obs.6"><b>This is version 0.1.0.</b> The checks behind it are in the repository: 207 tests, and 110 more that drive the real window.</li>
+          <li data-i18n="obs.1">The Windows and macOS builds are not code-signed yet. A SmartScreen or Gatekeeper security prompt may appear on first launch.</li>
+          <li data-i18n="obs.2">The macOS build passes CI builds and tests, but has not been tested by hand yet.</li>
+          <li data-i18n="obs.3">Video playback requires FFmpeg and currently does not support audio.</li>
+          <li data-i18n="obs.4">PowerShell's native Tab completion still uses Windows-style path separators.</li>
+          <li data-i18n="obs.5">In its own window, UnifyTerm currently renders images through the Kitty graphics protocol only. When <code>ut view</code> runs in other terminals, it can also output Sixel and iTerm2 images.</li>
         </ul>
+        <p class="obs__note" data-i18n="obs.tests">The project currently includes 207 test cases, plus 110 tests that drive the desktop application.</p>
       </section>
 
       <!-- Install -->
       <section class="page page--data page--entry" id="install" aria-labelledby="h-install">
         <div class="guilloche" aria-hidden="true"></div>
-        <h2 id="h-install" data-i18n="install.h">Entry</h2>
+        <h2 id="h-install" data-i18n="install.h">Installation</h2>
         <div class="ways">
           <div class="way">
-            <h3 data-i18n="install.unix">macOS and Linux</h3>
+            <h3>macOS / Linux</h3>
+            <p data-i18n="install.brew">With Homebrew:</p>
             <pre><code>brew install newdee/tap/unifyterm</code></pre>
-            <p data-i18n="install.unix.or">Or one line, for you alone, no root:</p>
+            <p data-i18n="install.curl">Or with the install script:</p>
             <pre><code>curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh</code></pre>
           </div>
           <div class="way">
             <h3>Windows</h3>
+            <p data-i18n="install.scoop">With Scoop:</p>
             <pre><code>scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json</code></pre>
-            <p data-i18n="install.win.or">Or one line, for you alone, no administrator rights:</p>
+            <p data-i18n="install.irm">Or with the PowerShell install script:</p>
             <pre><code>irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex</code></pre>
           </div>
         </div>
-        <p class="packages" data-i18n="install.packages">
-          Packages are on the <a href="https://github.com/newdee/unifyterm/releases" rel="noopener">releases page</a>, each with its SHA-256 beside it: an MSI and a zip for Windows, a .dmg for each kind of Mac, a .deb and an AppImage for Linux. Both one-line scripts check that SHA-256 before they install anything.
-        </p>
-        <p class="packages" data-i18n="install.source">
-          The source is at <a href="https://github.com/newdee/unifyterm" rel="noopener">github.com/newdee/unifyterm</a>, under the MIT license. Settings, keys and environment variables are in the <a href="https://github.com/newdee/unifyterm#readme" rel="noopener">README</a>.
-        </p>
+        <p class="packages" data-i18n="install.packages">Prebuilt packages are also available from <a href="https://github.com/newdee/unifyterm/releases" rel="noopener">GitHub Releases</a>: MSI, ZIP, DMG, DEB and AppImage.</p>
+        <p class="packages" data-i18n="install.sha">The install scripts verify the SHA-256 checksum before installing.</p>
+        <p class="packages" data-i18n="install.source">For more configuration options, environment variables and usage instructions, see the <a href="https://github.com/newdee/unifyterm" rel="noopener">GitHub repository</a>.</p>
       </section>
     </main>
 
     <footer class="foot">
       <p class="foot__mrz" aria-hidden="true">P&lt;UNIFYTERM&lt;&lt;ONE&lt;TERMINAL&lt;&lt;&lt;WINDOWS&lt;MACOS&lt;LINUX&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br />MIT&lt;&lt;GITHUB.COM/NEWDEE/UNIFYTERM&lt;&lt;&lt;&lt;V0&lt;1&lt;0&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</p>
-      <p data-i18n="foot.by">
-        Made by <a href="https://github.com/newdee" rel="noopener">newdee</a>. The panes, the agents and the messages between them are <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>'s work; UnifyTerm is the window they run in.
-      </p>
+      <p data-i18n="foot.by">Developed by <a href="https://github.com/newdee" rel="noopener">newdee</a>.</p>
+      <p data-i18n="foot.keepane">UnifyTerm unifies the terminal environment and the command interface. To manage terminal panes, agent lifecycles and collaboration between multiple agents, see <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>.</p>
     </footer>
 
     <script src="site.js" defer></script>

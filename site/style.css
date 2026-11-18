@@ -409,10 +409,18 @@ h1 {
   text-wrap: balance;
 }
 
+.sub {
+  max-width: 44ch;
+  margin-top: 0.55em;
+  font-weight: 700;
+}
 .lede {
-  max-width: 50ch;
-  margin-top: 1em;
+  max-width: 52ch;
+  margin-top: 0.8em;
   color: var(--ink-2);
+}
+.lede + .lede {
+  margin-top: 0.6em;
 }
 
 .fields {
@@ -442,6 +450,15 @@ h1 {
   padding-bottom: 7px;
   border-bottom: 1px dotted var(--ink-2);
   font: 400 0.9375rem/1.4 var(--mono);
+}
+
+.fields__link {
+  align-self: end;
+  font-weight: 700;
+}
+.fields__link a {
+  display: inline-block;
+  padding: 6px 0 7px;
 }
 
 /* the three entry stamps */
@@ -605,6 +622,27 @@ h1 {
 .spread__text p {
   max-width: 58ch;
 }
+.spread__text h3 {
+  margin: 1.5em 0 0.5em;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.spread__text :is(pre, .points) {
+  max-width: 58ch;
+  margin: 0.8em 0;
+}
+.spread__text :is(h3, pre, .points) + p {
+  margin-top: 0.8em;
+}
+.points {
+  padding-inline-start: 1.25em;
+}
+.points li + li {
+  margin-top: 0.35em;
+}
+.points li::marker {
+  color: var(--ink-2);
+}
 
 .names {
   margin-top: 0.6em;
@@ -754,19 +792,22 @@ h1 {
 /* ---- observations: entries on ruled lines ---------------------------- */
 
 .obs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 clamp(24px, 4vw, 52px);
+  max-width: 76ch;
   padding: 0;
   margin-top: clamp(18px, 3vw, 28px);
   list-style: none;
 }
 .obs li {
-  padding: 15px 0 14px;
+  padding: 13px 0 12px;
   border-top: 1px solid var(--ink-2);
 }
-.obs b {
-  font-weight: 700;
+.obs li:last-child {
+  border-bottom: 1px solid var(--ink-2);
+}
+.obs__note {
+  max-width: 76ch;
+  margin-top: 1.2em;
+  color: var(--ink-2);
 }
 
 /* ---- entry: how to install ------------------------------------------- */
@@ -820,6 +861,9 @@ pre code {
   color: var(--ink-2);
   font-size: 0.9375rem;
 }
+.foot p + p {
+  margin-top: 0.5em;
+}
 .foot__mrz {
   margin-bottom: 18px;
   overflow: hidden;
@@ -856,8 +900,7 @@ pre code {
 
 @media (max-width: 860px) {
   .data,
-  .spread,
-  .obs {
+  .spread {
     grid-template-columns: minmax(0, 1fr);
   }
   .spread--flip .spread__text {

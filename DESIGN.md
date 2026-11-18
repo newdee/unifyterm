@@ -108,7 +108,7 @@ The page is a travel document. UnifyTerm's claim is that one terminal is valid o
 
 The dark theme is the same document seen from its cover: navy, with the titling in gold foil. Nothing else changes between the themes.
 
-Everything on the page is evidence: the pictures are recorded from the program by `tools/promo.ps1`, the numbers on the stamps are measured, and the Observations page lists what is not done. `tools/site-check.ps1` holds the page to the code.
+Everything on the page is evidence: the pictures are recorded from the program by `tools/promo.ps1`, the numbers on the stamps are measured, and the limitations page lists what is not done. `tools/site-check.ps1` holds the page to the code.
 
 ## Colors
 
@@ -150,7 +150,7 @@ Castoro Titling sets the name and the section headings: inscriptional capitals, 
 
 One column of pages, each at most 1180 px wide, 20 to 34 px apart. A feature page is a spread of text (5) and picture (7); every second spread is flipped, and the picture keeps the wide column. Below 860 px a spread is one column, text first. Below 1040 px the navigation moves under the brand and scrolls sideways. The install commands are one column at every width: the longest is 99 letters and must not be cut in two on a desktop.
 
-The data page (name, statement, fields, three entry stamps, the band) fits a 1440 × 900 screen whole.
+On a 1440 × 900 screen the data page shows the name, the statement, the fields and the three entry stamps; the band starts at the fold.
 
 ## Elevation & Depth
 
@@ -192,7 +192,8 @@ A `dl` of label over value on a dotted rule; labels carry their Chinese name bes
 
 - Put one measured fact on a stamp, and state the same fact in its `aria-label`.
 - Use pictures recorded from the program (`tools/promo.ps1 -Stills site/img`), cut to the rows that have something in them.
-- Say what is not done on the Observations page when a limit changes.
+- Say what is not done on the limitations page when a limit changes.
+- The words are the owner's (2026-11-18): plain product-document sentences, short lists, commands in blocks. Do not bring the passport into the wording; it stays in the look.
 - Add the Chinese for every new `data-i18n` key; `tools/site-check.ps1` fails without it.
 
 ### Don't:

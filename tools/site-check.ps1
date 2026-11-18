@@ -53,7 +53,7 @@ $pageNames = @([System.Net.WebUtility]::HtmlDecode([regex]::Match($html, '<p cla
 if ($Ut -and (Test-Path $Ut)) {
     $utNames = @(& $Ut --list)
     $different = @(Compare-Object $pageNames $utNames -CaseSensitive)
-    $stated = [regex]::Matches($html, '(\d+) (?:names )?on Windows') | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique
+    $stated = [regex]::Matches($html, '(\d+) (?:commands )?on Windows') | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique
     Report 'command names are ut --list' ($different.Count -eq 0 -and "$stated" -ceq "$($utNames.Count)") ("page {0}, ut {1}, stated {2}" -f $pageNames.Count, $utNames.Count, ($stated -join '/'))
 } else {
     Report 'command names are ut --list' $false 'no built ut.exe: build first, or pass -Ut'
@@ -61,7 +61,9 @@ if ($Ut -and (Test-Path $Ut)) {
 
 # 5. Each install command in the page is in the README, letter for letter.
 $commands = @([regex]::Matches($html, 'data-command="([^"]+)"') | ForEach-Object { [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value) })
-$commands += [regex]::Matches($html, '<pre><code>([^<]+)</code></pre>') | ForEach-Object { [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value) }
+# Only the install page's blocks: the other pages show commands to run, not to install with.
+$installPage = ($html -split '<section[^>]*id="install"')[1].Split('</section>')[0]
+$commands += [regex]::Matches($installPage, '<pre><code>([^<]+)</code></pre>') | ForEach-Object { [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value) }
 $commands = @($commands | Sort-Object -Unique)
 $unknown = @($commands | Where-Object { -not $readme.Contains($_) })
 Report 'install commands are the README''s' ($commands.Count -eq 4 -and $unknown.Count -eq 0) ("{0} commands{1}" -f $commands.Count, $(if ($unknown) { "; not in the README: $($unknown -join ' | ')" }))
