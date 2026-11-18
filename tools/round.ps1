@@ -123,6 +123,9 @@ $docs | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" 
 Report 'README against the code' ($LASTEXITCODE -eq 0) "$(@($docs | Where-Object { $_ -match '^PASS' }).Count) of $(@($docs | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) tables agree"
 $notices = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'notices.ps1') -Check 2>&1 | Select-Object -Last 1
 Report 'THIRD-PARTY-NOTICES is up to date' ($LASTEXITCODE -eq 0) "$notices"
+$scripts = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'scripts-check.ps1') 2>&1
+$scripts | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" }
+Report 'every script parses' ($LASTEXITCODE -eq 0) "$(@($scripts | Where-Object { $_ -match '^PASS' }).Count) of $(@($scripts | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) kinds parse"
 $page = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'site-check.ps1') 2>&1
 $page | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" }
 Report 'the product page against the code' ($LASTEXITCODE -eq 0) "$(@($page | Where-Object { $_ -match '^PASS' }).Count) of $(@($page | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) checks pass"
