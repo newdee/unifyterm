@@ -17,7 +17,7 @@ try {
     cargo about generate --locked --workspace --output-file $raw about.hbs
     if ($LASTEXITCODE -ne 0) { throw "cargo about failed (exit $LASTEXITCODE)" }
     $generated = [IO.File]::ReadAllText($raw).Replace("`r", ''); Remove-Item $raw
-    $conpty = [IO.File]::ReadAllText((Join-Path $root 'vendor/conpty/LICENSE')).Replace("`r", '').TrimEnd()
+    $conpty = [IO.File]::ReadAllText((Join-Path $root 'third-party/conpty/LICENSE')).Replace("`r", '').TrimEnd()
     # cargo-about writes HTML entities for some characters; the file is plain text.
     $text = (($generated).Replace('CONPTY-LICENSE-HERE', $conpty)).Replace('&quot;', '"').Replace('&#x27;', "'").Replace('&lt;', '<').Replace('&gt;', '>').Replace('&#x3D;', '=').Replace('&#x60;', '`').Replace('&amp;', '&').TrimEnd() + "`n"
     $file = Join-Path $root 'THIRD-PARTY-NOTICES'
