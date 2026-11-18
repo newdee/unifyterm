@@ -22,7 +22,9 @@ use image::{DynamicImage, imageops::FilterType};
 
 const USAGE: &str = "usage: ut view [--mode MODE] [--width COLUMNS] [--verbose] FILE
 
-  Shows a picture (PNG, JPEG, GIF, WebP, BMP) in the terminal.
+  Shows a picture (PNG, JPEG, GIF, WebP, BMP) in the terminal, or plays a
+  video (MP4, MKV, WebM, MOV, AVI, ...) with ffmpeg: no sound; q or Ctrl-C stops it.
+  Output that is no terminal gets a video's first frame as a picture.
   --mode     kitty, iterm, sixel, half, braille or ascii (default: the best this terminal has)
   --width    how many columns wide (default: the terminal's width, at most 80)
   --verbose  say on standard error which mode was chosen and why";
@@ -62,7 +64,7 @@ impl Mode {
         })
     }
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Kitty => "kitty",
             Self::Iterm => "iterm",
@@ -131,7 +133,7 @@ fn fit(image: &DynamicImage, width: u32, height_scale: f64) -> image::RgbaImage 
     clippy::cast_sign_loss,
     reason = "a pixel count: small and positive"
 )]
-fn rounded(value: f64) -> u32 {
+pub(crate) fn rounded(value: f64) -> u32 {
     value.round().max(0.0) as u32
 }
 
@@ -310,10 +312,26 @@ pub(crate) fn main(args: &[OsString]) -> i32 {
         }
     }
     let Some(file) = file else { return usage("which file?") };
-    let bytes = match std::fs::read(&file) {
+    let output = if io::stdout().is_terminal() { Output::Terminal } else { Output::Other };
+    if crate::video::is_video(&file) && output == Output::Terminal {
+        let (chosen, why) = choose(|name| std::env::var(name).ok(), output);
+        let mode = mode.unwrap_or(chosen);
+        if verbose && mode == chosen {
+            let _ = writeln!(io::stderr(), "ut view: {} ({why})", mode.name());
+        }
+        let columns = width.unwrap_or_else(|| u32::from(terminal_width().unwrap_or(DEFAULT_WIDTH).min(DEFAULT_WIDTH)));
+        let say = if verbose { crate::video::Say::Choices } else { crate::video::Say::Nothing };
+        return crate::video::play(&file, mode, columns, say);
+    }
+    let read = if crate::video::is_video(&file) {
+        crate::video::first_frame(&file)
+    } else {
+        std::fs::read(&file).map_err(|error| format!("ut view: {file}: {error}"))
+    };
+    let bytes = match read {
         Ok(bytes) => bytes,
-        Err(error) => {
-            let _ = writeln!(io::stderr(), "ut view: {file}: {error}");
+        Err(message) => {
+            let _ = writeln!(io::stderr(), "{message}");
             return TROUBLE;
         }
     };
@@ -324,7 +342,6 @@ pub(crate) fn main(args: &[OsString]) -> i32 {
             return TROUBLE;
         }
     };
-    let output = if io::stdout().is_terminal() { Output::Terminal } else { Output::Other };
     let (chosen, why) = choose(|name| std::env::var(name).ok(), output);
     let (mode, why) = match mode {
         Some(asked) => (asked, "asked for with --mode".to_owned()),

@@ -8,7 +8,7 @@
 //! which library keeps the screen.
 
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event, EventListener};
@@ -34,6 +34,12 @@ const READ_CHUNK: usize = 8192;
 /// Reads that may wait for the session's owner. When it is full the reader
 /// waits, and so does the program: a flood of output cannot fill memory.
 const OUTPUT_QUEUE: usize = 256;
+/// After the program ends, its last output is waited for until none has come for this long ...
+const QUIET_AFTER_END: std::time::Duration = std::time::Duration::from_millis(100);
+/// ... or this long has passed (a program it left behind may print on and on).
+const LONGEST_AFTER_END: std::time::Duration = std::time::Duration::from_secs(1);
+/// How often the waiter looks whether the output has gone quiet.
+const QUIET_LOOK: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// What the pty's threads tell the session's owner.
 pub(crate) enum PtyEvent {
@@ -361,6 +367,12 @@ impl Session {
 
         let (tx, rx) = bounded(OUTPUT_QUEUE);
         let output = tx.clone();
+        // When output last came (milliseconds since `born`), and whether the reader saw the pipe's end.
+        let born = std::time::Instant::now();
+        let last_output = Arc::new(AtomicU64::new(0));
+        let ended = Arc::new(AtomicBool::new(false));
+        let (reader_last, reader_ended) = (Arc::clone(&last_output), Arc::clone(&ended));
+        let since_born = move || u64::try_from(born.elapsed().as_millis()).unwrap_or(u64::MAX);
         std::thread::Builder::new()
             .name("pty-reader".into())
             .spawn(move || {
@@ -372,17 +384,33 @@ impl Session {
                             if output.send_blocking(PtyEvent::Output(buf[..n].to_vec())).is_err() {
                                 break;
                             }
+                            reader_last.store(since_born(), Ordering::Release);
                         }
                     }
                 }
+                reader_ended.store(true, Ordering::Release);
             })
             .context("start the pty reader")?;
         // ConPTY keeps its output pipe open after the program ends, so the
         // reader never sees the end: the program's exit is waited for here.
+        // ConPTY also draws the program's last output a moment after it has
+        // ended: the end is reported only when that output is in (the reader
+        // saw the pipe close, or nothing came for QUIET_AFTER_END), so that
+        // nothing a program printed is lost after it.
         std::thread::Builder::new()
             .name("pty-waiter".into())
             .spawn(move || {
                 let _ = child.wait();
+                let exited = std::time::Instant::now();
+                loop {
+                    let quiet = since_born().saturating_sub(last_output.load(Ordering::Acquire));
+                    let quiet_long_enough =
+                        u128::from(quiet) >= QUIET_AFTER_END.as_millis() && exited.elapsed() >= QUIET_AFTER_END;
+                    if ended.load(Ordering::Acquire) || quiet_long_enough || exited.elapsed() >= LONGEST_AFTER_END {
+                        break;
+                    }
+                    std::thread::sleep(QUIET_LOOK);
+                }
                 let _ = tx.send_blocking(PtyEvent::Exited);
             })
             .context("start the pty waiter")?;
@@ -1058,6 +1086,30 @@ pub(crate) mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_last_output_comes_before_the_end() {
+        // Twenty short programs: each one's last words must be in before its end is reported.
+        let mut lost = Vec::new();
+        for round in 0..20 {
+            let (mut session, events) = start(echo("last-words"));
+            let deadline = Instant::now() + WAIT;
+            loop {
+                match events.try_recv() {
+                    Ok(PtyEvent::Exited) => break,
+                    Ok(PtyEvent::Output(bytes)) => session.feed(&bytes),
+                    Err(_) => {
+                        assert!(Instant::now() < deadline, "no exit reported");
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                }
+            }
+            if !shows(&session, "last-words") {
+                lost.push(round);
+            }
+        }
+        assert!(lost.is_empty(), "the last output came after the end in rounds {lost:?}");
     }
 
     #[test]

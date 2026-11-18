@@ -117,6 +117,8 @@ unicode-width = "0.2"
 anyhow = "1"
 # ut mcp: JSON-RPC messages.
 serde_json = "1"
+# ut view VIDEO: q and Ctrl-C while it plays (already in the tree through uu_more).
+crossterm = "0.29"
 # jq: the jaq interpreter and its formats; jaq's own command line is repeated in src/jq.
 jaq-all = { version = "0.4.0", default-features = false, features = ["formats", "std-all"] }
 env_logger = { version = "0.10", default-features = false }

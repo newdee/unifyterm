@@ -1,0 +1,24 @@
+THIRD-PARTY NOTICES
+
+uni-term and ut are made of the work of others. Their licenses follow:
+first Microsoft's ConPTY (shipped beside uni-term.exe on Windows), then
+every Rust crate built into the programs, grouped by license.
+
+Crates under MPL-2.0 are used unchanged; their source is at the address
+given with each one.
+
+====================================================================
+conpty.dll and OpenConsole.exe: Microsoft.Windows.Console.ConPTY
+https://github.com/microsoft/terminal
+====================================================================
+
+CONPTY-LICENSE-HERE
+{{#each licenses}}
+====================================================================
+{{name}} ({{id}})
+Used by:
+{{#each used_by}}  {{crate.name}} {{crate.version}}{{#if crate.repository}}  {{crate.repository}}{{/if}}
+{{/each}}====================================================================
+
+{{text}}
+{{/each}}

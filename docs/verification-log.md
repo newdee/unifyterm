@@ -1,5 +1,79 @@
 # 验收记录
 
+## 2026-11-18 · M7 视频、安装包、跨平台、发布准备
+
+范围：
+- `crates/ut/src/video.rs`：`ut view` 播放视频。ffprobe 取尺寸和帧率，ffmpeg 把帧解成 rgb24 送进管道，帧率最高 30。kitty 终端里每帧用同一个图片编号原地替换；其他终端用半块、盲文或 ASCII 文字重画。按时间戳定速，跟不上就丢帧。`q` 或 Ctrl-C 停止，恢复终端模式和光标，结束 ffmpeg。输出不是终端时只给第一帧。没有声音。
+- 版本号带 git 提交：`uni-term 0.1.0 (c5a6513)`、`ut 0.1.0 (c5a6513, 99 commands)`。两个构建脚本共用 `build/commit.rs`。
+- `LICENSE`（MIT）；`THIRD-PARTY-NOTICES`：917 个包、ConPTY 的许可证原文，由 `tools/notices.ps1`（cargo-about）生成；`about.toml` 列出允许的许可证。
+- 打包：`packaging/windows/uni-term.wxs`（WiX v4/v5）和 winget 清单；`.deb` 配置（`crates/uni-term/Cargo.toml`）、`.desktop`、AppImage 脚本；macOS 的 `.app`/`.dmg` 脚本、`Info.plist`、Homebrew cask；图标（SVG、PNG、ICO）。
+- `.github/workflows/ci.yml`：Windows、macOS、Linux 三个平台的格式、lint、测试、release 构建、许可证检查、窗口冒烟、打包、上传产物。
+- `README.md`（安装、快捷键、配置项、环境变量、命令、数据位置、已知限制）；`docs/release.md`（发布清单）；`tools/release.ps1`（填 winget 和 cask 的地址、哈希、ProductCode）。
+- `third-party/xattr-0.2.3`：改了一行的副本（见问题 2）。
+- 检查：`verify.ps1` 的 graphics 一节加 3 项视频检查；`round.ps1` 加 3 项：Windows 写的历史库在 Linux 上读、README 与代码一致（`tools/docs-check.ps1`）、通知文件是最新的。
+
+### 第 0 步：核实的事实
+
+| 项目 | 结论 |
+|---|---|
+| ffmpeg 解码到管道 | 可以。ffmpeg 8.1.1 输出 20 帧 64×64 rgb24，颜色误差在 yuv 转换的 ±2 以内。 |
+| WSLg 里运行 Linux 版 GUI | **不行。** WSL 里没有 `libxkbcommon-x11`，开发头文件也没有，sudo 要密码。Linux 版 GUI 改由 CI 构建和冒烟（apt 装开发包、xvfb、lavapipe）。 |
+| 打包工具 | cargo-wix 能装，但 WiX 3 二进制的下载被权限系统拒绝，而且 WiX 3 已停止维护。改用 WiX v4/v5 的 `.wxs`，由 CI 用 `dotnet tool install wix` 构建。cargo-deb 在 CI 上安装。 |
+| 许可证 | 917 个包全部在允许列表内。MPL-2.0 的 2 个（dwrote、option-ext）未修改，通知文件里写明源码地址。"Apache-2.0 OR GPL-2.0-only"、"…OR LGPL-2.1-or-later" 选择 Apache 或 MIT。没有与 MIT 发布冲突的许可证。 |
+
+### 与 plan.md 不同的地方
+
+| plan 写的 | 实际做法 | 原因 |
+|---|---|---|
+| 视频夹具 2 秒，0.5 秒和 1.5 秒截图 | 4 秒（红 2 秒、蓝 2 秒），1 秒和 3 秒截图 | 给 ut 和 ffprobe 的启动留出余量，截图点离颜色切换点各 1 秒。 |
+| MSI 用 cargo-wix | WiX v4/v5 的 `.wxs`，`wix build` | WiX 3 停止维护；本机下载 WiX 被拒绝。 |
+| 在干净的 Windows 里安装、卸载 MSI；在 WSL 干净发行版里 `dpkg -i` | 未做，列入 `docs/release.md` 第 2 步 | 本机没有 WiX，生成不了 MSI；`dpkg -i` 要 sudo。CI 生成包以后由用户验证。 |
+| 把 Windows 的 `config.toml` 拷到 Linux 验证 | 只验证了历史库；配置的解析由 CI 在 Linux 上跑 uni-term 的测试覆盖 | uni-term 在本机 WSL 里链接不了（缺 libxkbcommon-x11）。 |
+| 本地先用 `act` 跑 CI | `act --list` 只解析了工作流文件；Windows 冒烟一步在本机照原样跑通 | act 要 Docker 和 Linux 镜像，跑不了 Windows 和 macOS 的任务。 |
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 第 0 步 | GPUI 0.2.2 → `gpui_http_client` → `zed-async-tar` → xattr 0.2.3，它在 Linux 上用 `libc::ENOATTR`，而 libc 0.2.190 起 Linux 上没有这个常量：uni-term 在 Linux 上编译不过。libc 不能退版本（mio 1.2.5 要求 ≥ 0.2.190）。 | 依赖的结构问题（plan 风险一节预计到的"GPUI 不再更新"） | `[patch.crates-io]` 指向仓库内的 xattr 0.2.3 副本，只改一行：Linux 和 Android 上用 `ENODATA`（同一个值）。说明在 `third-party/xattr-0.2.3/UNI-TERM-CHANGES.md`，写明解除条件。之后 Linux 上编译通过，只剩链接缺系统库。 |
+| 2 | 代码正确性 | ConPTY 在程序结束后还会异步画出它最后的输出，而 waiter 线程一看到程序结束就报告"结束"，标签页随即关闭，最后的输出可能丢失。第一次冒烟测试的原始日志在 `smoke-ok` 的 `sm` 处截断（53 字节）。 | 结构缺陷：两个线程没有先后保证，所有消费方都假设"结束报告在全部输出之后" | waiter 等程序结束后，再等 reader 读到 EOF 或输出静默 100 ms（最多 1 秒），然后才报告结束。修复后冒烟 140 次 0 次丢失。**证据有限**：撤掉修复后热启动 80 次也没有复现，只有那一次冷启动的截断；保留修复是因为它从结构上保证顺序，代价是关标签页最多晚 100 ms。 |
+| 3 | 边界输入（review） | 视频的文字模式里，预留的行数用公式算，每帧实际的行数由解码高度决定，取整不同：braille 模式下实际可能比预留多 1 行（例：10 列、100×29 的视频，预留 1 行，实际 2 行），在屏幕底部会滚动，帧位置漂移。 | 边界遗漏 | 文字模式的行数直接从帧高度算（half/ascii：高度/2；braille：⌈高度/4⌉）。新测试对 4 种尺寸 × 3 种模式核对"预留行数 = 实际行数"；换回旧公式时它在 braille、10 列、100×29 上失败。 |
+| 4 | 文档一致性（review） | README 有 7 处不准：命令数（写成 6 + 90）；"帮助在指定模型前关闭"（本地纠正一直开着）；winget 和 brew 写得像已经能装；`.deb` 文件名缺 `-1`；"Cmd 代替 Ctrl-Shift"（Ctrl-Shift-A 对应 Cmd-Shift-A）；点击卡片失败会复制位置没写；"发送给模型的内容"漏了"最近 5 条命令"。另外第一稿还有 Rust 版本（1.92，应为 1.93）、macOS 命令数、PowerShell 版本、keepane 链接 4 处，在核实时改掉。 | 文档与事实不符 | 逐句对照代码改正；发送内容改为照抄界面里征求同意时显示的原文。`tools/docs-check.ps1` 自动核对配置项、快捷键、环境变量三张表（删掉一行或编造一个键，它都会报错）。 |
+| 5 | 检查自身 | `ut jq` 和 `ut view` 读 `NO_COLOR`，`ut jq` 读 `JQ_COLORS`，README 没提。 | 文档缺口 | README 加一句；检查脚本单独核对这两个通用变量。 |
+| 6 | **可复现性（第 3 轮抓到）** | 两轮实机输出比较时，"侧栏显示 3 秒内查询了几次"一行不同（6 和 7）。这个数取决于墙钟时间，本来就会浮动，两次都在允许范围（4 到 8）内。问题在比较脚本：它排除了内存数字，却没有排除这一类计时数字。 | 检查脚本的结构缺陷（与 CLAUDE.md 里记的"把墙钟时间放进对照表"同类） | 比较时，计时类的行（内存、轮询次数）只比较判定结果，不比较数字。verify.ps1 里受墙钟影响的数字共 3 处，全部处理。 |
+
+检查工具自身的问题：
+- 用 `$r = & uni-term.exe --replay` 读 release 版的输出，拿到 0 行：release 版是窗口程序，PowerShell 不等它结束。这让我一度以为"10 次冒烟 10 次丢输出"，实际是判断方法的错。改成 `verify.ps1` 一直在用的 `Start-Process -Wait -RedirectStandardOutput`，CI 的冒烟一步也改了。
+- 停掉一轮时 cargo 正在编译，留下损坏的增量产物，下一轮链接失败（LNK2001）。`cargo clean -p ut` 后恢复。
+- `wsl.exe` 传参会弄乱引号，WSL 的提示行是带 NUL 的 UTF-16：脚本一律写成文件再运行，比较时只取符合格式的行。
+- `Get-ChildItem README.md -Recurse` 会找到子目录里的同名文件，误报了 xattr 自己的文档地址。
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | 实机 | 其他数字 |
+|---|---|---|---|---|---|
+| 1 | 机制通路存活 + 边界输入 | debug | 207/207 | 110/110，8 个小节都跑完 | 视频第 1 秒 #dc2727（夹具红 #dc2828）、第 3 秒 #264eda（夹具蓝 #2850dc）；按 q 后 0.9 秒内回到提示符，ffmpeg 残留 0；没有 ffmpeg 时退出码 1；Windows 写的历史库在 Linux 上读出 4 条，逐字节相同；README 4 张表一致；p95 3.31 ms；Linux 60/60；历史文件 87347 → 87347 字节 |
+| 2 | 静态一致性 | release | 207/207 | 110/110，8 个小节都跑完 | 打包文件、脚本、CI 引用的 16 个文件全部存在；5 处版本号一致（0.1.0）；`OWNER` 占位 4 处，发布清单写明要替换；xattr 补丁的说明和许可证都在；ConPTY 许可证在通知文件里；非测试代码 `unwrap` 0、`allow` 0；`creation_flags` 1 处 |
+| 3 | 可复现性 | release | — | — | 通知文件生成两次哈希相同（git 无改动）；视频第一帧经管道 3 次逐字节相同；窗口内视频 3 次在 1 秒和 3 秒的颜色相同；两个版本号两次相同；第 1、2 轮实机输出 108 行 0 处不同（计时类数字只比较判定） |
+
+### 需要用户的
+
+- 推送到远程仓库并启用 CI；macOS 的构建、测试和窗口冒烟只能在 CI 上跑。
+- 把文件里的 `OWNER` 换成真实的账号（4 处）。
+- MSI 在本机生成需要 WiX：允许下载 WiX，或只在 CI 上生成。
+- 在干净环境里安装和卸载 MSI、`.deb`（`docs/release.md` 第 2 步）。
+- 签名（Windows 代码签名证书、Apple Developer ID）和公证。
+- 提交 winget 清单和 Homebrew cask；GitHub Release。
+- 本机验证 Linux 版 GUI 需要 `sudo apt install libxkbcommon-x11-0 libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev libvulkan-dev libfontconfig-dev`。
+- `LICENSE` 的版权方写的是 "the uni-term authors"，请确认是否改成你的名字或组织。
+
+### 已知限制
+
+- 视频没有声音；需要安装 ffmpeg。
+- stdin 不是终端时（被重定向），播放中按 Ctrl-C 会直接结束 ut，光标可能停在隐藏状态。
+- `tools/release.ps1` 没有实测过：它需要 CI 生成的 MSI 和 dmg。
+- MSI、`.deb`、AppImage、`.dmg` 的构建步骤只写在 CI 里，本机没有生成过。
+
 ## 2026-11-18 · M6 agent 侧栏、`ut mcp`、skill
 
 范围：

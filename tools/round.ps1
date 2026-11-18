@@ -8,7 +8,9 @@
 #   2. every one of ut's commands started once (--help), directly and by its link
 #   3. tools/verify.ps1: the built uni-term driven through its own window
 #   4. tools/linux-test.sh in WSL: ut's tests on Linux against the same record,
-#      and its grep against GNU grep
+#      its grep against GNU grep, and a history file made on Windows read on Linux
+#   5. the documents: README.md against the code, THIRD-PARTY-NOTICES up to date
+#   6. the user's own PowerShell history file is the same size after the round
 param(
     [ValidateSet('debug', 'release')][string]$Profile = 'debug',
     [switch]$SkipLinux
@@ -98,7 +100,29 @@ if (-not $SkipLinux) {
     $gnu = ($linux | Where-Object { $_ -match 'against GNU grep' } | Select-Object -Last 1)
     Report 'grep against GNU grep' ($linuxExit -eq 0 -and $gnu -match ', 0 differ') "$gnu"
     $linux | Where-Object { $_ -match '^DIFFERS' } | ForEach-Object { "      $_" }
+
+    # One history file, made on Windows, read by ut on Windows and on Linux: the same lines.
+    $shared = Join-Path ([IO.Path]::GetTempPath()) "uni-term-shared-$PID"
+    New-Item -ItemType Directory -Force $shared | Out-Null
+    $env:UNI_HISTORY_SHARED = Join-Path $shared 'history.db'
+    cargo test -p uni-history --test shared -j 8 @flag -- --ignored 2>&1 | Out-Null
+    $env:UNI_HISTORY_SHARED = $null
+    $row = '^\s+\d+\s+\d+\s+\S+\s\s\S'
+    $env:UNI_TERM_DATA_DIR = $shared
+    $onWindows = @(& (Join-Path $root "target\$Profile\ut.exe") history recent --long | Where-Object { $_ -match $row })
+    $env:UNI_TERM_DATA_DIR = $null
+    $linuxShared = "/mnt/" + $shared.Substring(0, 1).ToLower() + ($shared.Substring(2) -replace '\\', '/')
+    $onLinux = @(wsl -- env "UNI_TERM_DATA_DIR=$linuxShared" bash -lc '"${UT_TARGET:-$HOME/.cache/uni-term-target}/debug/ut" history recent --long' 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match $row })
+    Remove-Item $shared -Recurse -Force -ErrorAction SilentlyContinue
+    Report 'a Windows history file, read on Linux' ($onWindows.Count -eq 4 -and ($onWindows -join "`n") -ceq ($onLinux -join "`n")) "$($onWindows.Count) commands on Windows, $($onLinux.Count) on Linux, the same: $(($onWindows -join "`n") -ceq ($onLinux -join "`n"))"
 }
+
+"=== 5. the documents ==="
+$docs = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'docs-check.ps1') 2>&1
+$docs | Where-Object { $_ -match '^(PASS|FAIL)' } | ForEach-Object { "      $_" }
+Report 'README against the code' ($LASTEXITCODE -eq 0) "$(@($docs | Where-Object { $_ -match '^PASS' }).Count) of $(@($docs | Where-Object { $_ -match '^(PASS|FAIL)' }).Count) tables agree"
+$notices = pwsh -NoProfile -File (Join-Path $PSScriptRoot 'notices.ps1') -Check 2>&1 | Select-Object -Last 1
+Report 'THIRD-PARTY-NOTICES is up to date' ($LASTEXITCODE -eq 0) "$notices"
 
 $historyAfter = if (Test-Path $history) { (Get-Item $history).Length } else { 0 }
 Report 'the user''s history is not written' ($historyAfter -eq $historyBefore) "the history file: $historyBefore bytes before the round, $historyAfter after"

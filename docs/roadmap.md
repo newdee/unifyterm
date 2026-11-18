@@ -2,8 +2,8 @@
 
 ## 本期（M0–M7）
 
-- 已验收：M0、M1、M2、M3、M4、M5、M6。每轮验收的数字见 `docs/verification-log.md`。
-- 未做：M7。每个阶段做什么、怎么设计、怎么验证，见 `docs/plan.md`。
+- 已验收：M0、M1、M2、M3、M4、M5、M6、M7。M7 的发布步骤（推送、CI、签名、提交到 winget 和 Homebrew）等用户确认，见 `docs/release.md`。每轮验收的数字见 `docs/verification-log.md`。
+- 未做：无（发布本身等用户）。
 - 方案总览见 `demo/index.html` 的"方案"页。
 
 ## 挂账（未排期）

@@ -66,6 +66,11 @@ const REPLAY_SIZE: (u16, u16) = (100, 30);
 /// History kept by a replay's screen: none, it prints the last screen only.
 const REPLAY_HISTORY: usize = 0;
 
+/// `uni-term 0.1.0 (c5a6513)`: the version and the commit it was built from.
+fn version() -> String {
+    format!("{APP_NAME} {} ({})", env!("CARGO_PKG_VERSION"), env!("UNI_TERM_COMMIT"))
+}
+
 /// What the command line asked for.
 #[derive(Debug, PartialEq, Default)]
 struct Args {
@@ -109,7 +114,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Early> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Err(Early::Print(USAGE.into())),
-            "-V" | "--version" => return Err(Early::Print(format!("{APP_NAME} {}", env!("CARGO_PKG_VERSION")))),
+            "-V" | "--version" => return Err(Early::Print(version())),
             "--config" => {
                 let file = args.next().ok_or_else(|| Early::Usage("--config needs a file".into()))?;
                 parsed.config = Some(file.into());
@@ -676,6 +681,15 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_version_names_the_commit() {
+        let line = version();
+        let commit = line
+            .strip_prefix(&format!("uni-term {} (", env!("CARGO_PKG_VERSION")))
+            .and_then(|rest| rest.strip_suffix(')'))
+            .expect(&line);
+        assert!(commit == "unknown" || (commit.len() == 7 && commit.chars().all(|c| c.is_ascii_hexdigit())), "{line}");
+    }
     fn args(list: &[&str]) -> Result<Args, Early> {
         parse_args(list.iter().map(ToString::to_string))
     }

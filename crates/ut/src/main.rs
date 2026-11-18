@@ -16,6 +16,7 @@ mod links;
 mod mcp;
 mod md;
 mod slash;
+mod video;
 mod view;
 mod which;
 
@@ -282,6 +283,11 @@ On Windows a wildcard (*.txt) becomes the names it matches, as a Unix
 shell does it; in quotes (\"*.txt\") it stays as typed. Set UT_NO_GLOB
 to keep every wildcard as typed.";
 
+/// `ut 0.1.0 (c5a6513, 99 commands)`: the version, the commit it was built from, the commands.
+fn version() -> String {
+    format!("ut {} ({}, {} commands)", env!("CARGO_PKG_VERSION"), env!("UNI_TERM_COMMIT"), commands().len())
+}
+
 /// The skill file that tells an agent how to work in uni-term.
 const SKILL: &str = include_str!("../../../skills/uni-term/SKILL.md");
 
@@ -346,7 +352,7 @@ fn ut(args: &[OsString]) -> i32 {
             0
         }
         Some("--version" | "-V") => {
-            let _ = writeln!(out, "ut {} ({} commands)", env!("CARGO_PKG_VERSION"), commands().len());
+            let _ = writeln!(out, "{}", version());
             0
         }
         Some("--help" | "-h") => {
@@ -409,6 +415,16 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_version_names_the_commit_and_the_commands() {
+        let line = version();
+        let inside = line
+            .strip_prefix(&format!("ut {} (", env!("CARGO_PKG_VERSION")))
+            .and_then(|rest| rest.strip_suffix(" commands)"));
+        let (commit, count) = inside.and_then(|inside| inside.split_once(", ")).expect(&line);
+        assert!(commit == "unknown" || (commit.len() == 7 && commit.chars().all(|c| c.is_ascii_hexdigit())), "{line}");
+        assert_eq!(count.parse::<usize>().ok(), Some(commands().len()), "{line}");
+    }
     #[test]
     fn every_command_has_one_name() {
         let names: Vec<_> = commands().into_iter().map(|(name, _)| name).collect();

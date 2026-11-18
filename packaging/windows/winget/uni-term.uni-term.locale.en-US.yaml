@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: uni-term.uni-term
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: uni-term
+PackageName: uni-term
+License: MIT
+ShortDescription: One terminal for Windows, macOS and Linux, with the same Unix commands everywhere and a command history you can search as you type.
+Tags:
+  - terminal
+  - console
+  - shell
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

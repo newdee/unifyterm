@@ -6,6 +6,26 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+# `cargo deb -p uni-term --no-build` after `cargo build --release`: the .deb with both programs.
+[package.metadata.deb]
+name = "uni-term"
+maintainer = "uni-term <uni-term@users.noreply.github.com>"
+copyright = "2026, the uni-term authors"
+license-file = ["../../LICENSE", "0"]
+extended-description = "One terminal for Windows, macOS and Linux: the same Unix commands everywhere (ut), a command history you can search as you type, pictures and markdown in the terminal."
+section = "x11"
+priority = "optional"
+# The libraries it links, found by dpkg-shlibdeps; Vulkan is loaded at run time.
+depends = "$auto, libvulkan1"
+recommends = "mesa-vulkan-drivers, ffmpeg"
+assets = [
+    ["../../target/release/uni-term", "usr/bin/", "755"],
+    ["../../target/release/ut", "usr/bin/", "755"],
+    ["../../packaging/linux/uni-term.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/icons/uni-term-256.png", "usr/share/icons/hicolor/256x256/apps/uni-term.png", "644"],
+    ["../../packaging/icons/uni-term.svg", "usr/share/icons/hicolor/scalable/apps/uni-term.svg", "644"],
+    ["../../THIRD-PARTY-NOTICES", "usr/share/doc/uni-term/", "644"],
+]
 [lints]
 workspace = true
 

@@ -558,6 +558,28 @@ if ($Section -in 'all', 'graphics') {
         "SKIP  in Windows Terminal, ut view chooses sixel by itself: Windows Terminal is not installed here"
     }
 
+    # A video: 4 s, 64 × 64, red for 2 s, then blue (made here with ffmpeg, so its colors are known).
+    if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+        $video = Join-Path $work 'video.mp4'
+        ffmpeg -v error -y -f lavfi -i "color=c=$($quarters.red.TrimStart('#')):s=64x64:d=2:r=10" -f lavfi -i "color=c=$($quarters.blue.TrimStart('#')):s=64x64:d=2:r=10" -filter_complex '[0][1]concat=n=2:v=1[v]' -map '[v]' -pix_fmt yuv420p $video
+        # yuv420p keeps a color within a few steps of 255: 6 here.
+        function Near([string]$name, [string]$hex) { $p = PixelAt $name 40 120; $a = [Convert]::ToInt32($p.TrimStart('#'), 16); $b = [Convert]::ToInt32($hex.TrimStart('#'), 16); (0, 8, 16 | ForEach-Object { [Math]::Abs((($a -shr $_) -band 255) - (($b -shr $_) -band 255)) } | Measure-Object -Maximum).Maximum -le 6 }
+        Run 'video' "ut view '$video' --width 8{ENTER}{WAIT:1000}{SHOT:video-1s}{WAIT:2000}{SHOT:video-3s}{WAIT:2500}" | Out-Null
+        Report 'a video plays in the window, at its own pace' ((Near 'video-1s' $quarters.red) -and (Near 'video-3s' $quarters.blue)) "at 1 s: $(PixelAt 'video-1s' 40 120) (red $($quarters.red)); at 3 s: $(PixelAt 'video-3s' 40 120) (blue $($quarters.blue))"
+        $long = Join-Path $work 'video-long.mp4'
+        ffmpeg -v error -y -f lavfi -i 'testsrc=s=64x64:d=10:r=10' -pix_fmt yuv420p $long
+        $t = Run 'video-q' "ut view '$long' --width 8{ENTER}{WAIT:1500}q{WAIT:900}echo stopped-early{ENTER}{WAIT:700}"
+        $raw = Get-Content (Join-Path $work 'video-q.raw') -Raw
+        $shown = $raw.LastIndexOf("`e[?25h") -gt $raw.LastIndexOf("`e[?25l")
+        $left = @(Get-Process ffmpeg -ErrorAction SilentlyContinue).Count
+        Report 'q stops a video: the prompt is back, the cursor shown, no ffmpeg left' ((Count $t 'stopped-early') -ge 2 -and $shown -and $left -eq 0) "'stopped-early' on the screen: $(Count $t 'stopped-early') (typed 0.9 s after q); cursor shown: $shown; ffmpeg processes: $left"
+        $saved = $env:PATH; $env:PATH = Join-Path $env:SystemRoot 'System32'
+        try { $said = (& (Join-Path (Split-Path $Exe) 'ut.exe') view $video 2>&1 | Out-String); $code = $LASTEXITCODE } finally { $env:PATH = $saved }
+        Report 'no ffmpeg on PATH: ut view says how to get it' ($code -eq 1 -and $said -match 'needs ffmpeg' -and $said -match 'winget install') "exit $code; '$(($said -split "`n")[0].Trim())'"
+    } else {
+        "SKIP  videos: ffmpeg is not installed here"
+    }
+
     # Thirty pictures of 2048 × 2048 (16 MiB each once decoded): the terminal keeps at most 256 MiB of them.
     $big = 1..30 | ForEach-Object {
         $file = Join-Path $work "big-$_.png"

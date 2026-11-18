@@ -1,0 +1,124 @@
+# Every push and pull request, on Windows, macOS and Linux: the checks, a
+# release build, the commands' record, a start of the window, and the packages.
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # uni-term's data (history, log, links) in the run's own folder, never a home directory.
+  UNI_TERM_DATA_DIR: ${{ github.workspace }}/ci-data
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux libraries (GPUI's build needs their headers; lavapipe draws without a GPU)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev \
+            libvulkan-dev mesa-vulkan-drivers libfontconfig-dev libfreetype-dev xvfb dpkg-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: The ConPTY beside uni-term.exe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh tools/fetch-conpty.ps1
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Tests (with the 84 commands' record, the same on every system)
+        run: cargo test --workspace --locked
+
+      - name: Release build
+        run: cargo build --workspace --release --locked
+
+      - name: Licenses are listed and allowed
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-about --locked --features cli --version 0.9.3
+          pwsh tools/notices.ps1 -Check
+
+      - name: The window starts and runs a command (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:UNI_TERM_RAW_LOG = "$PWD/smoke.raw"
+          $p = Start-Process target/release/uni-term.exe -ArgumentList '-e','cmd','/c','echo smoke-ok' -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'uni-term did not end' }
+          # A release build is a window program: PowerShell waits for it only like this.
+          $null = Start-Process target/release/uni-term.exe -ArgumentList '--replay','smoke.raw' -RedirectStandardOutput smoke.txt -Wait -NoNewWindow
+          $screen = Get-Content -Raw smoke.txt
+          if ($screen -notmatch 'smoke-ok') { throw "not on the screen: $screen" }
+          'smoke-ok on the screen'
+
+      - name: The window starts and runs a command (Linux, X11 on xvfb, lavapipe)
+        if: runner.os == 'Linux'
+        run: |
+          export UNI_TERM_RAW_LOG="$PWD/smoke.raw"
+          timeout 60 xvfb-run -a target/release/uni-term -e sh -c 'echo smoke-ok'
+          target/release/uni-term --replay smoke.raw | grep smoke-ok
+
+      - name: The window starts and runs a command (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          export UNI_TERM_RAW_LOG="$PWD/smoke.raw"
+          ( target/release/uni-term -e sh -c 'echo smoke-ok' & pid=$!; sleep 30; kill $pid 2>/dev/null || true ) || true
+          target/release/uni-term --replay smoke.raw | grep smoke-ok
+
+      - name: Package (Windows MSI, WiX)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages | Where-Object name -eq 'uni-term' | ForEach-Object version
+          wix build packaging/windows/uni-term.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o "uni-term-$version-x64.msi"
+
+      - name: Package (Linux .deb and AppImage)
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb -p uni-term --no-build
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="uni-term") | .version')
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          LINUXDEPLOY="$PWD/linuxdeploy" APPIMAGE_EXTRACT_AND_RUN=1 bash packaging/linux/appimage.sh "$version"
+
+      - name: Package (macOS .app and .dmg)
+        if: runner.os == 'macOS'
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="uni-term") | .version')
+          bash packaging/macos/make-app.sh "$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uni-term-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            *.msi
+            target/debian/*.deb
+            *.AppImage
+            target/release/*.dmg

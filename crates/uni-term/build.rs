@@ -1,4 +1,5 @@
-//! On Windows, puts the ConPTY that `tools/fetch-conpty.ps1` fetched beside
+//! Gives the program the commit it is built from (`UNI_TERM_COMMIT`). On
+//! Windows, puts the ConPTY that `tools/fetch-conpty.ps1` fetched beside
 //! the built program, where the pty library looks for it before it falls
 //! back to Windows' own (older) one.
 
@@ -7,7 +8,10 @@ use std::path::Path;
 /// `conpty.dll` starts `OpenConsole.exe` from its own directory.
 const FILES: [&str; 2] = ["conpty.dll", "OpenConsole.exe"];
 
+include!("../../build/commit.rs");
+
 fn main() {
+    println!("cargo:rustc-env=UNI_TERM_COMMIT={}", commit());
     println!("cargo:rerun-if-changed=../../vendor/conpty/VERSION");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;

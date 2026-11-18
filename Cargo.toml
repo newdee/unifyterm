@@ -63,3 +63,8 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# xattr 0.2.3 (through gpui 0.2.2) does not build on Linux with libc 0.2.190 and later:
+# a copy with one line changed. See third-party/xattr-0.2.3/UNI-TERM-CHANGES.md.
+[patch.crates-io]
+xattr = { path = "third-party/xattr-0.2.3" }

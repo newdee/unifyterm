@@ -1,0 +1,32 @@
+# cargo-about: what THIRD-PARTY-NOTICES lists (tools/notices.ps1 makes it).
+# Only what goes into the programs: no build tools, no test helpers.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+# Every license a dependency may have. MPL-2.0 is file by file: the crates under it
+# (dwrote, option-ext) are used unchanged, and the notice names where their source is.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT-0",
+    "MPL-2.0",
+    "NCSA",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
