@@ -1,13 +1,41 @@
 # Written by unifyterm each time it starts: changes here are lost.
 # bash reads this instead of ~/.bashrc in unifyterm's tabs; it reads
-# ~/.bashrc first. `[history] enabled = false` in unifyterm's settings turns it off.
+# ~/.bashrc first (on macOS, your profile files: see below).
+# `[history] enabled = false` in unifyterm's settings turns it off.
 #
 # It tells unifyterm, in standard terminal marks, where the prompt starts
 # and ends (OSC 133;A and B), when a command starts (133;C), what it was
 # and how it ended (633;E, 133;D) and which directory this is (633;P;Cwd).
 # Adapted from keepane's shell hooks (MIT, same author).
 
-if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
+if [ -n "$UNIFYTERM_LOGIN" ]; then
+    # The first shell of a session (macOS, where terminals start login
+    # shells): the files a login bash reads, since bash started with
+    # --rcfile reads none of them. Shells started from this one are not
+    # login shells: the variable does not go on to them.
+    unset UNIFYTERM_LOGIN
+    if [ -f /etc/profile ]; then . /etc/profile; fi
+    for __unifyterm_file in ~/.bash_profile ~/.bash_login ~/.profile; do
+        if [ -f "$__unifyterm_file" ]; then
+            . "$__unifyterm_file"
+            break
+        fi
+    done
+    unset __unifyterm_file
+elif [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+
+# unifyterm's commands first in PATH again: the start files above may have
+# put other directories in front (macOS's /etc/profile puts the system's there).
+if [ -n "$UNIFYTERM_COMMANDS" ]; then
+    __unifyterm_rest=":$PATH:"
+    __unifyterm_rest=${__unifyterm_rest//":$UNIFYTERM_COMMANDS:"/:}
+    __unifyterm_rest=${__unifyterm_rest#:}
+    __unifyterm_rest=${__unifyterm_rest%:}
+    PATH="$UNIFYTERM_COMMANDS${__unifyterm_rest:+:$__unifyterm_rest}"
+    unset __unifyterm_rest
+fi
 
 # A mark's text: \ is written \\, ; is \x3b, a line break \x0a.
 __unifyterm_escape() {

@@ -73,7 +73,12 @@ $text = Get-ChildItem $site -Recurse -File -Include *.html, *.css, *.js, *.svg, 
 $private = @([regex]::Matches(($text -join "`n"), '(?i)[a-z]:[\\/]users[\\/]\w+|/home/\w+|/Users/\w+|[\w.+-]+@[\w-]+\.[a-z]{2,}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
 Report 'no home folder, no mail address' ($private.Count -eq 0) ("{0} found{1}" -f $private.Count, $(if ($private) { ": $($private -join ', ')" }))
 
-# 7. The page stays light: what a first visit downloads before the video is asked for.
+# 7. The version the page states is the workspace's.
+$version = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'Cargo.toml')), '(?m)^version = "([^"]+)"').Groups[1].Value
+$onPage = @([regex]::Matches($html + $js, '\b\d+\.\d+\.\d+\b') | ForEach-Object { $_.Value } | Where-Object { $_ -notmatch '^(127\.0\.0|0\.0\.0)' } | Sort-Object -Unique)
+Report 'the version is the workspace''s' ($onPage.Count -eq 1 -and $onPage[0] -ceq $version) ("Cargo.toml {0}, page {1}" -f $version, ($onPage -join ', '))
+
+# 8. The page stays light: what a first visit downloads before the video is asked for.
 $first = Get-ChildItem $site -Recurse -File | Where-Object { $_.Extension -ne '.mp4' -and $_.Name -ne 'LICENSES.md' }
 $bytes = ($first | Measure-Object Length -Sum).Sum
 $limit = 1500KB

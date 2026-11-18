@@ -2,6 +2,14 @@
 # PowerShell runs this after your profile, in unifyterm's tabs only.
 # `[commands] builtin = false` in unifyterm's settings turns all of it off.
 
+# 0. unifyterm's commands first in PATH: a login start (macOS) lets the system
+# put its own directories in front of them.
+if ($env:UNIFYTERM_COMMANDS) {
+    $rest = @($env:PATH -split [regex]::Escape([IO.Path]::PathSeparator) | Where-Object { $_ -and $_ -ne $env:UNIFYTERM_COMMANDS })
+    $env:PATH = (@($env:UNIFYTERM_COMMANDS) + $rest) -join [IO.Path]::PathSeparator
+    Remove-Variable rest -ErrorAction Ignore
+}
+
 # 1. unifyterm's commands (cat, ls, ...) are programs in PATH. PowerShell finds
 # an alias or a function of the same name first, so its own ones are removed.
 # An alias or function that is no longer PowerShell's own (yours) is kept.

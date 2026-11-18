@@ -21,6 +21,8 @@ use crate::session;
 /// The environment variable that tells programs where UnifyTerm's commands
 /// are. The PowerShell start script reads it (`start.ps1`).
 const COMMANDS_VARIABLE: &str = "UNIFYTERM_COMMANDS";
+/// Tells bash's hook to read the profile files a login bash reads (see [`ShellStart::Login`]).
+const LOGIN_VARIABLE: &str = "UNIFYTERM_LOGIN";
 
 /// PowerShell's aliases that hide a command of UnifyTerm's, each with the
 /// cmdlet it stands for when nobody has changed it.
@@ -300,19 +302,42 @@ fn powershell_arguments(scripts: &[&Path]) -> [String; 3] {
     ["-NoExit".into(), "-Command".into(), run.join("; ")]
 }
 
+/// How a tab's shell is started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShellStart {
+    /// As a login shell: it reads the profile files (`/etc/zprofile`,
+    /// `~/.zprofile`, `~/.bash_profile`, ...), where `PATH` gets Homebrew's and
+    /// the user's own directories. Every terminal on macOS does this: a program
+    /// started from the Finder has the system's short `PATH` and nothing else,
+    /// so without it `brew`, and whatever a `.zshrc` expects to find, is missing.
+    Login,
+    /// As a shell inside a session that has read the profile files already:
+    /// a Linux desktop, Windows.
+    Plain,
+}
+
+impl ShellStart {
+    /// What terminals do on this system.
+    pub(crate) const fn here() -> Self {
+        if cfg!(target_os = "macos") { Self::Login } else { Self::Plain }
+    }
+}
+
 /// The program a tab runs (the default shell when `program` is `None`),
 /// with UnifyTerm's commands in its way when `commands` has them, and the
 /// history's hook when `hooks` has it.
 ///
-/// A shell gets start scripts and hooks only when the settings give it no
-/// arguments of its own: arguments the user wrote are the user's.
+/// A shell gets start scripts, hooks and its login argument only when the
+/// settings give it no arguments of its own: arguments the user wrote are
+/// the user's.
 pub(crate) fn command(
     program: Option<&str>,
     args: &[String],
     commands: Option<&Commands>,
     hooks: Option<&Hooks>,
+    start: ShellStart,
 ) -> Result<CommandBuilder> {
-    let mut command = session::shell_command(program, args)?;
+    let mut command = session::shell_command(program, args);
     if let Some(commands) = commands {
         command.env("PATH", path_with(&commands.directory, std::env::var_os("PATH"))?);
         command.env(COMMANDS_VARIABLE, &commands.directory);
@@ -321,8 +346,13 @@ pub(crate) fn command(
         return Ok(command);
     }
     let kind = command.get_argv().first().map_or(ShellKind::Other, |program| shell_kind(&program.to_string_lossy()));
+    let login = start == ShellStart::Login;
     match (kind, hooks) {
         (ShellKind::PowerShell, _) => {
+            if login {
+                // PowerShell takes it as its first argument only.
+                command.arg("-Login");
+            }
             // UnifyTerm's commands first: the hook then wraps the prompt they set.
             let scripts: Vec<&Path> =
                 [commands.map(|c| c.powershell_start.as_path()), hooks.map(|h| h.powershell.as_path())]
@@ -333,15 +363,32 @@ pub(crate) fn command(
                 command.args(powershell_arguments(&scripts));
             }
         }
-        (ShellKind::Bash, Some(hooks)) => command.args([OsString::from("--rcfile"), hooks.bash.clone().into()]),
-        (ShellKind::Zsh, Some(hooks)) => {
-            let own = std::env::var_os("ZDOTDIR").or_else(|| dirs::home_dir().map(PathBuf::into_os_string));
-            command.env("UNIFYTERM_ZDOTDIR", own.unwrap_or_default());
-            command.env("ZDOTDIR", &hooks.zsh);
+        (ShellKind::Bash, Some(hooks)) => {
+            // A login bash reads no --rcfile: the hook reads the profile files in its place.
+            if login {
+                command.env(LOGIN_VARIABLE, "1");
+            }
+            command.args([OsString::from("--rcfile"), hooks.bash.clone().into()]);
         }
-        (ShellKind::Fish, Some(hooks)) => {
-            let source = format!("source '{}'", hooks.fish.to_string_lossy().replace('\'', "\\'"));
-            command.args(["--init-command".to_owned(), source]);
+        (ShellKind::Bash, None) if login => command.arg("-l"),
+        (ShellKind::Zsh, hooks) => {
+            if login {
+                command.arg("-l");
+            }
+            if let Some(hooks) = hooks {
+                let own = std::env::var_os("ZDOTDIR").or_else(|| dirs::home_dir().map(PathBuf::into_os_string));
+                command.env("UNIFYTERM_ZDOTDIR", own.unwrap_or_default());
+                command.env("ZDOTDIR", &hooks.zsh);
+            }
+        }
+        (ShellKind::Fish, hooks) => {
+            if login {
+                command.arg("-l");
+            }
+            if let Some(hooks) = hooks {
+                let source = format!("source '{}'", hooks.fish.to_string_lossy().replace('\'', "\\'"));
+                command.args(["--init-command".to_owned(), source]);
+            }
         }
         (ShellKind::Cmd, Some(_)) => {
             let own = std::env::var("PROMPT").ok();
@@ -431,31 +478,101 @@ mod tests {
     #[test]
     fn each_shell_gets_its_hook_and_only_without_arguments_of_the_users() {
         let (commands, hooks) = (ready(), hooked());
-        let powershell = command(Some("pwsh.exe"), &[], Some(&commands), Some(&hooks)).unwrap();
+        let powershell = command(Some("pwsh.exe"), &[], Some(&commands), Some(&hooks), ShellStart::Plain).unwrap();
         assert_eq!(
             argv(&powershell)[1..],
             ["-NoExit", "-Command", ". '/data/unifyterm/shell/start.ps1'; . '/data/unifyterm/shell/hooks/hook.ps1'"],
             "the commands' script first: the hook wraps the prompt it sets"
         );
-        let only_hook = command(Some("pwsh.exe"), &[], None, Some(&hooks)).unwrap();
+        let only_hook = command(Some("pwsh.exe"), &[], None, Some(&hooks), ShellStart::Plain).unwrap();
         assert_eq!(argv(&only_hook)[3], ". '/data/unifyterm/shell/hooks/hook.ps1'");
         assert_eq!(
-            argv(&command(Some("bash"), &[], None, Some(&hooks)).unwrap()),
+            argv(&command(Some("bash"), &[], None, Some(&hooks), ShellStart::Plain).unwrap()),
             ["bash", "--rcfile", "/data/unifyterm/shell/hooks/bashrc"]
         );
-        let zsh = command(Some("/bin/zsh"), &[], None, Some(&hooks)).unwrap();
+        let zsh = command(Some("/bin/zsh"), &[], None, Some(&hooks), ShellStart::Plain).unwrap();
         assert_eq!(zsh.get_env("ZDOTDIR"), Some(std::ffi::OsStr::new("/data/unifyterm/shell/hooks/zsh")));
         assert!(zsh.get_env("UNIFYTERM_ZDOTDIR").is_some_and(|own| !own.is_empty()), "where the user's own files are");
         assert_eq!(
-            argv(&command(Some("fish"), &[], None, Some(&hooks)).unwrap()),
+            argv(&command(Some("fish"), &[], None, Some(&hooks), ShellStart::Plain).unwrap()),
             ["fish", "--init-command", "source '/data/unifyterm/shell/hooks/hook.fish'"]
         );
-        let cmd = command(Some("cmd.exe"), &[], None, Some(&hooks)).unwrap();
+        let cmd = command(Some("cmd.exe"), &[], None, Some(&hooks), ShellStart::Plain).unwrap();
         let prompt = cmd.get_env("PROMPT").unwrap().to_string_lossy().into_owned();
         assert!(prompt.contains("]133;A") && prompt.ends_with("$E]133;B$E\\"), "{prompt}");
         let own = ["-NoProfile".to_owned()];
-        assert_eq!(argv(&command(Some("bash"), &own, None, Some(&hooks)).unwrap()), ["bash", "-NoProfile"]);
-        assert_eq!(argv(&command(Some("nu"), &[], None, Some(&hooks)).unwrap()), ["nu"], "a shell with no hook");
+        assert_eq!(
+            argv(&command(Some("bash"), &own, None, Some(&hooks), ShellStart::Plain).unwrap()),
+            ["bash", "-NoProfile"]
+        );
+        assert_eq!(
+            argv(&command(Some("nu"), &[], None, Some(&hooks), ShellStart::Plain).unwrap()),
+            ["nu"],
+            "a shell with no hook"
+        );
+    }
+
+    #[test]
+    fn a_login_start_makes_each_shell_read_its_profile_files() {
+        let (commands, hooks) = (ready(), hooked());
+        let login = ShellStart::Login;
+        assert_eq!(argv(&command(Some("/bin/zsh"), &[], None, None, login).unwrap()), ["/bin/zsh", "-l"]);
+        let zsh = command(Some("/bin/zsh"), &[], Some(&commands), Some(&hooks), login).unwrap();
+        assert_eq!(argv(&zsh), ["/bin/zsh", "-l"]);
+        assert_eq!(
+            zsh.get_env("ZDOTDIR"),
+            Some(std::ffi::OsStr::new("/data/unifyterm/shell/hooks/zsh")),
+            "the hook's files still"
+        );
+        assert_eq!(zsh.get_env(LOGIN_VARIABLE), None, "zsh's own -l is enough");
+
+        let bash = command(Some("bash"), &[], None, Some(&hooks), login).unwrap();
+        assert_eq!(
+            argv(&bash),
+            ["bash", "--rcfile", "/data/unifyterm/shell/hooks/bashrc"],
+            "no -l: it would skip the hook"
+        );
+        assert_eq!(bash.get_env(LOGIN_VARIABLE), Some(std::ffi::OsStr::new("1")), "the hook reads the profile files");
+        assert_eq!(argv(&command(Some("bash"), &[], Some(&commands), None, login).unwrap()), ["bash", "-l"]);
+
+        assert_eq!(
+            argv(&command(Some("fish"), &[], None, Some(&hooks), login).unwrap()),
+            ["fish", "-l", "--init-command", "source '/data/unifyterm/shell/hooks/hook.fish'"]
+        );
+        assert_eq!(argv(&command(Some("fish"), &[], None, None, login).unwrap()), ["fish", "-l"]);
+
+        let powershell = command(Some("pwsh"), &[], Some(&commands), Some(&hooks), login).unwrap();
+        assert_eq!(argv(&powershell)[1..3], ["-Login", "-NoExit"], "-Login is PowerShell's first argument");
+        assert_eq!(argv(&command(Some("pwsh"), &[], None, None, login).unwrap()), ["pwsh", "-Login"]);
+
+        assert_eq!(
+            argv(&command(Some("nu"), &[], None, Some(&hooks), login).unwrap()),
+            ["nu"],
+            "a shell it does not know"
+        );
+        let own = ["-f".to_owned()];
+        assert_eq!(
+            argv(&command(Some("/bin/zsh"), &own, None, Some(&hooks), login).unwrap()),
+            ["/bin/zsh", "-f"],
+            "the user's arguments are left as they are"
+        );
+        // A plain start adds none of it.
+        let plain = command(Some("bash"), &[], None, Some(&hooks), ShellStart::Plain).unwrap();
+        assert_eq!(plain.get_env(LOGIN_VARIABLE), None);
+        assert_eq!(argv(&command(Some("/bin/zsh"), &[], None, None, ShellStart::Plain).unwrap()), ["/bin/zsh"]);
+        assert_eq!(ShellStart::here() == ShellStart::Login, cfg!(target_os = "macos"), "macOS only");
+    }
+
+    #[test]
+    fn the_hooks_put_the_commands_first_again_and_bash_reads_the_profile() {
+        for (name, text) in [("bash", BASH_HOOK), ("zsh", ZSH_HOOK), ("fish", FISH_HOOK)] {
+            assert!(text.contains("UNIFYTERM_COMMANDS"), "{name}'s hook puts the commands' directory first in PATH");
+        }
+        assert!(BASH_HOOK.contains(LOGIN_VARIABLE) && BASH_HOOK.contains("~/.bash_profile ~/.bash_login ~/.profile"));
+        assert!(
+            POWERSHELL_START.contains("$env:UNIFYTERM_COMMANDS) + $rest"),
+            "PowerShell's start script does the same"
+        );
     }
 
     #[test]
@@ -516,25 +633,25 @@ mod tests {
     #[test]
     fn powershell_gets_the_start_script_and_other_shells_do_not() {
         let commands = ready();
-        let powershell = command(Some("pwsh.exe"), &[], Some(&commands), None).unwrap();
+        let powershell = command(Some("pwsh.exe"), &[], Some(&commands), None, ShellStart::Plain).unwrap();
         assert_eq!(argv(&powershell)[1..], ["-NoExit", "-Command", ". '/data/unifyterm/shell/start.ps1'"]);
         assert_eq!(powershell.get_env(COMMANDS_VARIABLE), Some(std::ffi::OsStr::new("/data/unifyterm/bin")));
         let first = powershell.get_env("PATH").map(|path| std::env::split_paths(path).next());
         assert_eq!(first, Some(Some(PathBuf::from("/data/unifyterm/bin"))));
 
         assert_eq!(
-            argv(&command(Some("bash"), &[], Some(&commands), None).unwrap()),
+            argv(&command(Some("bash"), &[], Some(&commands), None, ShellStart::Plain).unwrap()),
             ["bash"],
             "PATH is enough for bash"
         );
         let own = ["-NoProfile".to_owned()];
-        let with_own = command(Some("pwsh.exe"), &own, Some(&commands), None).unwrap();
+        let with_own = command(Some("pwsh.exe"), &own, Some(&commands), None, ShellStart::Plain).unwrap();
         assert_eq!(argv(&with_own), ["pwsh.exe", "-NoProfile"], "the user's arguments are left as they are");
     }
 
     #[test]
     fn without_commands_the_shell_is_started_as_it_is() {
-        let plain = command(Some("pwsh.exe"), &[], None, None).unwrap();
+        let plain = command(Some("pwsh.exe"), &[], None, None, ShellStart::Plain).unwrap();
         assert_eq!(argv(&plain), ["pwsh.exe"]);
         assert_eq!(plain.get_env(COMMANDS_VARIABLE), None);
     }

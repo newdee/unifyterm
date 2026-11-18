@@ -13,10 +13,23 @@ function Report([string]$what, [bool]$ok, [string]$detail) {
     if (-not $ok) { $script:failed++ }
     "{0}  {1,-34} {2}" -f $(if ($ok) { 'PASS' } else { 'FAIL' }), $what, $detail
 }
+# Variables PowerShell keeps for itself: giving one a value stops the script
+# when that line runs, which the parser does not see. Names are compared
+# without regard to case, as PowerShell compares them ($home is $HOME).
+# $null is not among them: a value given to it is thrown away, which scripts do on purpose.
+$readOnly = 'HOME', 'PID', 'PSHOME', 'Host', 'ShellId', 'ExecutionContext', 'PSVersionTable', 'PSCulture', 'PSUICulture', 'PSEdition', 'true', 'false', 'IsWindows', 'IsLinux', 'IsMacOS', 'IsCoreCLR'
 function Test-PowerShell([string]$text) {
     $errors = $null
-    $null = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
-    @($errors | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" })
+    $tree = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+    $found = @($errors | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" })
+    $assigned = $tree.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
+    foreach ($assignment in $assigned) {
+        $left = $assignment.Left
+        if ($left -is [System.Management.Automation.Language.VariableExpressionAst] -and $left.VariablePath.UserPath -in $readOnly) {
+            $found += "line $($left.Extent.StartLineNumber): `$$($left.VariablePath.UserPath) is PowerShell's own variable and cannot be given a value"
+        }
+    }
+    $found
 }
 function Test-Bash([string]$path) {
     if ($IsWindows) {

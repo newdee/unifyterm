@@ -12,6 +12,12 @@
 # From here on, zsh finds your files where they are.
 ZDOTDIR="$UNIFYTERM_ZDOTDIR"
 
+# unifyterm's commands first in PATH again: the start files above may have
+# put other directories in front (macOS's /etc/zprofile puts the system's there).
+if [[ -n "$UNIFYTERM_COMMANDS" ]]; then
+    path=("$UNIFYTERM_COMMANDS" ${path:#${(b)UNIFYTERM_COMMANDS}})
+fi
+
 __unifyterm_escape() {
     local s=${1//\\/\\\\}
     s=${s//;/\\x3b}

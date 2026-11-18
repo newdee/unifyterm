@@ -46,7 +46,7 @@ Compare-Sets 'keys' @($codeKeys | Sort-Object -Unique) @($documentedAll | Sort-O
 
 # Environment variables the code reads, less the ones that are not unifyterm's own.
 # Not unifyterm's own: the system's, an internal one, and conventions other programs share (named in a sentence below the table).
-$notOwn = 'PATH', 'PATHEXT', 'PROMPT', 'SHELL', 'ZDOTDIR', 'UNIFYTERM_COMMANDS'
+$notOwn = 'PATH', 'PATHEXT', 'PROMPT', 'SHELL', 'ZDOTDIR', 'UNIFYTERM_COMMANDS', 'UNIFYTERM_LOGIN'
 $conventions = 'NO_COLOR', 'JQ_COLORS'
 $sources = Get-ChildItem (Join-Path $root 'crates') -Recurse -Include *.rs | Where-Object { $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -ne 'build.rs' } | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }
 $variables = foreach ($text in $sources) {

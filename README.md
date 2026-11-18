@@ -93,7 +93,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 | `font.ligatures` | `true` | `->`, `!=` and the like as one shape, where the font has them |
 | `font.fallbacks` | Microsoft YaHei UI, Segoe UI Emoji, Segoe UI Symbol (Windows); PingFang SC, Apple Color Emoji (macOS); Noto Sans CJK SC, Noto Color Emoji (Linux) | Fonts tried, in order, for characters the font lacks |
 | `shell.program` | PowerShell (Windows), `$SHELL` (elsewhere) | The program a new tab runs |
-| `shell.args` | `[]` | Its arguments |
+| `shell.args` | `[]` | Its arguments. With arguments of your own the shell gets nothing from UnifyTerm: no history hook, no login start |
 | `terminal.scrollback` | `10000` | Lines kept for each tab, at most 1000000 |
 | `terminal.padding` | `6` | Pixels between the window's edge and the text, 0 to 64 |
 | `theme.foreground` | built-in | `#rrggbb` |
@@ -119,6 +119,12 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 
 Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first.
+
+A tab starts in your home directory, however UnifyTerm was started: from the Dock, the Start menu, a launcher or another shell. `unifyterm --cwd DIRECTORY` starts the tabs in another one (`unifyterm --cwd .` for the directory you are in).
+
+On macOS a tab's shell is a login shell, as in Terminal.app: zsh and fish get `-l`, PowerShell `-Login`, and bash reads `/etc/profile` and your `~/.bash_profile` (or `~/.bash_login`, `~/.profile`). A program started from the Finder has only the system's short `PATH`; the profile files are where Homebrew's and your own directories come from. On Linux and Windows the shell is started plainly, as other terminals there do.
+
+After a shell's start files have run, UnifyTerm's commands are put first in `PATH` again (bash, zsh, fish, PowerShell): your files may add directories, but `cat` stays UnifyTerm's. `commands.system` names the commands you want from the system instead.
 
 ## Environment variables
 
@@ -166,7 +172,9 @@ The history is one SQLite file, `history.db`; a copy works on every system.
 - UnifyTerm draws kitty's graphics protocol; sixel and iTerm2 images are for `ut view` in other terminals.
 - PowerShell's Tab completion still writes paths with `\`; `ls -R` and `find -exec` print uutils' own `\` paths on Windows.
 - The shell hooks (history, the list while typing) need PowerShell 7 or 5.1, cmd, bash, zsh or fish.
-- macOS has not been used by hand: CI builds it, runs the tests and starts it.
+- macOS: CI builds it, runs the tests and starts it; by hand it has been used little. 0.1.0 did not start a login shell there (`PATH` lacked Homebrew) and started tabs in `/`: both fixed in 0.1.1.
+- On macOS with `history.enabled = false`, zsh, bash and fish have no start file of UnifyTerm's, so the system's directories come before UnifyTerm's commands in `PATH`.
+- The agent sidebar finds `keepane` in UnifyTerm's own `PATH` or, on macOS and Linux, where your login shell finds it (`$SHELL -l -c 'command -v keepane'`, asked once). A `PATH` that only your `.zshrc` sets is not seen: then give `agents.command` keepane's full path.
 - The builds are not signed.
 
 ## License

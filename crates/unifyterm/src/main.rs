@@ -44,10 +44,11 @@ const TAB_BAR_HEIGHT: f32 = 34.;
 const SIDEBAR_WIDTH: f32 = 300.;
 /// The longest title a tab shows, in characters.
 const TAB_TITLE_CHARS: usize = 28;
-const USAGE: &str = "usage: unifyterm [--config FILE] [-e PROGRAM [ARGS...]]
+const USAGE: &str = "usage: unifyterm [--config FILE] [--cwd DIRECTORY] [-e PROGRAM [ARGS...]]
        unifyterm --replay FILE [--size COLUMNSxLINES]
 
   --config FILE        read settings from FILE, not the default config.toml
+  --cwd DIRECTORY      start the tabs in DIRECTORY, not in your home directory
   -e PROGRAM [ARGS...] run PROGRAM in the first tab, not the shell
   --replay FILE        print the screen that FILE's bytes draw, and leave:
                        FILE is what a program printed, as UNIFYTERM_RAW_LOG saves it
@@ -77,6 +78,8 @@ struct Args {
     config: Option<PathBuf>,
     /// The first tab's program and its arguments.
     command: Option<(String, Vec<String>)>,
+    /// The directory the tabs start in, when one was asked for.
+    cwd: Option<PathBuf>,
     /// A file of terminal output to draw and print, with no window.
     replay: Option<PathBuf>,
     /// The replay's screen size as (columns, lines).
@@ -119,6 +122,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Early> {
                 let file = args.next().ok_or_else(|| Early::Usage("--config needs a file".into()))?;
                 parsed.config = Some(file.into());
             }
+            "--cwd" => {
+                let directory = args.next().ok_or_else(|| Early::Usage("--cwd needs a directory".into()))?;
+                parsed.cwd = Some(directory.into());
+            }
             "--replay" => {
                 let file = args.next().ok_or_else(|| Early::Usage("--replay needs a file".into()))?;
                 parsed.replay = Some(file.into());
@@ -139,6 +146,26 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, Early> {
     Ok(parsed)
 }
 
+/// The directory the tabs' programs start in: the one `--cwd` names, else
+/// the home directory.
+///
+/// A terminal is where work starts. It is opened from the Dock, the Start
+/// menu or a launcher far more often than from another shell, and the
+/// directory such a start leaves it in (`/` from the Finder, its own folder
+/// from a Windows shortcut) is nobody's choice: so that directory is not
+/// used, on any system. The current directory is only the last resort, for
+/// an account with no home directory.
+fn tab_directory(asked: Option<&std::path::Path>, home: Option<PathBuf>) -> Result<PathBuf, String> {
+    let Some(asked) = asked else {
+        return home
+            .filter(|home| home.is_dir())
+            .or_else(|| std::env::current_dir().ok())
+            .ok_or_else(|| "no home directory and no current directory to start in".to_owned());
+    };
+    let directory = std::path::absolute(asked).map_err(|error| format!("--cwd {}: {error}", asked.display()))?;
+    if directory.is_dir() { Ok(directory) } else { Err(format!("--cwd {}: not a directory", asked.display())) }
+}
+
 struct Tab {
     view: Entity<TerminalView>,
     /// What the tab is called until its program sets a title.
@@ -156,6 +183,8 @@ struct Workspace {
     recorder: Option<recorder::Recorder>,
     /// The shells' hooks: with the history on.
     hooks: Option<Hooks>,
+    /// Where each tab's program starts (see [`tab_directory`]).
+    directory: PathBuf,
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
     sidebar: Sidebar,
@@ -179,6 +208,7 @@ struct Start {
     commands: Option<Commands>,
     recorder: Option<recorder::Recorder>,
     hooks: Option<Hooks>,
+    directory: PathBuf,
     helper: Arc<helper::Helper>,
     /// The first tab's program and its arguments; the shell when `None`.
     command: Option<(String, Vec<String>)>,
@@ -189,9 +219,10 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, commands, recorder, hooks, helper, command, notices } = start;
+        let Start { settings, commands, recorder, hooks, directory, helper, command, notices } = start;
         let sidebar = Sidebar::default();
-        let mut workspace = Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, helper, sidebar };
+        let mut workspace =
+            Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, directory, helper, sidebar };
         workspace.open(command, window, cx);
         if workspace.settings.config.agents.sidebar {
             workspace.toggle_agents(cx);
@@ -252,7 +283,9 @@ impl Workspace {
         program: Option<&str>,
         args: &[String],
     ) -> anyhow::Result<((session::Session, smol::channel::Receiver<session::PtyEvent>), String)> {
-        let command = shell::command(program, args, self.commands.as_ref(), self.hooks.as_ref())?;
+        let mut command =
+            shell::command(program, args, self.commands.as_ref(), self.hooks.as_ref(), shell::ShellStart::here())?;
+        command.cwd(&self.directory);
         let name = command.get_argv().first().map(|program| tab_name(&program.to_string_lossy())).unwrap_or_default();
         Ok((TerminalView::start(command, &self.settings)?, name))
     }
@@ -631,6 +664,13 @@ fn main() {
         }
         return;
     }
+    let directory = match tab_directory(args.cwd.as_deref(), dirs::home_dir()) {
+        Ok(directory) => directory,
+        Err(problem) => {
+            complain(&format!("{problem}\n{USAGE}"));
+            std::process::exit(2);
+        }
+    };
     logging::init();
     // A settings file with a mistake does not keep the terminal from
     // opening: it opens with the defaults and says what is wrong.
@@ -661,7 +701,7 @@ fn main() {
     notices.extend(told);
     let settings = Arc::new(Settings { config, theme });
     let helper = Arc::new(helper);
-    let start = Start { settings, commands, recorder, hooks, helper, command: args.command, notices };
+    let start = Start { settings, commands, recorder, hooks, directory, helper, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());
@@ -704,6 +744,29 @@ mod tests {
         let parsed = args(&["--config", "c.toml", "-e", "nvim", "--config", "-e", "x"]).unwrap();
         assert_eq!(parsed.config, Some("c.toml".into()));
         assert_eq!(parsed.command, Some(("nvim".into(), vec!["--config".into(), "-e".into(), "x".into()])));
+    }
+
+    #[test]
+    fn the_tabs_start_at_home_unless_a_directory_is_asked_for() {
+        let home = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let at_home = Some(home.path().to_path_buf());
+        // Whatever directory the program itself was started in (the tests': the crate's) is not used.
+        assert_eq!(tab_directory(None, at_home.clone()), Ok(home.path().to_path_buf()));
+        assert_ne!(tab_directory(None, at_home.clone()).ok(), std::env::current_dir().ok());
+        assert_eq!(tab_directory(Some(other.path()), at_home.clone()), Ok(other.path().to_path_buf()));
+        let relative = tab_directory(Some(std::path::Path::new(".")), at_home.clone()).unwrap();
+        assert!(relative.is_absolute(), "a relative one is taken from where the command was typed: {relative:?}");
+        let missing = other.path().join("not-there");
+        let refused = tab_directory(Some(&missing), at_home).unwrap_err();
+        assert!(refused.starts_with("--cwd ") && refused.ends_with(": not a directory"), "{refused}");
+        // An account whose home directory is gone still gets a tab: where the program was started.
+        assert_eq!(tab_directory(None, Some(missing)).ok(), std::env::current_dir().ok());
+        assert_eq!(tab_directory(None, None).ok(), std::env::current_dir().ok());
+
+        assert_eq!(args(&["--cwd", "work", "-e", "sh"]).unwrap().cwd, Some("work".into()));
+        assert_eq!(args(&["--cwd"]), Err(Early::Usage("--cwd needs a directory".into())));
+        assert_eq!(args(&["-e", "sh", "--cwd", "x"]).unwrap().cwd, None, "after -e it is the program's");
     }
 
     #[test]

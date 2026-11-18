@@ -96,6 +96,9 @@ if (-not $SkipLinux) {
     Report 'cargo test -p ut on Linux' ($results.Count -gt 0 -and $linuxFailed -eq 0) "$linuxPassed passed, $linuxFailed failed; $(($linux | Where-Object { $_ -match 'cases;' } | Select-Object -First 1))"
     $hooks = ($linux | Where-Object { $_ -match '^shell hooks:' } | Select-Object -Last 1)
     Report 'bash, zsh, fish hooks print their marks' ($hooks -match ', 0 missing' -and $hooks -notmatch ': 0 complete') "$hooks"
+    $starts = ($linux | Where-Object { $_ -match '^start files:' } | Select-Object -Last 1)
+    $linux | Where-Object { $_ -match '^WRONG ' } | ForEach-Object { "      $_" }
+    Report 'profile files are read, commands stay first' ($starts -match ', 0 wrong' -and $starts -notmatch ': 0 as expected') "$starts"
     $linux | Where-Object { $_ -match '^MISSING|not installed' } | ForEach-Object { "      $_" }
     $gnu = ($linux | Where-Object { $_ -match 'against GNU grep' } | Select-Object -Last 1)
     Report 'grep against GNU grep' ($linuxExit -eq 0 -and $gnu -match ', 0 differ') "$gnu"

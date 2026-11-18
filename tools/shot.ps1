@@ -110,7 +110,11 @@ function Save-Shot([IntPtr]$h, [string]$path) {
     "saved ${w}x${ht} (PrintWindow: $ok) -> $path"
 }
 
-$p = if ($App) { Start-Process -FilePath $Exe -ArgumentList $App -PassThru } else { Start-Process -FilePath $Exe -PassThru }
+# UnifyTerm starts its tabs in the home directory. What is typed here must not
+# land there: the tab starts where this script was started. (/ for \: a path
+# that ends in \ would take the closing quote with it.)
+$here = (Get-Location).Path.Replace('\', '/')
+$p = Start-Process -FilePath $Exe -ArgumentList "--cwd `"$here`" $App" -PassThru
 $deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
     $p.Refresh()

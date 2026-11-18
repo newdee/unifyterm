@@ -1,5 +1,58 @@
 # 验收记录
 
+## 2026-11-19 · 0.1.1：macOS 上从桌面启动的三个问题
+
+用户第一次在 Mac 上手工打开 0.1.0，报告：`.zshrc` 第 66 行找不到 `/share/zsh-syntax-highlighting/…`，`zoxide` 和 `keepane` 找不到命令；追问后确认标签页开在 `/`。
+
+### 定性
+
+根因是同一个假设：**UnifyTerm 自己的启动环境（PATH、当前目录）就是用户的环境。** 从另一个 shell 里启动时成立；从访达、程序坞、开始菜单启动时不成立，而后者才是一个终端的常态（用户的原话："我们就是 term，为什么一定要从 shell 进"）。这是结构缺陷，不是边界遗漏。全仓找出这个假设的 4 处：
+
+| # | 位置 | 表现 | 处理 |
+|---|---|---|---|
+| 1 | `shell.rs` 的 `command()`：zsh 不带 `-l` 启动 | macOS 上不读 `/etc/zprofile` 和 `~/.zprofile`，PATH 里没有 Homebrew。用户报告的就是这个 | 新增 `ShellStart`（`Login` / `Plain`）；macOS 用 `Login`：zsh 加 `-l` |
+| 2 | 同上：bash、fish、PowerShell | 同样没有登录启动 | fish 加 `-l`，PowerShell 加 `-Login`（必须是第一个参数）；bash 带 `--rcfile` 时不能用 `-l`，由钩子读 `/etc/profile` 和 `~/.bash_profile`（或 `.bash_login`、`.profile`） |
+| 3 | `session.rs` 的 `shell_command()`：标签页的目录取进程的当前目录 | 访达启动是 `/`；MSI 的开始菜单快捷方式是安装目录（`unifyterm.wxs` 写的 `WorkingDirectory="INSTALLFOLDER"`） | 标签页一律从主目录开始；`--cwd 目录` 指定别的。不再继承启动时的当前目录，也不去猜"这个目录是不是启动器留下的" |
+| 4 | `agents.rs` 的 `run()`：用进程自己的 PATH 找 `keepane` | 访达启动时找不到，侧栏是空的 | 找不到时用登录 shell 找一次（`$SHELL -l -c 'command -v 名字'`），结果记住；只接受不含特殊字符的名字 |
+
+第 3 条我先提的方案是"当前目录是 `/` 或程序所在目录时才改用主目录"。用户指出前提反了：不该把从 shell 启动当常态、把桌面启动当例外去识别。改成上表的规则后，那套判断整个不需要。
+
+### 修改会不会引入新问题
+
+| 风险 | 结论 |
+|---|---|
+| 登录启动后，macOS 的 `/etc/zprofile`（`path_helper`）把系统目录排到 PATH 最前，UnifyTerm 的 `cat`、`grep` 被系统的盖住 | 会。所以 bash、zsh、fish 的钩子和 PowerShell 的启动脚本在启动文件跑完后，把命令目录放回第一位。Linux 上用户的 `.bashrc` 往前加的目录也因此排到了后面：这和 README 里 `commands.builtin` 的说明一致，但和 0.1.0 的实际行为不同，已告诉用户，README 写明用 `commands.system` 选系统的命令 |
+| `history.enabled = false` 时没有钩子文件，macOS 上放不回第一位 | 成立，没有修，写进 README 的已知限制 |
+| 测试工具都靠"在哪启动就在哪开标签页" | `shot.ps1` 改成总是传 `--cwd 当前目录`，`verify.ps1` 和 `promo.ps1` 经它启动，行为不变。否则实机检查会在用户的主目录里敲命令 |
+| Windows 和 Linux 的 shell 启动参数 | 不变：`ShellStart::here()` 只在 macOS 返回 `Login`，单元测试里有断言；原有 12 处测试调用都用 `Plain`，结果不变 |
+| 从 shell 里运行 `unifyterm` | 行为变了：开在主目录，不是当前目录。要原来的效果写 `unifyterm --cwd .`。已告诉用户 |
+| 用户给了 `shell.args` | 不变：不加登录参数，也不加钩子 |
+
+### 发现并修掉的问题（每次发现后干净轮数归零）
+
+| # | 视角 | 问题 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | 文档对代码 | 新加的环境变量 `UNIFYTERM_LOGIN` 不在 README 的表里，`docs-check` 报出来。 | 它是内部变量，和 `UNIFYTERM_COMMANDS` 同类 | 加进 `docs-check` 的内部变量名单。 |
+| 2 | 检查工具（WSL 实测抓到） | 新写的启动文件测试 6 项里错了 4 项：`printf "$say"` 把 `${PATH%%:*}` 里的 `%%` 当成了格式。 | 测试自己的错 | 改成 `printf '%b'`。之后 6/6。 |
+| 3 | 检查工具（第 1 次全量验收抓到） | `verify.ps1` 新加的检查里写了 `$home = …`。`$HOME` 是 PowerShell 的只读变量，脚本在那一行停下，后面 5 个小节没跑（30 项通过后中断）。 | 共性：解析器查不出，只在运行时出错。和上一条记录里 `$sha:` 是同一类"能解析但跑不了" | 改名 `$userHome`。`scripts-check` 加一项：给 PowerShell 自己的变量赋值。修之前报 1 处，修之后 0 处；第一版把 `$null = …` 也报了（那是故意丢弃返回值），已排除。 |
+| 4 | 文档（自己看出来） | README 里 `$SHELL -l -c …` 写在 PowerShell 的双引号字符串里，`$SHELL` 被当成变量展开成空的。 | 写文档的脚本的错 | 改正，README 里是 `$SHELL`。 |
+
+### 连续三轮干净
+
+| 轮 | 视角 | 构建 | 测试 | 实机 | 其他数字 |
+|---|---|---|---|---|---|
+| 1 | 机制通路存活 | debug | 210/210 | 112/112，8 个小节都跑完 | `round.ps1` 17/17；Linux 60/60；启动文件 9/9（bash、zsh、fish 各测普通和登录启动 6 项，登录 shell 找程序 3 项）。去掉"放回第一位"，6 项全错；让 bash 忽略登录启动，正好错 1 项。实机：从 `C:\Windows` 启动，标签页在主目录，没有出现 `C:\Windows`；`--cwd` 指定的目录生效；`--cwd` 指向不存在的目录，退出码 2。p95 3.26 ms；历史文件 86745 → 86745 字节 |
+| 2 | 静态一致性 | release | 210/210 | 112/112，8 个小节都跑完 | `round.ps1` 17/17；Linux 60/60；启动文件 9/9；Linux 上 `cargo clippy -p unifyterm -D warnings` 通过（Unix 专用的代码在那里才编译）；网页 8/8，其中新的一项核对网页上的版本号等于 `Cargo.toml` 的 0.1.1；脚本检查 3/3；README 4 张表一致；p95 3.24 ms |
+| 3 | 可复现性 | — | — | — | 第 1、2 轮的实机输出各 112 行，去掉计时和进程号后有 1 行不同：侧栏在 3 秒里问了几次（6 次和 7 次，允许 4 到 8 次）。这是一个随时钟变的计数，去掉它后 0 处不同。`scripts-check`、`site-check` 各连跑 3 次，Linux 的启动文件测试连跑 2 次，输出都相同；版本号两次相同 |
+
+第 3 轮没有再跑一遍全量测试：它比较的是前两轮的输出。
+
+### 没有在本机验证的
+
+- **真实 macOS 上的效果。** 我没有 Mac。登录启动的参数有单元测试，CI 的 macOS 任务会跑；用户自己的 `.zshrc` 能不能正常读完，只能由用户在 0.1.1 上确认。
+- `ask_login_shell` 的 Rust 单元测试：WSL 里链接不了窗口程序（缺 xcb、xkbcommon 的库），它第一次运行是在 CI 的 Linux 和 macOS 上。shell 那一侧（`bash -l -c`、`zsh -l -c`、`fish -l -c` 都能找到 profile 加进 PATH 的程序）在 WSL 里测过。
+- PowerShell 在 macOS 上的 `-Login`：只有参数顺序的单元测试。
+- 侧栏的查找只读 profile 文件（`.zprofile` 等），不读 `.zshrc`。只在 `.zshrc` 里加进 PATH 的目录看不到，README 写了办法。
 ## 2026-11-18 · 发布前的 CI 修复；产品网页
 
 范围：

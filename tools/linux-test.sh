@@ -60,6 +60,61 @@ fi
 echo "shell hooks: $marks_ok complete, $marks_missing missing marks"
 rm -rf "$work_hooks"
 
+# The start files: a home with profile and rc files that each put a directory
+# of their own first in PATH. Started the way unifyterm starts a tab's shell
+# (plain, and as a login shell, which is what it does on macOS), each shell
+# says which files it read and what is first in PATH: unifyterm's commands.
+# (printf '%b': the lines hold a %, which is not a format here.)
+starts_ok=0
+starts_wrong=0
+home="$(mktemp -d)"
+mkdir -p "$home/zdot" "$home/.config/fish"
+cp "$hooks/zshenv" "$home/zdot/.zshenv"; cp "$hooks/zprofile" "$home/zdot/.zprofile"; cp "$hooks/zshrc" "$home/zdot/.zshrc"
+mkdir -p "$home/profile-bin"
+printf '#!/bin/sh\necho "[]"\n' > "$home/profile-bin/fake-agent"; chmod +x "$home/profile-bin/fake-agent"
+printf 'export FROM_PROFILE=profile\nexport PATH=%s/profile-bin:$PATH\n' "$home" | tee "$home/.zprofile" > "$home/.bash_profile"
+printf 'export FROM_RC=rc\nexport PATH=/opt/rc-bin:$PATH\n' | tee "$home/.zshrc" > "$home/.bashrc"
+printf 'status is-login; and set -gx FROM_PROFILE profile\nstatus is-login; and set -gx PATH %s/profile-bin $PATH\nset -gx FROM_RC rc\nset -gx PATH /opt/rc-bin $PATH\n' "$home" > "$home/.config/fish/config.fish"
+clean="env -i HOME=$home TERM=xterm PATH=/data/ut-bin:/usr/local/bin:/usr/bin:/bin UNIFYTERM_COMMANDS=/data/ut-bin"
+say='echo "first=${PATH%%:*} profile=${FROM_PROFILE:-none} rc=${FROM_RC:-none} login=${UNIFYTERM_LOGIN:-unset}"\nexit\n'
+say_fish='echo "first=$PATH[1] profile="(set -q FROM_PROFILE; and echo $FROM_PROFILE; or echo none)" rc=$FROM_RC login=unset"\nexit\n'
+expect_start() { # what it is, the line it must print, the output file
+    if grep -qF "$2" "$3"; then
+        starts_ok=$((starts_ok + 1))
+    else
+        starts_wrong=$((starts_wrong + 1)); echo "WRONG ($1): wanted [$2], got [$(grep -a 'first=/' "$3" | tail -n 1 | tr -d '\r')]"
+    fi
+}
+( cd "$home" && printf '%b' "$say" | script -qfec "$clean bash --rcfile $hooks/bashrc -i" /dev/null > "$home/bash-plain.out" 2>&1 ) || true
+expect_start "bash, plain" "first=/data/ut-bin profile=none rc=rc login=unset" "$home/bash-plain.out"
+( cd "$home" && printf '%b' "$say" | script -qfec "$clean UNIFYTERM_LOGIN=1 bash --rcfile $hooks/bashrc -i" /dev/null > "$home/bash-login.out" 2>&1 ) || true
+expect_start "bash, login" "first=/data/ut-bin profile=profile rc=none login=unset" "$home/bash-login.out"
+if command -v zsh >/dev/null; then
+    ( cd "$home" && printf '%b' "$say" | script -qfec "$clean UNIFYTERM_ZDOTDIR=$home ZDOTDIR=$home/zdot zsh -i" /dev/null > "$home/zsh-plain.out" 2>&1 ) || true
+    expect_start "zsh, plain" "first=/data/ut-bin profile=none rc=rc login=unset" "$home/zsh-plain.out"
+    ( cd "$home" && printf '%b' "$say" | script -qfec "$clean UNIFYTERM_ZDOTDIR=$home ZDOTDIR=$home/zdot zsh -l -i" /dev/null > "$home/zsh-login.out" 2>&1 ) || true
+    expect_start "zsh, login" "first=/data/ut-bin profile=profile rc=rc login=unset" "$home/zsh-login.out"
+fi
+if command -v fish >/dev/null; then
+    ( cd "$home" && printf '%b' "$say_fish" | script -qfec "$clean fish --init-command 'source $hooks/hook.fish' -i" /dev/null > "$home/fish-plain.out" 2>&1 ) || true
+    expect_start "fish, plain" "first=/data/ut-bin profile=none rc=rc login=unset" "$home/fish-plain.out"
+    ( cd "$home" && printf '%b' "$say_fish" | script -qfec "$clean fish -l --init-command 'source $hooks/hook.fish' -i" /dev/null > "$home/fish-login.out" 2>&1 ) || true
+    expect_start "fish, login" "first=/data/ut-bin profile=profile rc=rc login=unset" "$home/fish-login.out"
+fi
+# What unifyterm asks a login shell when a program (keepane, for its sidebar)
+# is not in its own PATH: the shell finds it where the profile put it.
+for shell in bash zsh fish; do
+    command -v "$shell" >/dev/null || continue
+    got=$(env -i HOME="$home" PATH=/usr/local/bin:/usr/bin:/bin "$shell" -l -c 'command -v fake-agent' 2>/dev/null | grep '^/' | tail -n 1 || true)
+    if [ "$got" = "$home/profile-bin/fake-agent" ]; then
+        starts_ok=$((starts_ok + 1))
+    else
+        starts_wrong=$((starts_wrong + 1)); echo "WRONG ($shell -l -c 'command -v fake-agent'): got [$got]"
+    fi
+done
+echo "start files: $starts_ok as expected, $starts_wrong wrong"
+rm -rf "$home"
+
 if ! command -v grep >/dev/null || ! grep --version 2>/dev/null | grep -q "GNU grep"; then
     echo "GNU grep is not installed: no comparison"
     exit 0

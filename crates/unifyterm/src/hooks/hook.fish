@@ -7,6 +7,17 @@
 # and how it ended (633;E, 133;D) and which directory this is (633;P;Cwd).
 # Adapted from keepane's shell hooks (MIT, same author).
 
+# unifyterm's commands first in PATH again: fish's start files may have put
+# other directories in front.
+if set -q UNIFYTERM_COMMANDS
+    set -l __unifyterm_rest
+    for __unifyterm_entry in $PATH
+        test "$__unifyterm_entry" = "$UNIFYTERM_COMMANDS"; or set -a __unifyterm_rest $__unifyterm_entry
+    end
+    set -gx PATH $UNIFYTERM_COMMANDS $__unifyterm_rest
+    set -e __unifyterm_entry
+end
+
 function __unifyterm_escape
     string replace -a '\\' '\\\\' -- $argv[1] | string replace -a ';' '\\x3b' | string join '\\x0a'
 end

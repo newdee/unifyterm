@@ -130,7 +130,63 @@ enum Ran {
 
 /// Runs `command` (program, then arguments) with no window, for at most
 /// [`TIMEOUT`]: then it is stopped. What it printed is read as it runs.
+///
+/// A program that is not in UnifyTerm's own `PATH` is looked for the way the
+/// user's shell finds it (see [`where_the_shell_finds`]), and run from there.
 fn run(command: &[String]) -> Ran {
+    let ran = run_as_named(command);
+    let (Ran::NotFound, Some((program, args))) = (&ran, command.split_first()) else { return ran };
+    let Some(found) = where_the_shell_finds(program) else { return ran };
+    let mut named: Vec<String> = vec![found];
+    named.extend_from_slice(args);
+    run_as_named(&named)
+}
+
+/// Where the user's login shell finds `program`; `None` when it does not,
+/// or when `program` is not a plain name. Asked once for each program.
+///
+/// UnifyTerm is opened from the Dock or a launcher: its own `PATH` is then
+/// the system's short one, without Homebrew's or the user's directories.
+/// Those come from the shell's profile files, so the shell is asked, as a
+/// login shell: `$SHELL -l -c 'command -v keepane'`.
+#[cfg(unix)]
+fn where_the_shell_finds(program: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, PoisonError};
+    static FOUND: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+    let mut found = FOUND.lock().unwrap_or_else(PoisonError::into_inner);
+    let known = found.get_or_insert_with(HashMap::new);
+    if let Some(place) = known.get(program) {
+        return place.clone();
+    }
+    let place = std::env::var("SHELL").ok().and_then(|shell| ask_login_shell(&shell, program));
+    known.insert(program.to_owned(), place.clone());
+    place
+}
+
+/// Windows has one `PATH` for programs however they are started.
+#[cfg(not(unix))]
+const fn where_the_shell_finds(_program: &str) -> Option<String> {
+    None
+}
+
+/// What `shell`, started as a login shell, answers to `command -v program`:
+/// the program's full path. bash, zsh and fish all take these arguments.
+#[cfg(unix)]
+fn ask_login_shell(shell: &str, program: &str) -> Option<String> {
+    // The name goes into a shell's command line: only a plain one does.
+    let plain = !program.is_empty() && program.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+    if !plain {
+        return None;
+    }
+    let asked = [shell.to_owned(), "-l".to_owned(), "-c".to_owned(), format!("command -v {program}")];
+    let Ran::Ended { output, complaint: None } = run_as_named(&asked) else { return None };
+    // A profile file may print lines of its own: the path is the last line that is one.
+    String::from_utf8_lossy(&output).lines().map(str::trim).rfind(|line| line.starts_with('/')).map(str::to_owned)
+}
+
+/// [`run`], with the program exactly as it is named.
+fn run_as_named(command: &[String]) -> Ran {
     let Some((program, args)) = command.split_first() else { return Ran::NotFound };
     let mut start = Command::new(program);
     start.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -232,6 +288,33 @@ pub(crate) fn focus(command: &[String]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// A home whose profile file puts a directory with `fake-agent` in `PATH`: a login shell finds it there.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_is_found_the_way_the_login_shell_finds_it() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join("my bin");
+        std::fs::create_dir(&bin).unwrap();
+        let program = bin.join("fake-agent");
+        std::fs::write(&program, "#!/bin/sh\necho '[]'\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A shell of our own making, so that the test does not read or change anybody's files:
+        // it does what a login shell does with a profile, then runs what it was asked.
+        let shell = home.path().join("login-shell");
+        let script = format!(
+            "#!/bin/sh\n[ \"$1\" = -l ] || exit 9\necho 'a line a profile prints'\nPATH=\"{}:$PATH\"\nshift 2\neval \"$1\"\n",
+            bin.display()
+        );
+        std::fs::write(&shell, script).unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let shell = shell.to_string_lossy().into_owned();
+        assert_eq!(ask_login_shell(&shell, "fake-agent"), Some(program.to_string_lossy().into_owned()));
+        assert_eq!(ask_login_shell(&shell, "no-such-agent-xyz"), None, "not there");
+        assert_eq!(ask_login_shell(&shell, "fake-agent; rm -rf x"), None, "only a plain name is asked for");
+        assert_eq!(ask_login_shell(&shell, ""), None);
+        assert_eq!(ask_login_shell("/no/such/shell", "fake-agent"), None, "no shell to ask");
+    }
     const FIXTURE: &str = include_str!("../tests/fixtures/agents.json");
 
     #[test]

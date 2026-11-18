@@ -879,12 +879,11 @@ fn pty_size(columns: u16, lines: u16) -> PtySize {
 }
 
 /// The program a new tab runs: the configured one, else PowerShell 7 when
-/// it is installed, else Windows PowerShell; `$SHELL` elsewhere. It starts
-/// in the current directory.
-pub(crate) fn shell_command(program: Option<&str>, args: &[String]) -> Result<CommandBuilder> {
+/// it is installed, else Windows PowerShell; `$SHELL` elsewhere. Where it
+/// starts is for the caller to say (`CommandBuilder::cwd`).
+pub(crate) fn shell_command(program: Option<&str>, args: &[String]) -> CommandBuilder {
     let mut command = CommandBuilder::new(program.map_or_else(default_shell, str::to_owned));
     command.args(args);
-    command.cwd(std::env::current_dir().context("the current directory")?);
     // UnifyTerm started from a multiplexer's pane is not in that pane: what
     // the pane told its shell (which pane, whose history) is not passed on.
     for (name, _) in std::env::vars_os() {
@@ -896,7 +895,7 @@ pub(crate) fn shell_command(program: Option<&str>, args: &[String]) -> Result<Co
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "unifyterm");
     command.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-    Ok(command)
+    command
 }
 
 /// Whether an environment variable says which multiplexer pane a shell is
@@ -1119,7 +1118,7 @@ pub(crate) mod tests {
         let (program, line): (&str, &[u8]) =
             if cfg!(windows) { ("cmd.exe", b"set /a 6*7\r") } else { ("sh", b"echo $((6*7))\r") };
         let args = if cfg!(windows) { vec!["/q".to_owned()] } else { Vec::new() };
-        let (mut session, events) = start(shell_command(Some(program), &args).unwrap());
+        let (mut session, events) = start(shell_command(Some(program), &args));
         // 6 * 7 is typed, 42 is only ever printed. The line may be typed before the shell's
         // prompt shows (a slow machine): then 42 follows the prompt on its row ("$ 42").
         session.write(line).unwrap();
@@ -1249,7 +1248,7 @@ pub(crate) mod tests {
         for name in ["PATH", "TERM", "TMUXINATOR_CONFIG", "STYLE", "HOME"] {
             assert!(!names_a_pane(name), "{name}");
         }
-        let command = shell_command(Some("sh"), &[]).unwrap();
+        let command = shell_command(Some("sh"), &[]);
         let passed: Vec<_> = command.iter_full_env_as_str().map(|(name, _)| name.to_owned()).collect();
         assert!(passed.iter().all(|name| !names_a_pane(name)), "{passed:?}");
         assert!(passed.iter().any(|name| name == "TERM_PROGRAM"));

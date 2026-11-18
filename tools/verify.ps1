@@ -245,6 +245,21 @@ if ($Section -in 'all', 'edges') {
     Report 'a program that does not exist: ends, with failure' ($gone -and $p.ExitCode -ne 0) "ended: $gone, exit code $(if ($gone) { $p.ExitCode } else { 'none (still running)' })"
     if (-not $gone) { Stop-Process -Id $p.Id -Force }
 
+    # Where a tab starts. A launcher leaves the program in a directory nobody chose
+    # (here: Windows' own): the tab is in the home directory. --cwd names another.
+    $where = @{}
+    foreach ($case in @(@('home', @('-e', 'cmd', '/c', 'cd')), @('asked', @('--cwd', $work, '-e', 'cmd', '/c', 'cd')))) {
+        $log = Join-Path $work "cwd-$($case[0]).raw"; $env:UNIFYTERM_RAW_LOG = $log
+        try {
+            $p = Start-Process $Exe -ArgumentList $case[1] -WorkingDirectory $env:SystemRoot -PassThru
+            if (-not $p.WaitForExit(8000)) { Stop-Process -Id $p.Id -Force }
+        } finally { $env:UNIFYTERM_RAW_LOG = $null }
+        $where[$case[0]] = if (Test-Path $log) { (Replay $log '250x30') -replace "`n", '' } else { '' }
+    }
+    $userHome = [Environment]::GetFolderPath('UserProfile')
+    Report 'started by a launcher: the tab is in the home directory' ($where.home.Contains($userHome) -and -not $where.home.Contains($env:SystemRoot)) "the home directory printed: $($where.home.Contains($userHome)); the directory it was started in printed: $($where.home.Contains($env:SystemRoot))"
+    Report '--cwd DIRECTORY: the tab is there' ($where.asked.Contains($work)) "the directory asked for printed: $($where.asked.Contains($work))"
+
     $t = Run 'tiny' "{SIZE:160,120}{WAIT:900}echo tiny-ok{ENTER}{WAIT:500}{SIZE:900,600}{WAIT:900}echo big-again{ENTER}"
     Report 'a tiny window and back: still works' ((Count ($t -replace "`n", '') 'tiny-ok') -ge 2 -and (Count $t 'big-again') -eq 2) "'tiny-ok' $(Count ($t -replace "`n", '') 'tiny-ok') (wrapped in the tiny screen), 'big-again' $(Count $t 'big-again')"
 
