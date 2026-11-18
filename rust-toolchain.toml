@@ -1,0 +1,5 @@
+# One toolchain for this machine and for CI: a new stable release brings new lints, so it is taken on purpose, not by chance.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

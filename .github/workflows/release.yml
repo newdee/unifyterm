@@ -42,7 +42,8 @@ jobs:
             Start-Sleep -Seconds 30
           }
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: The toolchain rust-toolchain.toml names
+        run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
@@ -127,9 +128,10 @@ jobs:
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev \
             libvulkan-dev libfontconfig-dev libfreetype-dev dpkg-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: The toolchain rust-toolchain.toml names, for this target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
