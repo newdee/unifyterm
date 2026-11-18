@@ -26,17 +26,19 @@ jobs:
 
       - name: Wait for CI on this commit
         # A tag is released only once CI has passed on the very commit it names.
+        # One run that passed is enough; it waits while a run is still going, and
+        # stops when every run has ended and none passed.
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $sha = "${{ github.sha }}"
-          $deadline = (Get-Date).AddMinutes(60)
+          $deadline = (Get-Date).AddMinutes(90)
           while ($true) {
-            $runs = gh run list --workflow ci --commit $sha --json databaseId,status,conclusion | ConvertFrom-Json
-            if ($runs.Count -gt 0 -and $runs[0].status -eq 'completed') {
-              if ($runs[0].conclusion -eq 'success') { "CI passed on $sha"; break }
-              throw "CI ended with '$($runs[0].conclusion)' on $sha: fix main and tag again"
+            $runs = @(gh run list --workflow ci --commit $sha --json status,conclusion | ConvertFrom-Json)
+            if ($runs | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' }) { "CI passed on $sha"; break }
+            if ($runs.Count -gt 0 -and -not ($runs | Where-Object { $_.status -ne 'completed' })) {
+              throw "CI did not pass on ${sha} ($(($runs.conclusion | Sort-Object -Unique) -join ', ')): fix main and tag again"
             }
             if ((Get-Date) -gt $deadline) { throw "gave up waiting for CI on $sha" }
             Start-Sleep -Seconds 30
@@ -84,7 +86,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release create $tag dist/*.zip dist/*.msi dist/*.sha256 --title "UnifyTerm $tag" --generate-notes
+          # PowerShell passes a * to a program as it is: the files are named here.
+          $files = @(Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(zip|msi|sha256)$' } | ForEach-Object FullName)
+          if ($files.Count -ne 4) { throw "expected the zip, the MSI and their two .sha256, found $($files.Count): $($files -join ', ')" }
+          gh release create $tag @files --title "UnifyTerm $tag" --generate-notes
 
       - name: Commit the manifests to main
         # packaging/scoop is what `scoop install <raw url>` reads: it follows every release.
