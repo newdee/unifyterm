@@ -18,21 +18,22 @@
 - 两条路线，开项目时再选：嵌入 brush，或从零写。
 - 现状：还没开始，也还没有计划。`docs/plan.md` 末尾保留着当初的调研结果（brush 等），开项目时搬过去。
 - 在那之前，UnifyTerm 只托管系统 shell（PowerShell、cmd、bash、zsh、fish）。M2 为 PowerShell 做的补丁（别名移除、提示符、引号标记）继续保留。
-## 下一期（M7 完成后再规划）
+## 下一期（通信功能、可观测平台）：不做
 
-用户 2026-11-17 提出，原话："我希望我们的 iterm 也需要具备通信功能，和可观测平台，这全部的目标实现后，作为下一期的规划一下。"
+用户 2026-11-17 提出过这两项；2026-11-18 决定不做，原话："下一期先不做"。
 
-范围只有这两项，细节未定：
+原因：与 keepane 重叠。逐项对照过 keepane 现有的命令：
 
-1. **通信功能**
-2. **可观测平台**
+| 设想的功能 | keepane 已有的 |
+|---|---|
+| 人与 agent、agent 与 agent 之间发消息 | `send-message`、`read-message`、`list-messages`、`trace-message`，每个窗格有收件箱 |
+| 两台机器之间 | `link add/share/watch/attach/mirror`，`send-message --to host:port/%name` |
+| 手机上看和发、传文件、通知 | `web`、`share`、`notify` |
+| agent 的模型、费用、token、上下文、CPU、内存 | `list-agents -J`、`agent-cost` |
+| agent 一步步做了什么、事件、任务 | `trace-pane`、`list-events`、`list-tasks` |
+| 总览界面 | `dashboard`、手机页面 |
 
-规划时要先和用户确认的问题（现在不展开，不做假设）：
+分工：keepane 管多窗格、agent、通信、可观测；UnifyTerm 只做跨平台 GUI 终端。
 
-- 通信的对象是谁：标签页之间、UnifyTerm 窗口之间、两台机器之间，还是人与 agent 之间。
-- 和 keepane 已有的收件箱、`keepane link`（跨机器）是什么关系：复用、在 GUI 里呈现，还是另做一套。
-- 可观测的对象是什么：agent 的轮次与工具调用、命令的耗时与退出码、终端自身的性能，还是全部。
-- 可观测平台是本机界面，还是可以多机汇总的服务。
-- 数据留在本地，还是要导出到外部系统（例如 OpenTelemetry）。
-
-本期里会给下一期留下可用基础的部分：M3 的命令历史库（每条命令的目录、退出码、耗时），M6 的 agent 侧栏（读取 keepane 的 agent 状态）。
+- 现有的 agent 侧栏（Ctrl-Shift-A）保留，但不在"把 keepane 的数据再画一遍"这个方向上继续加功能；想加的功能加到 keepane 里。
+- 可选的小功能，不排期：`ut stats`（按目录或项目统计命令的耗时和失败率）。这是 UnifyTerm 历史库独有的数据，keepane 没有。
