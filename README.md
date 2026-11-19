@@ -24,6 +24,13 @@ It runs your own shell: PowerShell, cmd, bash, zsh or fish.
 brew install newdee/tap/unifyterm
 ```
 
+Homebrew 6 and later load a formula of a tap that is not their own only once it is trusted. The full name above installs it; before `brew upgrade unifyterm` or any other use of the short name, trust it once (`--formula` trusts this one, not the whole tap):
+
+```bash
+brew trust --formula newdee/tap/unifyterm   # Homebrew 6 and later
+brew upgrade unifyterm
+```
+
 Or with one line, for you alone (no root): it puts `unifyterm` and `ut` in `~/.local/bin`, UnifyTerm.app in `~/Applications` on macOS, a menu entry on Linux.
 
 ```bash
