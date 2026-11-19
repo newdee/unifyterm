@@ -89,7 +89,7 @@
         <div class="data">
           <figure class="photo">
             <img src="img/hero.png" width="960" height="430" alt="UnifyTerm on Windows, in PowerShell: cat Cargo.toml | grep -n version prints three numbered lines; echo '[1,2,3]' | jq add prints 6; ut view unifyterm.png shows the logo as a picture, in the terminal." data-i18n-attr="alt:hero.alt" />
-            <svg class="stamp stamp--seal" viewBox="0 0 220 220" role="img" aria-label="Stamp: UnifyTerm 0.2.0, valid on three systems" data-i18n-attr="aria-label:stamp.seal" style="--turn: -11deg">
+            <svg class="stamp stamp--seal" viewBox="0 0 220 220" role="img" aria-label="Stamp: UnifyTerm 0.2.1, valid on three systems" data-i18n-attr="aria-label:stamp.seal" style="--turn: -11deg">
               <defs>
                 <path id="seal-top" d="M 28 110 A 82 82 0 0 1 192 110" />
                 <path id="seal-bottom" d="M 22 110 A 88 88 0 0 0 198 110" />
@@ -100,7 +100,7 @@
                 <circle cx="110" cy="110" r="62" class="thin" />
                 <text class="arc"><textPath href="#seal-top" startOffset="50%">UNIFYTERM</textPath></text>
                 <text class="arc arc--small"><textPath href="#seal-bottom" startOffset="50%">VALID ON THREE SYSTEMS</textPath></text>
-                <text class="mid" x="110" y="106">0.2.0</text>
+                <text class="mid" x="110" y="106">0.2.1</text>
                 <text class="mid mid--small" x="110" y="130">MIT</text>
               </g>
             </svg>
@@ -338,7 +338,7 @@ ut view clip.mp4</code></pre>
             <p data-i18n="settings.p1">UnifyTerm keeps its settings in one file, <code>config.toml</code>. <code>ut setting</code> shows every setting and lets you change it from the keyboard.</p>
             <pre><code>ut setting</code></pre>
             <ul class="points">
-              <li data-i18n="settings.l1">Use the arrow keys to move and <kbd>Enter</kbd> to change a value.</li>
+              <li data-i18n="settings.l1">Use the arrow keys to move and <kbd>Enter</kbd> to change a value. Fonts, shells and other choices open a list to pick from; <kbd>←</kbd> and <kbd>→</kbd> adjust numbers.</li>
               <li data-i18n="settings.l2">Each setting shows what it does, the values it accepts and its default.</li>
               <li data-i18n="settings.l3">Invalid values are rejected with the reason, and nothing is written.</li>
               <li data-i18n="settings.l4">Comments and the order of your file are preserved.</li>
@@ -378,7 +378,7 @@ ut setting set font.size 16</code></pre>
       <section class="page page--cyan" id="observations" aria-labelledby="h-observations">
         <div class="guilloche" aria-hidden="true"></div>
         <h2 id="h-observations" data-i18n="obs.h">Current limitations</h2>
-        <p class="obs__lede" data-i18n="obs.lede">UnifyTerm is currently at version 0.2.0, and some areas are still incomplete:</p>
+        <p class="obs__lede" data-i18n="obs.lede">UnifyTerm is currently at version 0.2.1, and some areas are still incomplete:</p>
         <ul class="obs">
           <li data-i18n="obs.1">The Windows and macOS builds are not code-signed yet. A SmartScreen or Gatekeeper security prompt may appear on first launch.</li>
           <li data-i18n="obs.2">The macOS build passes CI builds and tests, but has seen little hands-on use so far.</li>
@@ -386,7 +386,7 @@ ut setting set font.size 16</code></pre>
           <li data-i18n="obs.4">PowerShell's native Tab completion still uses Windows-style path separators.</li>
           <li data-i18n="obs.5">In its own window, UnifyTerm currently renders images through the Kitty graphics protocol only. When <code>ut view</code> runs in other terminals, it can also output Sixel and iTerm2 images.</li>
         </ul>
-        <p class="obs__note" data-i18n="obs.tests">The project currently includes 227 test cases, plus 119 tests that drive the desktop application.</p>
+        <p class="obs__note" data-i18n="obs.tests">The project currently includes 233 test cases, plus 119 tests that drive the desktop application.</p>
       </section>
 
       <!-- Install -->

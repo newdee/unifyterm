@@ -111,6 +111,8 @@ same-file = "1"
 unifyterm-history = { path = "../history" }
 # ut setting: the settings as the terminal reads them.
 unifyterm-config = { path = "../config" }
+# ut setting: the fonts this system has, for font.family to be chosen from a list (already in the tree through GPUI).
+fontdb = "0.23"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 terminal_size = "0.4"

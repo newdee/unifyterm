@@ -1,5 +1,24 @@
 # 验收记录
 
+## 2026-11-19 · 0.2.1：设置界面里选，不用打字；UnifyTerm 开机启动
+
+用户："设置面板太不友好了，比如字体，应该弹出下拉列表选择这种，所有的都要手动输入，太麻烦了。"另外要求 UnifyTerm 开机启动、取消 PowerShell 原终端的开机自启。
+
+### 设置界面
+
+- 字体（`font.family`）、回退字体（`font.fallbacks`，可多选，按选中顺序）、shell（`shell.program`，只列 PATH 上有的，加"默认"）、留给系统的命令（`commands.system`，ut 的全部命令，多选）、模型服务（`ai.provider`）：Enter 弹出列表，打字过滤，↑↓ 选，Enter 定，Esc 取消。字体用 `fontdb` 列出本机的字体（GPUI 已经把它带进依赖树），等宽的排在前面并标出。
+- 数字：←→ 按步长加减，不超出上下限（字号 1、行高 0.05、回滚 1000、轮询 500 毫秒，其余 1）；结果保留到百分位，避免 `1.4000000000000001`。
+- 颜色：值前面画一块这个颜色。
+- `e`：任何设置都可以直接打字（列表里没有的字体）。
+- 一个问题，在真实窗口里试出来的：最初列表里找不到时，Enter 会把打的字当作值。本机没有 JetBrains Mono，打 `jet` 回车后 `font.family` 变成了 `jet`。改成：列表里没有就拒绝并提示用 `e`；打错字不会变成设置。
+
+跑了什么（只跑受影响的部分）：`ut setting` 的 16 个测试（Windows、Linux 各一遍，其中 6 个新的：字体列表和过滤、列表里没有的名字被拒绝而 `e` 能打、多选按顺序、需要别的设置时列表留着、←→ 的步长和上限、颜色块）；`ut` 和整个工作区的 clippy（Windows、Linux）；真实窗口里：打开字体列表（本机 114 个字体）、打 `maple` 过滤到 3 个、选中写入 `family = "Maple Mono"`；打开 shell 列表（默认、pwsh、powershell、cmd、bash、sh）；←→ 把字号从 14 调到 16。全工作区单元测试 233 个通过。
+
+### 开机启动
+
+- 在用户的"启动"文件夹里放了 `UnifyTerm.lnk`，指向 `C:\Program Files\unifyterm\unifyterm.exe`（已装的是 0.2.0），起始目录是主目录。
+- "PowerShell 原终端的开机自启"没有找到：Windows Terminal 的登录启动任务是关的（用户关的），它的设置里也没有 `startOnUserLogin`；Run 键、启动文件夹、计划任务里都没有启动 PowerShell 或终端窗口的项。开机后最早的几个 PowerShell 是 keepane 的服务开的，没有窗口。已请用户说明看到的是哪个窗口。
+
 ## 2026-11-19 · Scoop bucket；网页加上"设置"一节
 
 用户问为什么不能直接 `scoop install unifyterm`，"keepane 直接就可以"。核实：keepane 在这台机器上也是按地址装的（`scoop info keepane` 的 Source 是 raw 地址），本机的 bucket 只有 `main` 和 `nerd-fonts`，`scoop search keepane` 找不到。按名字能用，是因为装过一次。要在新机器上按名字装，需要一个 bucket。用户选了自建：`newdee/scoop-bucket`。

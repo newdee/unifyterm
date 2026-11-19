@@ -15,6 +15,7 @@ use unifyterm_config::{Config, FILE_VARIABLE, File, KEYS, Key, Kind, default_of,
 
 use crate::USAGE_ERROR;
 
+mod choices;
 mod screen;
 
 /// The exit code when something went wrong that is not the command line's.
