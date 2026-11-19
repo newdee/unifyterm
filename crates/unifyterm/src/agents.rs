@@ -309,7 +309,16 @@ mod tests {
         std::fs::write(&shell, script).unwrap();
         std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
         let shell = shell.to_string_lossy().into_owned();
-        assert_eq!(ask_login_shell(&shell, "fake-agent"), Some(program.to_string_lossy().into_owned()));
+        // A script just written cannot be run while a process that another test thread is
+        // starting still holds it open for writing (Linux: "Text file busy"): ask again a
+        // few times. The program's own use runs the user's shell, written long before.
+        let found = (0..20).find_map(|_| {
+            ask_login_shell(&shell, "fake-agent").or_else(|| {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                None
+            })
+        });
+        assert_eq!(found, Some(program.to_string_lossy().into_owned()));
         assert_eq!(ask_login_shell(&shell, "no-such-agent-xyz"), None, "not there");
         assert_eq!(ask_login_shell(&shell, "fake-agent; rm -rf x"), None, "only a plain name is asked for");
         assert_eq!(ask_login_shell(&shell, ""), None);
