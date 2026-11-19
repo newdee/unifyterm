@@ -5288,6 +5288,7 @@ THE SOFTWARE.
 MIT License (MIT)
 Used by:
   winreg 0.10.1  https://github.com/gentoo90/winreg-rs
+  winreg 0.56.0  https://github.com/gentoo90/winreg-rs
 ====================================================================
 
 Copyright (c) 2015 Igor Shaula
@@ -11428,11 +11429,11 @@ SOFTWARE.
 ====================================================================
 MIT License (MIT)
 Used by:
-  unifyterm-assist 0.2.2
-  unifyterm-config 0.2.2
-  unifyterm-history 0.2.2
-  unifyterm 0.2.2
-  ut 0.2.2
+  unifyterm-assist 0.2.3
+  unifyterm-config 0.2.3
+  unifyterm-history 0.2.3
+  unifyterm 0.2.3
+  ut 0.2.3
   base64-simd 0.8.0  https://github.com/Nugine/simd
   blade-graphics 0.7.1  https://github.com/kvark/blade
   blade-macros 0.3.0  https://github.com/kvark/blade
