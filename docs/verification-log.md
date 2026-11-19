@@ -1,5 +1,61 @@
 # 验收记录
 
+## 2026-11-20 · 所有 shell 里用 UnifyTerm 的命令；全屏；更新检测；键盘被隐藏的控制台窗口拿走
+
+用户提了四件事："keepane 里无法使用 unifyterm 里的命令？有办法让两者结合吗？""把自动更新检测也做一下""加一个全屏功能……像 win 终端一样，铺满屏幕"（又补了"alt enter，或者 command enter"），以及"在 keepane 里切换窗口后，键盘聚焦好像不在 keepane 里了，需要用鼠标点一下 unifyterm 终端才行"。
+
+### keepane 窗格里没有 UnifyTerm 的命令
+
+- 原因：UnifyTerm 只给自己启动的 shell 把命令目录放到 PATH 最前面、在 PowerShell 里去掉同名别名。keepane 的窗格由开机启动的 keepane 服务创建，不是 UnifyTerm 的子进程，两件事都没有。用户 PATH 和 `$PROFILE` 里也都没有。
+- 和 keepane 的 agent 在 keepane 群聊 `#unifyterm-keepane` 里讨论（12 条消息）。结论：由 UnifyTerm 做，keepane 不改代码。keepane 纠正了两处：
+  1. 不要让用户 `keepane restart-server`：会打断所有窗格和里面的 agent。
+  2. "启动脚本加载过没有"不能用环境变量判断：环境变量会传给子进程，UnifyTerm 标签页里再开的 pwsh、从 UnifyTerm 标签页启动过的 keepane 服务都会误跳过。改成会话变量 `$global:__unifyterm_loaded`。
+- 我又发现 `set-environment -g PATH` 不能用：读不到服务继承的 PATH，表会保存并永久盖住登录环境的 PATH，`-u` 是拿走变量。keepane 对照源码确认，收回了这个建议。所以 `enable` 不碰 keepane。
+- 新命令 `ut shell enable | disable | status`：
+  1. 生成 `<数据目录>/shell/init.ps1`、`init.sh`、`init.fish`。
+  2. 在 PowerShell 的 profile（`CurrentUserAllHosts`，pwsh 和 Windows PowerShell 各一个）、`.zshrc`、`.bashrc`、fish 的 `config.fish` 末尾加一段带标记的加载行；`disable` 只删标记之间的内容。
+  3. Windows 上把命令目录放到用户 PATH 最前面（保留 `REG_EXPAND_SZ`），再广播 `WM_SETTINGCHANGE`。
+- 启动脚本的生成从窗口程序移到共用库 `unifyterm-config`（`shell.rs`、`start.ps1`），窗口和 `ut shell` 用同一份。
+
+### 全屏
+
+F11、Alt+Enter（Windows、Linux），Cmd+Enter、Ctrl+Cmd+F（macOS）。用 GPUI 的 `toggle_fullscreen`：Windows 上去掉边框、铺满整个显示器。全屏时不画最小化/最大化/关闭按钮，标签栏不能拖动窗口。Alt+Enter 被拿走后，终端里的程序收不到它（和 Windows Terminal 一样），README 写明了。
+
+### 更新检测（`updates.check`，默认开）
+
+每天最多问一次 `api.github.com` 的最新发布（10 秒超时，只告诉它 `unifyterm/版本`），结果存在 `update.json`。有新版本就在标签栏右边显示一行，按安装方式给出升级办法（scoop、brew、安装脚本、安装包）。点一下打开发布页，这个版本不再提示。网络失败什么都不显示。设置项从 31 个变成 32 个；网页上的"31 个设置项"按事实改成 32。
+
+### 键盘被隐藏的控制台窗口拿走
+
+- 原因（keepane 的 agent 和我各自查到，一致）：keepane 面板（`C-b v`）里按 `o` 走 `focus-pane`，客户端调用 `SetForegroundWindow(GetConsoleWindow())`。在 UnifyTerm 里这个窗口是 ConPTY 的 `PseudoConsoleWindow`（0×0，没有所有者）。Windows 放行时，前台落到这个看不见的窗口上。Windows Terminal 给伪窗口设了所有者，所以没有这个现象。
+- 个性还是共性：所有"把自己的控制台窗口提到前台"的程序都会这样，不只 keepane。结构缺陷：UnifyTerm 用的伪控制台没有所有者，也设不了。修法收在一处：窗口失去激活时，如果前台是自己子进程的 `PseudoConsoleWindow`，就把窗口重新激活。别的程序的伪窗口、别的窗口都不碰。keepane 那边也会改（面板导航不再抢前台）。
+- 没有在真实场景里验证：需要窗口在前台、键盘在用，我从后台做不到（前台锁）。请用户装上后用 `C-b v` → `o` 试。
+
+### 验收（只跑受影响的部分）
+
+自审和前几轮发现并修掉 6 处，这些轮不计数：
+1. `start.ps1` 开头注释写了不存在的 `ut shell init`。
+2. 用户名含中文时，Windows PowerShell 5.1 读无 BOM 的 `init.ps1` 会乱码、静默不加载。改成 PowerShell 的脚本和新建的 profile 带 BOM；测试在含"用户"的目录里用 pwsh 和 5.1 各跑一遍。
+3. BOM 让第二次 `enable` 认不出第一行的标记，又追加一段（测试抓到）。
+4. Linux 上 PATH 辅助函数"从未使用"，CI 会失败（WSL 里的 clippy 抓到）。
+5. 一个启动文件改不了时，前面的文件已经改了。改成全部读完、在内存里改好才写。
+6. 改名失败时 `.unifyterm-new` 留在用户的主目录。
+
+之后连续三轮干净：
+
+| 轮 | 视角 | 做了什么 | 结果 |
+|---|---|---|---|
+| 1 | 代码正确性 | review 错误路径（两个窗口同时写 `update.json`、进程快照句柄、网络超时、注册表写失败）；fmt、两个系统的 clippy、受影响的测试、三个检查脚本 | 各项 exit 0；Windows 34 + 19 + 13 个测试、Linux 47 个通过；docs-check 4/4（设置 32、按键 26） |
+| 2 | 可复现性 | 测试连跑 3 次；窗口开 2 次比较生成的启动脚本；存的结果没过期时开窗 | 3 次结果相同；启动脚本哈希相同（`F2B8C4C46CC759D4…`）；`update.json` 哈希不变 |
+| 3 | 边界与退化输入 | review 版本号解析不了、GitHub 限流、时钟回调；最大化时进出全屏；全套检查 | 最大化 → 全屏 `0,0,2560,1440` → 回到最大化（`zoomed=True`）；全套检查同第 1 轮 |
+
+机制通路（前一轮做的，数据仍有效）：`updates.check = false` 时过期结果不变（没联网），`true` 时真的问了 GitHub、写入 `0.2.2`；标记为点过的版本不显示；F11 后窗口 `0,0,2560,1440`（工作区 `0,0,2560,1392`，盖住任务栏），再按复原；本机 `ut shell status` 只读，3 行都是 disabled。
+
+没有验证的：
+- 用户真实的 profile 上运行 `ut shell enable`（由用户决定是否开启）。
+- Alt+Enter 的真实按键：GPUI 用 `GetKeyState` 读 Alt，`PostMessage` 模拟不出来；按键表有单元测试，F11 走同一条路径并实测生效。
+- macOS 上的全屏和 `ut shell`（zsh、fish 的 rc）。
+- 点击更新提示（会打开用户的浏览器）；点后不再提示的逻辑有单元测试。
 ## 2026-11-19 · 0.2.2：Windows 版在没有 VC++ 运行库的机器上起不来
 
 V2EX 上一位用户（帖子第 1 楼）报告：Windows x64 安装包"安装一闪而过，快捷方式无效，无图标，无法使用"，截图是一个空白图标的快捷方式。

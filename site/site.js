@@ -119,7 +119,7 @@
     "settings.p3": "例如，在 Windows 和 macOS 上，标签栏同时作为标题栏使用。将 <code>window.system_title_bar</code> 设为 <code>true</code>，可以改回系统标题栏。",
     "settings.p4": "脚本和 Agent 也可以使用同样的设置：",
     "settings.alt": "终端里的设置界面：设置项按分组列出，每项后面是它的值；列表下方是所选设置项的用途、可取的值和默认值。",
-    "stamp.settings": "印章：31 个设置项，一个文件，注释保留",
+    "stamp.settings": "印章：32 个设置项，一个文件，注释保留",
     "film.h": "实际运行效果",
     "film.p": "这里展示 UnifyTerm 在真实环境中的运行过程，包括命令执行、历史搜索、内容查看和 Agent 集成。",
     "film.link": "观看演示视频",

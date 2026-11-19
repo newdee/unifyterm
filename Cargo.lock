@@ -7849,6 +7849,8 @@ dependencies = [
  "unifyterm-assist",
  "unifyterm-config",
  "unifyterm-history",
+ "ureq",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 
@@ -7984,6 +7986,7 @@ dependencies = [
  "base64 0.22.1",
  "crossterm",
  "diffutils",
+ "dirs 6.0.0",
  "env_logger",
  "findutils",
  "fontdb 0.23.0",
@@ -8112,6 +8115,8 @@ dependencies = [
  "uucore",
  "walkdir",
  "wild",
+ "windows-sys 0.61.2",
+ "winreg 0.56.0",
 ]
 
 [[package]]

@@ -1,6 +1,14 @@
-# Written by unifyterm each time it starts: changes here are lost.
-# PowerShell runs this after your profile, in unifyterm's tabs only.
+# Written by unifyterm each time it starts, and copied into init.ps1 by `ut shell enable`:
+# changes here are lost. PowerShell runs it in UnifyTerm's tabs, after your profile,
+# and, once `ut shell enable` has put a line in your profile, in every PowerShell.
 # `[commands] builtin = false` in unifyterm's settings turns all of it off.
+
+# Once in each PowerShell. Two may ask for it: UnifyTerm's own tab, and a
+# profile that loads it everywhere (`ut shell enable`). The mark is a
+# PowerShell variable, not an environment variable: a shell started from this
+# one does not have it, and loads the script for itself.
+if ($global:__unifyterm_loaded) { return }
+$global:__unifyterm_loaded = $true
 
 # 0. unifyterm's commands first in PATH: a login start (macOS) lets the system
 # put its own directories in front of them.

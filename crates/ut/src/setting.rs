@@ -74,7 +74,7 @@ fn parse(args: &[OsString]) -> Result<(Option<PathBuf>, Ask), String> {
 
 /// The settings file: `--config`'s, else the one the terminal this shell is
 /// in reads ([`FILE_VARIABLE`]), else the default one.
-fn file_path(asked: Option<PathBuf>) -> Result<PathBuf> {
+pub(crate) fn file_path(asked: Option<PathBuf>) -> Result<PathBuf> {
     asked
         .or_else(|| std::env::var_os(FILE_VARIABLE).filter(|file| !file.is_empty()).map(PathBuf::from))
         .or_else(Config::default_path)

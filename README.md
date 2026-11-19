@@ -82,6 +82,7 @@ On macOS the window's own keys use Cmd, as the second column shows; the keys at 
 | Ctrl-Shift-C | Cmd-C | Copy the selection |
 | Ctrl-Shift-V, Shift-Insert | Cmd-V | Paste |
 | Ctrl-Shift-A | Cmd-Shift-A | Show or hide the agents' sidebar |
+| F11, Alt-Enter | Cmd-Enter, Ctrl-Cmd-F | Full screen, over the taskbar; again to leave it. A program in the terminal no longer gets Alt-Enter |
 | Ctrl-Shift-E | Ctrl-Shift-E | Explain the command on the line |
 | Ctrl-N, Down | Ctrl-N, Down | The next command in the list while typing |
 | Ctrl-P, Up | Ctrl-P, Up | The command before in the list |
@@ -97,7 +98,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 
 `ut setting`, in a tab, shows every setting and changes it from the keyboard. ↑↓ move; Enter changes the one the cursor is on: a switch turns, and a font, a shell, the fallback fonts, the commands to leave to the system and the model's provider open a list to pick from (type to narrow it; Space marks several, in order). ←→ make a number smaller or larger, `e` types any value (a font the list lacks), `d` puts the default back, `u` takes the last change back, `/` narrows the settings, `q` leaves. A value UnifyTerm would refuse is not written, and the line says why. The comments in your file stay. For a script: `ut setting list`, `ut setting get font.size`, `ut setting set font.size 16`, `ut setting reset font.size`, `ut setting path`.
 
-UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the colors, the padding and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.*`, `agents.sidebar`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
+UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the colors, the padding and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.*`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
 
 | Key | Default | What it is |
 |---|---|---|
@@ -132,6 +133,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `agents.poll_ms` | `2000` | How often the agents are asked for while the sidebar shows, 500 to 60000 |
 | `agents.command` | `["keepane", "list-agents", "-J"]` | The program that prints the agents as JSON |
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
+| `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
 
 Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first.
 
@@ -155,7 +157,9 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 
 ## The commands: `ut`
 
-`ut --list` names them (99 on Windows, 114 on Linux): coreutils, findutils, `grep`, `sed`, `jq`, `diff`, `which` and others. In a UnifyTerm shell they are on `PATH` under their own names; elsewhere run them as `ut cat FILE`.
+`ut --list` names them (99 on Windows, 114 on Linux): coreutils, findutils, `grep`, `sed`, `jq`, `diff`, `which` and others. In a UnifyTerm shell they are on `PATH` under their own names; elsewhere run them as `ut cat FILE`, or put them in every shell with `ut shell enable`.
+
+**In every shell** (keepane's panes, another terminal, an agent's shell): `ut shell enable` puts a line at the end of each shell's start file (PowerShell's profile, `.zshrc`, `.bashrc`, fish's `config.fish`) between two marked lines, and on Windows the commands' directory first in your `PATH`. The line loads a script in UnifyTerm's data directory that puts the directory first in `PATH`; in PowerShell it also takes `cat`, `ls` and the other aliases of the same names out of the way, once in each shell. A shell that is open keeps what it has: open a new one (a new keepane pane). `ut shell disable` takes out only what enable put in; `ut shell status` says where it is enabled. After changing `commands.system`, run `ut shell enable` again.
 
 | Command | What it does |
 |---|---|
@@ -166,6 +170,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut md [FILE]` | Markdown as styled text |
 | `ut mcp` | An MCP server on standard input and output (below) |
 | `ut skill [--install DIR]` | The agents' skill file, printed or written to `DIR/unifyterm/SKILL.md` |
+| `ut shell enable\|disable\|status` | These commands in every shell, not only in UnifyTerm's tabs (above) |
 
 ## For agents
 
@@ -180,7 +185,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
 | History, log, links | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
-The history is one SQLite file, `history.db`; a copy works on every system.
+The history is one SQLite file, `history.db`; a copy works on every system. `update.json` beside it keeps what GitHub last said about the latest version (`updates.check`): once a day the window asks `api.github.com` for it, telling it only `unifyterm/VERSION`.
 
 ## Known limits
 
@@ -191,6 +196,7 @@ The history is one SQLite file, `history.db`; a copy works on every system.
 - macOS: CI builds it, runs the tests and starts it, and it is checked on one Mac; it has been used little there by hand. 0.1.0 did not start a login shell there (`PATH` lacked Homebrew) and started tabs in `/`: both fixed in 0.1.1.
 - On macOS with `history.enabled = false`, zsh, bash and fish have no start file of UnifyTerm's, so the system's directories come before UnifyTerm's commands in `PATH`.
 - The agent sidebar finds `keepane` in UnifyTerm's own `PATH` or, on macOS and Linux, where your login shell finds it (`$SHELL -l -c 'command -v keepane'`, asked once). A `PATH` that only your `.zshrc` sets is not seen: then give `agents.command` keepane's full path.
+- On Windows the command links are hard links to `ut.exe`: after an update they lead to the old one until UnifyTerm opens a window or `ut shell enable` runs again.
 - The builds are not signed.
 
 ## License

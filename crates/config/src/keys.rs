@@ -105,7 +105,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 }
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 31] = [
+pub const KEYS: [Key; 32] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -173,4 +173,9 @@ pub const KEYS: [Key; 31] = [
     ),
     setting("agents.command", Kind::Words, "The program, with its arguments, that prints the agents as JSON."),
     setting("agents.focus", Kind::Words, "The program that brings an agent's pane to the front; {pane} is its number."),
+    setting(
+        "updates.check",
+        Kind::Switch,
+        "Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs.",
+    ),
 ];

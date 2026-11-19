@@ -17,6 +17,7 @@ On Windows too, these run as on Linux: `cat`, `ls`, `cp`, `mv`, `rm`, `mkdir`, `
 - There is no `awk` and no `rg`. Use `grep`, `sed`, `jq` or `cut`.
 - `ut view FILE` shows a picture; `ut md FILE` shows markdown.
 - UnifyTerm's settings: `ut setting list` prints them, `ut setting get NAME` one, `ut setting set NAME VALUE` changes one (`ut setting set font.size 16`), `ut setting reset NAME` puts the default back. A value that is not allowed is refused with the reason. The font and the colors change in the window at once. Ask before you change a person's settings.
+- `ut shell enable` puts these commands in every shell (it changes the shells' start files and, on Windows, the user's PATH); `ut shell disable` takes that out, `ut shell status` says where it is on. Ask before you run enable or disable.
 
 ## The command history
 

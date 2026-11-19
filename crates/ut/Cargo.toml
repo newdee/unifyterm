@@ -111,6 +111,8 @@ same-file = "1"
 unifyterm-history = { path = "../history" }
 # ut setting: the settings as the terminal reads them.
 unifyterm-config = { path = "../config" }
+# ut shell enable: the home and documents folders, where the shells' start files are.
+dirs = "6"
 # ut setting: the fonts this system has, for font.family to be chosen from a list (already in the tree through GPUI).
 fontdb = "0.23"
 base64 = "0.22"
@@ -140,6 +142,9 @@ walkdir = "2"
 [target.'cfg(windows)'.dependencies]
 glob = "0.3"
 wild = "2.2"
+# ut shell enable: the user's PATH in the registry, and telling Explorer it changed.
+winreg = "0.56"
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(unix)'.dependencies]
 uu_chgrp = "0.12.0"

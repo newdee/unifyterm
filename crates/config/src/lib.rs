@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 mod edit;
 mod keys;
+pub mod shell;
 
 pub use edit::{File, default_of};
 pub use keys::{Applies, KEYS, Key, Kind, key};
@@ -52,6 +53,7 @@ pub struct Config {
     pub history: HistoryConfig,
     pub ai: AiConfig,
     pub agents: AgentsConfig,
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -223,6 +225,20 @@ impl Default for AgentsConfig {
             command: words(&["keepane", "list-agents", "-J"]),
             focus: words(&["keepane", "focus-pane", "{pane}"]),
         }
+    }
+}
+
+/// Whether UnifyTerm looks for a newer version of itself.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdatesConfig {
+    /// Once a day, ask GitHub for the latest release; a newer one is named in the row of tabs.
+    pub check: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self { check: true }
     }
 }
 

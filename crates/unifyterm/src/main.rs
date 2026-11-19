@@ -9,6 +9,8 @@ mod agents;
 mod boxdraw;
 mod candidates;
 mod config;
+#[cfg(windows)]
+mod console_focus;
 mod frame;
 mod graphics;
 mod helper;
@@ -21,6 +23,7 @@ mod session;
 mod shell;
 mod terminal;
 mod theme;
+mod update;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,7 +39,7 @@ use config::Config;
 use shell::{Commands, Hooks};
 use terminal::{Settings, TerminalEvent, TerminalView};
 
-actions!(unifyterm, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents]);
+actions!(unifyterm, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen]);
 
 const APP_NAME: &str = "UnifyTerm";
 const WINDOW_SIZE: (f32, f32) = (960., 620.);
@@ -250,6 +253,8 @@ struct Workspace {
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
     sidebar: Sidebar,
+    /// A newer UnifyTerm, named in the row of tabs (`updates.check`).
+    newer: Option<update::Newer>,
 }
 
 /// The agents' sidebar.
@@ -299,6 +304,7 @@ impl Workspace {
             title_bar,
             helper,
             sidebar,
+            newer: None,
         };
         if let Some(file) = file {
             Self::follow_settings(file.path, cx);
@@ -307,11 +313,75 @@ impl Workspace {
         if workspace.settings.config.agents.sidebar {
             workspace.toggle_agents(cx);
         }
+        if workspace.settings.config.updates.check {
+            Self::look_for_update(cx);
+        }
+        #[cfg(windows)]
+        Self::keep_keyboard_from_hidden_consoles(window, cx);
         if let (Some(tab), false) = (workspace.tabs.first(), notices.is_empty()) {
             let text: Vec<String> = notices.iter().map(|notice| format!("{APP_NAME}: {notice}")).collect();
             tab.view.update(cx, |view, _| view.announce(&text.join("\n")));
         }
         workspace
+    }
+
+    /// When a program in a tab brings its hidden console window to the front
+    /// (keepane going to a pane does), the window takes the keyboard back (see `console_focus`).
+    #[cfg(windows)]
+    fn keep_keyboard_from_hidden_consoles(window: &mut Window, cx: &mut Context<'_, Self>) {
+        /// The window in front may change a moment after this one loses the keyboard: it is looked at again then.
+        const LOOK_AGAIN: Duration = Duration::from_millis(100);
+        cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                return;
+            }
+            cx.spawn_in(window, async move |_, cx| {
+                for wait in [Duration::ZERO, LOOK_AGAIN] {
+                    cx.background_executor().timer(wait).await;
+                    if console_focus::own_hidden_console_in_front() {
+                        let _ = cx.update(|window, _| window.activate_window());
+                        break;
+                    }
+                }
+            })
+            .detach();
+        })
+        .detach();
+    }
+
+    /// Asks in the background whether a newer UnifyTerm is out; a newer one is named in the row of tabs.
+    fn look_for_update(cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(async {
+                    let data = unifyterm_history::data_directory()?;
+                    let program = std::env::current_exe()?;
+                    let now = std::time::SystemTime::now();
+                    update::check(&data, now, env!("CARGO_PKG_VERSION"), &program, update::ask_github)
+                })
+                .await;
+            match found {
+                Ok(newer) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.newer = newer;
+                        cx.notify();
+                    });
+                }
+                Err(error) => log::warn!("update: no word of a newer version: {error:#}"),
+            }
+        })
+        .detach();
+    }
+
+    /// The notice of a newer version was clicked: the release page opens, and that version is not named again.
+    fn open_update(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(newer) = self.newer.take() else { return };
+        cx.open_url(update::RELEASE_PAGE);
+        if let Err(error) = unifyterm_history::data_directory().and_then(|data| update::dismiss(&data, &newer.version))
+        {
+            log::warn!("update: {error:#}");
+        }
+        cx.notify();
     }
 
     /// Reads the settings file again whenever it changes (`ut setting`
@@ -733,9 +803,26 @@ impl Render for Workspace {
             .hover(|add| add.text_color(rgb(foreground.hex())))
             .on_click(cx.listener(|this, _, window, cx| this.open(None, window, cx)))
             .child("+");
+        let newer = self.newer.as_ref().map(|newer| {
+            div()
+                .id("update")
+                .flex_none()
+                .h_full()
+                .px_3()
+                .flex()
+                .items_center()
+                .text_size(px(12.))
+                .text_color(rgb(theme.ansi[3].hex()))
+                .hover(|notice| notice.text_color(rgb(foreground.hex())))
+                .on_click(cx.listener(|this, _, _, cx| this.open_update(cx)))
+                .child(SharedString::from(newer.text()))
+        });
         let own_bar = self.title_bar == TitleBar::Tabs;
-        let handle = window_handle(self.title_bar);
-        let buttons = (own_bar && cfg!(target_os = "windows")).then(|| window_buttons(window, theme));
+        // Full screen has no title bar: the tabs do not move the window then.
+        let handle = window_handle(if window.is_fullscreen() { TitleBar::System } else { self.title_bar });
+        // Full screen has no frame to minimize or restore (macOS draws its own buttons there).
+        let buttons =
+            (own_bar && cfg!(target_os = "windows") && !window.is_fullscreen()).then(|| window_buttons(window, theme));
         let lights = (own_bar && cfg!(target_os = "macos")).then(|| div().flex_none().w(px(TRAFFIC_LIGHTS_WIDTH)));
         div()
             .size_full()
@@ -748,6 +835,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(Step::Next, window, cx)))
             .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(Step::Previous, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_agents(cx)))
+            .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
             .child(
                 div()
                     .flex()
@@ -757,6 +845,7 @@ impl Render for Workspace {
                     .children(tabs)
                     .child(add)
                     .child(handle)
+                    .children(newer)
                     .children(buttons),
             )
             .child(
@@ -774,9 +863,19 @@ impl Render for Workspace {
 
 /// The keys for the window's own commands. Ctrl-Shift on Windows and Linux,
 /// where Ctrl alone belongs to the program in the terminal; Cmd on macOS.
+/// Full screen: F11 and Alt-Enter as in Windows Terminal (a program in the
+/// terminal then never gets Alt-Enter); Cmd-Enter, and Ctrl-Cmd-F, the Mac's own key.
 fn key_bindings() -> Vec<KeyBinding> {
     #[cfg(target_os = "macos")]
-    let keys = [("cmd-t", 0), ("cmd-w", 1), ("cmd-c", 4), ("cmd-v", 5), ("cmd-shift-a", 6)];
+    let keys = [
+        ("cmd-t", 0),
+        ("cmd-w", 1),
+        ("cmd-c", 4),
+        ("cmd-v", 5),
+        ("cmd-shift-a", 6),
+        ("cmd-enter", 7),
+        ("ctrl-cmd-f", 7),
+    ];
     #[cfg(not(target_os = "macos"))]
     let keys = [
         ("ctrl-shift-t", 0),
@@ -785,6 +884,8 @@ fn key_bindings() -> Vec<KeyBinding> {
         ("ctrl-shift-v", 5),
         ("shift-insert", 5),
         ("ctrl-shift-a", 6),
+        ("f11", 7),
+        ("alt-enter", 7),
     ];
     let common = [("ctrl-tab", 2), ("ctrl-shift-tab", 3)];
     keys.into_iter()
@@ -796,7 +897,8 @@ fn key_bindings() -> Vec<KeyBinding> {
             3 => KeyBinding::new(key, PreviousTab, None),
             4 => KeyBinding::new(key, Copy, None),
             5 => KeyBinding::new(key, Paste, None),
-            _ => KeyBinding::new(key, ToggleAgents, None),
+            6 => KeyBinding::new(key, ToggleAgents, None),
+            _ => KeyBinding::new(key, ToggleFullScreen, None),
         })
         .collect()
 }
@@ -926,6 +1028,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_screen_has_its_keys() {
+        let bindings = key_bindings();
+        let keys: Vec<String> = bindings
+            .iter()
+            .filter(|binding| binding.action().partial_eq(&ToggleFullScreen))
+            .map(|binding| binding.keystrokes().iter().map(gpui::KeybindingKeystroke::unparse).collect())
+            .collect();
+        let wanted: &[&str] =
+            if cfg!(target_os = "macos") { &["cmd-enter", "ctrl-cmd-f"] } else { &["f11", "alt-enter"] };
+        assert_eq!(keys, wanted);
+    }
 
     #[test]
     fn the_version_names_the_commit() {
