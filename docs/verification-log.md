@@ -47,6 +47,12 @@
 
 第 3 轮没有再跑一遍全量测试：它比较的是前两轮的输出。
 
+### 发布
+
+- CI 在 `7b3962b` 上三个系统都通过。macOS 的任务前三次没有分配到运行器（0 步，被取消：`The job was not acquired by Runner of type hosted`），第四次拿到。它跑了 21 步：11 个测试程序共 206 项通过，窗口程序那一个是 121 项（比 Windows 多的 1 项就是 `a_program_is_found_the_way_the_login_shell_finds_it`，它在 macOS 和 Linux 上都通过）；窗口启动并运行了一条命令（回放里有 `smoke-ok`）。
+- `v0.1.1` 的发布工作流 4 个任务一次通过。Release 里 9 个安装文件，每个都和自己的 `.sha256` 一致（不符 0 处）；scoop 清单是 0.1.1，哈希和 zip 一致。
+- tap 的工作流在 macOS 和 Linux 上各跑 10 步通过，提交了 `unifyterm 0.1.1`；formula 里 3 个 sha256 和 Release 的 3 个 `.sha256` 文件逐个相同。
+- 一个流程上的教训：等 CI 的后台重试任务随会话结束被终止，只试了一次，之后约 9 小时没有人重跑。跨会话的等待不能只靠后台任务，回来时要先查一遍远端的状态。
 ### 没有在本机验证的
 
 - **真实 macOS 上的效果。** 我没有 Mac。登录启动的参数有单元测试，CI 的 macOS 任务会跑；用户自己的 `.zshrc` 能不能正常读完，只能由用户在 0.1.1 上确认。
