@@ -185,7 +185,7 @@ The history is one SQLite file, `history.db`; a copy works on every system.
 - UnifyTerm draws kitty's graphics protocol; sixel and iTerm2 images are for `ut view` in other terminals.
 - PowerShell's Tab completion still writes paths with `\`; `ls -R` and `find -exec` print uutils' own `\` paths on Windows.
 - The shell hooks (history, the list while typing) need PowerShell 7 or 5.1, cmd, bash, zsh or fish.
-- macOS: CI builds it, runs the tests and starts it; by hand it has been used little. 0.1.0 did not start a login shell there (`PATH` lacked Homebrew) and started tabs in `/`: both fixed in 0.1.1.
+- macOS: CI builds it, runs the tests and starts it, and it is checked on one Mac; it has been used little there by hand. 0.1.0 did not start a login shell there (`PATH` lacked Homebrew) and started tabs in `/`: both fixed in 0.1.1.
 - On macOS with `history.enabled = false`, zsh, bash and fish have no start file of UnifyTerm's, so the system's directories come before UnifyTerm's commands in `PATH`.
 - The agent sidebar finds `keepane` in UnifyTerm's own `PATH` or, on macOS and Linux, where your login shell finds it (`$SHELL -l -c 'command -v keepane'`, asked once). A `PATH` that only your `.zshrc` sets is not seen: then give `agents.command` keepane's full path.
 - The builds are not signed.
