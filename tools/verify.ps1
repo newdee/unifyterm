@@ -260,6 +260,65 @@ if ($Section -in 'all', 'edges') {
     Report 'started by a launcher: the tab is in the home directory' ($where.home.Contains($userHome) -and -not $where.home.Contains($env:SystemRoot)) "the home directory printed: $($where.home.Contains($userHome)); the directory it was started in printed: $($where.home.Contains($env:SystemRoot))"
     Report '--cwd DIRECTORY: the tab is there' ($where.asked.Contains($work)) "the directory asked for printed: $($where.asked.Contains($work))"
 
+    # The program file carries its icon: the window, the taskbar and Explorer take it
+    # from there. Counted: pixels of the logo's dark ground and of its three strands.
+    Add-Type -AssemblyName System.Drawing
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($Exe).ToBitmap()
+    $ground = 0; $strands = 0
+    for ($y = 0; $y -lt $icon.Height; $y++) { for ($x = 0; $x -lt $icon.Width; $x++) {
+        $c = $icon.GetPixel($x, $y); if ($c.A -lt 200) { continue }
+        if ($c.R -lt 0x30 -and $c.G -lt 0x30 -and $c.B -ge 0x20 -and $c.B -lt 0x40) { $ground++ }
+        elseif ($c.B -ge 0xE0 -and $c.G -ge 0x80) { $strands++ }
+    } }
+    Report 'the program file carries its icon' ($ground -ge 300 -and $strands -ge 20) "of $($icon.Width * $icon.Height) pixels: $ground of the logo's dark ground, $strands of its strands"
+
+    # The row of tabs is the title bar. Each part says what it is when Windows asks
+    # (the pointer is moved there first, as a hand moves it), and the three buttons act.
+    Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class Bar {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+}
+"@
+    $barConfig = Join-Path $work 'bar.toml'; "[history]`nenabled = false" | Set-Content $barConfig
+    $p = Start-Process $Exe -ArgumentList "--cwd `"$($work -replace '\\', '/')`" --config `"$barConfig`"" -PassThru
+    $bar = [ordered]@{}; $acts = [ordered]@{}
+    try {
+        $h = [IntPtr]::Zero
+        for ($i = 0; $i -lt 60 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 250; $p.Refresh(); $h = $p.MainWindowHandle }
+        Start-Sleep 2
+        $scale = [Bar]::GetDpiForWindow($h) / 96.0
+        $at = { param([int]$x, [int]$y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
+        # A point of the bar, counted from the window's right edge (or its left): 8 is the unseen border Windows adds.
+        $hit = { param([int]$fromRight, [int]$fromLeft)
+            $r = New-Object Bar+RECT; [void][Bar]::GetWindowRect($h, [ref]$r)
+            $x = if ($fromRight) { $r.R - [int]((8 + $fromRight) * $scale) } else { $r.L + [int]((8 + $fromLeft) * $scale) }
+            $y = $r.T + [int](25 * $scale)
+            $c = New-Object Bar+POINT; $c.X = $x; $c.Y = $y; [void][Bar]::ScreenToClient($h, [ref]$c)
+            [void][Bar]::PostMessage($h, 0x0200, [IntPtr]::Zero, (& $at $c.X $c.Y)); Start-Sleep -Milliseconds 300
+            [pscustomobject]@{ Code = [Bar]::SendMessage($h, 0x0084, [IntPtr]::Zero, (& $at $x $y)).ToInt64(); L = (& $at $x $y) }
+        }
+        $press = { param($where) [void][Bar]::PostMessage($h, 0x00A1, [IntPtr]$where.Code, $where.L); Start-Sleep -Milliseconds 120; [void][Bar]::PostMessage($h, 0x00A2, [IntPtr]$where.Code, $where.L); Start-Sleep -Milliseconds 900 }
+        $bar.tab = (& $hit 0 40).Code; $bar.empty = (& $hit 0 400).Code; $bar.minimize = (& $hit 115 0).Code; $bar.maximize = (& $hit 69 0).Code; $bar.close = (& $hit 23 0).Code
+        & $press (& $hit 69 0); $acts.maximized = [Bar]::IsZoomed($h)
+        & $press (& $hit 69 0); $acts.restored = -not [Bar]::IsZoomed($h)
+        & $press (& $hit 115 0); $acts.minimized = [Bar]::IsIconic($h)
+        [void][Bar]::ShowWindow($h, 9); Start-Sleep 1
+        & $press (& $hit 23 0); $acts.closed = $p.WaitForExit(5000)
+    } finally { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } }
+    # Windows' names for the parts: 1 the window's content, 2 the title bar, 8 minimize, 9 maximize, 20 close.
+    Report 'the row of tabs is the title bar: each part is what it is' ($bar.tab -eq 1 -and $bar.empty -eq 2 -and $bar.minimize -eq 8 -and $bar.maximize -eq 9 -and $bar.close -eq 20) "a tab $($bar.tab) (1), the empty part $($bar.empty) (2), the buttons $($bar.minimize) $($bar.maximize) $($bar.close) (8 9 20)"
+    Report 'its three buttons act' (@($acts.Values | Where-Object { $_ }).Count -eq 4) "maximized $($acts.maximized), restored $($acts.restored), minimized $($acts.minimized), closed $($acts.closed)"
+
     $t = Run 'tiny' "{SIZE:160,120}{WAIT:900}echo tiny-ok{ENTER}{WAIT:500}{SIZE:900,600}{WAIT:900}echo big-again{ENTER}"
     Report 'a tiny window and back: still works' ((Count ($t -replace "`n", '') 'tiny-ok') -ge 2 -and (Count $t 'big-again') -eq 2) "'tiny-ok' $(Count ($t -replace "`n", '') 'tiny-ok') (wrapped in the tiny screen), 'big-again' $(Count $t 'big-again')"
 

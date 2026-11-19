@@ -23,6 +23,7 @@ pub(crate) struct Config {
     pub(crate) font: FontConfig,
     pub(crate) shell: ShellConfig,
     pub(crate) terminal: TerminalConfig,
+    pub(crate) window: WindowConfig,
     pub(crate) theme: ThemeConfig,
     pub(crate) commands: CommandsConfig,
     pub(crate) history: HistoryConfig,
@@ -84,6 +85,15 @@ impl Default for TerminalConfig {
     fn default() -> Self {
         Self { scrollback: 10_000, padding: 6.0 }
     }
+}
+
+/// The window itself.
+#[derive(Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct WindowConfig {
+    /// The system's title bar above the tabs. Without it (the default on
+    /// Windows and macOS) the row of tabs is the title bar.
+    pub(crate) system_title_bar: bool,
 }
 
 /// UnifyTerm's own commands (`cat`, `ls`, `grep`, `jq`, ...): the same ones
@@ -367,6 +377,8 @@ mod tests {
         assert!(error("[font]\nfamily = \" \"").contains("font.family"));
         assert!(error("[terminal]\nscrollback = 5000000").contains("terminal.scrollback"));
         assert!(error("[terminal]\npadding = -1").contains("terminal.padding"));
+        assert!(!Config::default().window.system_title_bar, "the tabs are the title bar unless asked");
+        assert!(Config::parse("[window]\nsystem_title_bar = true").unwrap().window.system_title_bar);
         assert!(error("[theme]\ncursor = \"red\"").contains("theme.cursor is \"red\""));
         assert!(error("[theme]\nansi = [\"#000000\"]").contains("theme.ansi has 1 colors"));
         assert!(error("[font]\nsise = 12").contains("sise"), "a misspelt key is named");

@@ -1,7 +1,7 @@
 //! Gives the program the commit it is built from (`UNIFYTERM_COMMIT`). On
 //! Windows, puts the ConPTY that `tools/fetch-conpty.ps1` fetched beside
 //! the built program, where the pty library looks for it before it falls
-//! back to Windows' own (older) one.
+//! back to Windows' own (older) one, and puts the icon into the program.
 
 use std::path::Path;
 
@@ -10,9 +10,27 @@ const FILES: [&str; 2] = ["conpty.dll", "OpenConsole.exe"];
 
 include!("../../build/commit.rs");
 
+/// The icon and the name Windows shows, in the program file itself. The
+/// window, the taskbar, Alt-Tab and Explorer all take the icon from the
+/// program (GPUI loads the icon resource numbered 1): an installer's
+/// shortcut has an icon of its own, and nothing else has. A build without
+/// it fails, so that a program without an icon is never released.
+#[cfg(windows)]
+fn embed_icon() {
+    let icon = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/icons/unifyterm.ico");
+    println!("cargo:rerun-if-changed={}", icon.display());
+    let mut resource = winresource::WindowsResource::new();
+    resource.set_icon_with_id(&icon.to_string_lossy(), "1");
+    resource.set("ProductName", "UnifyTerm");
+    resource.set("FileDescription", "UnifyTerm");
+    resource.compile().expect("the icon goes into the program (needs rc.exe, which comes with the Windows SDK)");
+}
+
 fn main() {
     println!("cargo:rustc-env=UNIFYTERM_COMMIT={}", commit());
     println!("cargo:rerun-if-changed=../../vendor/conpty/VERSION");
+    #[cfg(windows)]
+    embed_icon();
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }

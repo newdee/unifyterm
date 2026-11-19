@@ -28,7 +28,8 @@ use std::time::Duration;
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, Entity, KeyBinding, MouseButton, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, size,
+    TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowOptions, actions, div, point, prelude::*, px, rgb,
+    size,
 };
 
 use config::Config;
@@ -40,6 +41,16 @@ actions!(unifyterm, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, Toggle
 const APP_NAME: &str = "UnifyTerm";
 const WINDOW_SIZE: (f32, f32) = (960., 620.);
 const TAB_BAR_HEIGHT: f32 = 34.;
+/// Room at the left of the tabs for macOS's three window buttons, and where they sit.
+const TRAFFIC_LIGHTS_WIDTH: f32 = 76.;
+const TRAFFIC_LIGHTS_AT: (f32, f32) = (13., 11.);
+/// One of the window buttons UnifyTerm draws on Windows (minimize, maximize, close).
+const WINDOW_BUTTON_WIDTH: f32 = 46.;
+/// The face Windows keeps its window buttons' glyphs in (10 and 11 both have it).
+const WINDOW_GLYPHS: &str = "Segoe MDL2 Assets";
+/// The close button under the pointer: Windows' own red, with white on it.
+const CLOSE_RED: u32 = 0x00c4_2b1c;
+const CLOSE_WHITE: u32 = 0x00ff_ffff;
 /// The agents' sidebar, in pixels.
 const SIDEBAR_WIDTH: f32 = 300.;
 /// The longest title a tab shows, in characters.
@@ -166,6 +177,30 @@ fn tab_directory(asked: Option<&std::path::Path>, home: Option<PathBuf>) -> Resu
     if directory.is_dir() { Ok(directory) } else { Err(format!("--cwd {}: not a directory", asked.display())) }
 }
 
+/// What is above the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TitleBar {
+    /// The row of tabs is the title bar: the window is moved by it, and on
+    /// Windows it holds the window's three buttons (macOS keeps its own).
+    Tabs,
+    /// The system's title bar, with the row of tabs under it.
+    System,
+}
+
+impl TitleBar {
+    /// The tabs, where GPUI can take the system's bar away (Windows, macOS)
+    /// and the settings do not ask for it. Elsewhere the window manager
+    /// draws the bar and the borders, and a window without them could not
+    /// be moved or sized.
+    const fn choose(config: &config::WindowConfig) -> Self {
+        if cfg!(any(target_os = "windows", target_os = "macos")) && !config.system_title_bar {
+            Self::Tabs
+        } else {
+            Self::System
+        }
+    }
+}
+
 struct Tab {
     view: Entity<TerminalView>,
     /// What the tab is called until its program sets a title.
@@ -185,6 +220,7 @@ struct Workspace {
     hooks: Option<Hooks>,
     /// Where each tab's program starts (see [`tab_directory`]).
     directory: PathBuf,
+    title_bar: TitleBar,
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
     sidebar: Sidebar,
@@ -221,8 +257,19 @@ impl Workspace {
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
         let Start { settings, commands, recorder, hooks, directory, helper, command, notices } = start;
         let sidebar = Sidebar::default();
-        let mut workspace =
-            Self { tabs: Vec::new(), active: 0, settings, commands, recorder, hooks, directory, helper, sidebar };
+        let title_bar = TitleBar::choose(&settings.config.window);
+        let mut workspace = Self {
+            tabs: Vec::new(),
+            active: 0,
+            settings,
+            commands,
+            recorder,
+            hooks,
+            directory,
+            title_bar,
+            helper,
+            sidebar,
+        };
         workspace.open(command, window, cx);
         if workspace.settings.config.agents.sidebar {
             workspace.toggle_agents(cx);
@@ -506,8 +553,60 @@ fn tab_title(title: &str) -> String {
     format!("{cut}…")
 }
 
+/// The empty part of the row of tabs. When the tabs are the title bar it
+/// moves the window, as a title bar does: Windows takes it for one (drag,
+/// double click, right click), macOS is told to start the move.
+fn window_handle(title_bar: TitleBar) -> gpui::Stateful<gpui::Div> {
+    div().id("title-bar").flex_1().h_full().when(title_bar == TitleBar::Tabs, |handle| {
+        handle
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            })
+    })
+}
+
+/// The window's three buttons on Windows, where UnifyTerm draws them when
+/// the tabs are the title bar. Windows itself acts on a click: each button
+/// only says which one it is.
+fn window_buttons(window: &Window, theme: &theme::Theme) -> gpui::Div {
+    let (background, foreground) = (theme.background, theme.foreground);
+    let dim = foreground.toward(background, 0.5);
+    let lit = foreground.toward(background, 0.85);
+    let button = |name: &'static str, glyph: &'static str, area: WindowControlArea| {
+        div()
+            .id(name)
+            .h_full()
+            .w(px(WINDOW_BUTTON_WIDTH))
+            .flex()
+            .items_center()
+            .justify_center()
+            .font_family(WINDOW_GLYPHS)
+            .text_size(px(10.))
+            .text_color(rgb(dim.hex()))
+            .window_control_area(area)
+            .child(glyph)
+    };
+    // Windows' own glyphs: minimize, maximize or restore, close.
+    let middle = if window.is_maximized() { "\u{e923}" } else { "\u{e922}" };
+    let quiet = move |button: gpui::StyleRefinement| button.bg(rgb(lit.hex())).text_color(rgb(foreground.hex()));
+    div()
+        .flex()
+        .flex_none()
+        .h_full()
+        .child(button("minimize", "\u{e921}", WindowControlArea::Min).hover(quiet))
+        .child(button("maximize", middle, WindowControlArea::Max).hover(quiet))
+        .child(
+            button("close", "\u{e8bb}", WindowControlArea::Close)
+                .hover(|button| button.bg(rgb(CLOSE_RED)).text_color(rgb(CLOSE_WHITE))),
+        )
+}
+
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = &self.settings.theme;
         let (background, foreground) = (theme.background, theme.foreground);
         let bar = background.toward(theme::Rgb(0, 0, 0), 0.35);
@@ -551,6 +650,10 @@ impl Render for Workspace {
             .hover(|add| add.text_color(rgb(foreground.hex())))
             .on_click(cx.listener(|this, _, window, cx| this.open(None, window, cx)))
             .child("+");
+        let own_bar = self.title_bar == TitleBar::Tabs;
+        let handle = window_handle(self.title_bar);
+        let buttons = (own_bar && cfg!(target_os = "windows")).then(|| window_buttons(window, theme));
+        let lights = (own_bar && cfg!(target_os = "macos")).then(|| div().flex_none().w(px(TRAFFIC_LIGHTS_WIDTH)));
         div()
             .size_full()
             .flex()
@@ -562,7 +665,17 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(Step::Next, window, cx)))
             .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(Step::Previous, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_agents(cx)))
-            .child(div().flex().flex_none().h(px(TAB_BAR_HEIGHT)).children(tabs).child(add))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .h(px(TAB_BAR_HEIGHT))
+                    .children(lights)
+                    .children(tabs)
+                    .child(add)
+                    .child(handle)
+                    .children(buttons),
+            )
             .child(
                 div()
                     .flex_1()
@@ -706,9 +819,14 @@ fn main() {
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());
         let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
+        let own_bar = TitleBar::choose(&start.settings.config.window) == TitleBar::Tabs;
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some(APP_NAME.into()), ..Default::default() }),
+            titlebar: Some(TitlebarOptions {
+                title: Some(APP_NAME.into()),
+                appears_transparent: own_bar,
+                traffic_light_position: own_bar.then(|| point(px(TRAFFIC_LIGHTS_AT.0), px(TRAFFIC_LIGHTS_AT.1))),
+            }),
             ..Default::default()
         };
         cx.open_window(options, |window, cx| cx.new(|cx| Workspace::new(start, window, cx))).expect("open the window");

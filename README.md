@@ -103,6 +103,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 | `shell.args` | `[]` | Its arguments. With arguments of your own the shell gets nothing from UnifyTerm: no history hook, no login start |
 | `terminal.scrollback` | `10000` | Lines kept for each tab, at most 1000000 |
 | `terminal.padding` | `6` | Pixels between the window's edge and the text, 0 to 64 |
+| `window.system_title_bar` | `false` | The system's title bar above the tabs. Without it the row of tabs is the title bar: drag its empty part to move the window. On Linux the system's bar is always there |
 | `theme.foreground` | built-in | `#rrggbb` |
 | `theme.background` | built-in | `#rrggbb` |
 | `theme.cursor` | built-in | `#rrggbb` |
