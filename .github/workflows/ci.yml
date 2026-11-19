@@ -56,6 +56,20 @@ jobs:
       - name: Release build
         run: cargo build --workspace --release --locked
 
+      - name: The programs need no Visual C++ runtime (Windows)
+        # A fresh Windows has no VCRUNTIME140.dll: a program that needs it does not start there
+        # (.cargo/config.toml links the C runtime in).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object FullName -match 'Hostx64\\x64' | Select-Object -First 1
+          foreach ($program in 'unifyterm.exe', 'ut.exe') {
+            $needs = @(& $dumpbin.FullName /nologo /dependents "target/release/$program" | Where-Object { $_ -match 'VCRUNTIME|MSVCP|api-ms-win-crt' } | ForEach-Object { $_.Trim() })
+            if ($needs) { throw "$program needs $($needs -join ', ')" }
+            "${program}: no C runtime DLL"
+          }
+
       - name: Licenses are listed and allowed
         if: runner.os == 'Linux'
         run: |

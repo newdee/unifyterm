@@ -1,0 +1,10 @@
+# Windows: the C runtime goes into the programs themselves. Linked to it as a
+# DLL (Rust's default), unifyterm.exe and ut.exe need VCRUNTIME140.dll, which a
+# fresh Windows does not have until some other program installs the Visual C++
+# Redistributable: there they do not start at all. The rest of the C runtime
+# (the UCRT) is part of Windows 10 and later.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
