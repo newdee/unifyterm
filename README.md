@@ -92,6 +92,10 @@ In a popup, Enter takes what it offers (a corrected command goes on the line, no
 
 The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Library/Application Support/unifyterm` (macOS) or `~/.config/unifyterm` (Linux); `unifyterm --config FILE` names another. Every key is optional. A key that is misspelt, or a value out of range, is named in a line at the top of the first tab, and the defaults are used. The same file works on every system: paths may be written with `/`.
 
+`ut setting`, in a tab, shows every setting and changes it from the keyboard: the arrow keys move, Enter changes the one the cursor is on (a switch turns, a value is typed), `d` puts the default back, `u` takes the last change back, `/` narrows the list, `q` leaves. A value UnifyTerm would refuse is not written, and the line says why. The comments in your file stay. For a script: `ut setting list`, `ut setting get font.size`, `ut setting set font.size 16`, `ut setting reset font.size`, `ut setting path`.
+
+UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the colors, the padding and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.*`, `agents.sidebar`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
+
 | Key | Default | What it is |
 |---|---|---|
 | `font.family` | Cascadia Code (Windows), Menlo (macOS), DejaVu Sans Mono (Linux) | The font |
@@ -138,6 +142,7 @@ After a shell's start files have run, UnifyTerm's commands are put first in `PAT
 
 | Variable | What it does |
 |---|---|
+| `UNIFYTERM_CONFIG` | The settings file `ut setting` changes, when it is not the default one. UnifyTerm sets it in its tabs when it was started with `--config` |
 | `UNIFYTERM_DATA_DIR` | Keep UnifyTerm's data (history, log, command links, shell hooks) in this directory instead of the system's |
 | `UNIFYTERM_RAW_LOG` | A file to append every byte the first tab's program prints to (later tabs: `.2`, `.3`); `unifyterm --replay FILE` shows the screen they draw |
 | `UT_NATIVE_PATHS` | On Windows: `ut`'s commands print paths with Windows' own `\` |

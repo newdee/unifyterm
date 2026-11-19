@@ -45,6 +45,7 @@ public static class Win {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
     const uint WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_CHAR = 0x0102;
     const uint WM_MOUSEMOVE = 0x0200, WM_LDOWN = 0x0201, WM_LUP = 0x0202, WM_RDOWN = 0x0204, WM_RUP = 0x0205, WM_WHEEL = 0x020A;
@@ -106,8 +107,25 @@ function Save-Shot([IntPtr]$h, [string]$path) {
     $hdc = $g.GetHdc()
     $ok = [Win]::PrintWindow($h, $hdc, 2)   # 2: the whole window as the compositor draws it
     $g.ReleaseHdc($hdc)
+    $g.Dispose()
+    # The window's content is at the same place in every picture: where it is under the
+    # system's title bar (8 from the left, 31 from the top, at 100%). The checks' points and
+    # the promo's crop are measured from there. A window whose tabs are the title bar has its
+    # content higher: its picture is moved down by the difference, with black above it.
+    $origin = New-Object Win+POINT
+    [void][Win]::ClientToScreen($h, [ref]$origin)
+    $scale = [Win]::GetDpiForWindow($h) / 96.0
+    $dx = [int][Math]::Round(8 * $scale) - ($origin.X - $r.L); $dy = [int][Math]::Round(31 * $scale) - ($origin.Y - $r.T)
+    if ($dx -gt 0 -or $dy -gt 0) {
+        $dx = [Math]::Max($dx, 0); $dy = [Math]::Max($dy, 0)
+        $moved = New-Object System.Drawing.Bitmap ($w + $dx), ($ht + $dy)
+        $g = [System.Drawing.Graphics]::FromImage($moved)
+        $g.Clear([System.Drawing.Color]::Black)
+        $g.DrawImageUnscaled($bmp, $dx, $dy)
+        $g.Dispose(); $bmp.Dispose(); $bmp = $moved
+    }
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
-    "saved ${w}x${ht} (PrintWindow: $ok) -> $path"
+    "saved $($bmp.Width)x$($bmp.Height) (PrintWindow: $ok) -> $path"
 }
 
 # UnifyTerm starts its tabs in the home directory. What is typed here must not

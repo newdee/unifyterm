@@ -1,0 +1,22 @@
+[package]
+name = "unifyterm-config"
+description = "UnifyTerm's settings: what each one may be, read by the terminal, shown and changed by `ut setting`."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+# The settings file is changed in place: the comments and the order its owner gave it stay.
+toml_edit = "0.25"
+
+[dev-dependencies]
+tempfile = "3"

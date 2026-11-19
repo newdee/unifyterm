@@ -109,6 +109,8 @@ sed = "0.3.0"
 diffutils = "0.6.0"
 same-file = "1"
 unifyterm-history = { path = "../history" }
+# ut setting: the settings as the terminal reads them.
+unifyterm-config = { path = "../config" }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 terminal_size = "0.4"

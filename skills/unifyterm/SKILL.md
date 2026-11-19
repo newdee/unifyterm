@@ -16,6 +16,7 @@ On Windows too, these run as on Linux: `cat`, `ls`, `cp`, `mv`, `rm`, `mkdir`, `
 - A wildcard (`*.txt`) becomes the names it matches, as a Unix shell does it. In quotes (`"*.txt"`) it stays as typed: quote a pattern meant for `find -name` or `grep`.
 - There is no `awk` and no `rg`. Use `grep`, `sed`, `jq` or `cut`.
 - `ut view FILE` shows a picture; `ut md FILE` shows markdown.
+- UnifyTerm's settings: `ut setting list` prints them, `ut setting get NAME` one, `ut setting set NAME VALUE` changes one (`ut setting set font.size 16`), `ut setting reset NAME` puts the default back. A value that is not allowed is refused with the reason. The font and the colors change in the window at once. Ask before you change a person's settings.
 
 ## The command history
 

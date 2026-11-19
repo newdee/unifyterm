@@ -283,6 +283,13 @@ impl TerminalView {
         self.title.as_deref().filter(|title| !title.trim().is_empty())
     }
 
+    /// Takes settings that were read again: the font, the colors and the
+    /// padding are drawn from them from the next frame on.
+    pub(crate) fn use_settings(&mut self, settings: Arc<Settings>, cx: &mut Context<'_, Self>) {
+        self.settings = settings;
+        cx.notify();
+    }
+
     /// Puts a line of UnifyTerm's own on the screen (a problem with the settings file).
     pub(crate) fn announce(&mut self, text: &str) {
         self.session.feed(announcement(text).as_bytes());

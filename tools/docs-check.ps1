@@ -17,10 +17,10 @@ function Compare-Sets([string]$what, [string[]]$code, [string[]]$documented) {
 }
 
 # Settings: each `pub(crate) key:` of each `...Config` section in config.rs.
-$config = & $read 'crates/unifyterm/src/config.rs'
-$settings = foreach ($section in [regex]::Matches($config, '(?s)pub\(crate\) struct (\w+)Config \{(.*?)\n\}')) {
+$config = & $read 'crates/config/src/lib.rs'
+$settings = foreach ($section in [regex]::Matches($config, '(?s)pub struct (\w+)Config \{(.*?)\n\}')) {
     if ($section.Groups[1].Value -eq '') { continue }
-    foreach ($key in [regex]::Matches($section.Groups[2].Value, 'pub\(crate\) (\w+):')) { "$($section.Groups[1].Value.ToLower()).$($key.Groups[1].Value)" }
+    foreach ($key in [regex]::Matches($section.Groups[2].Value, 'pub (\w+):')) { "$($section.Groups[1].Value.ToLower()).$($key.Groups[1].Value)" }
 }
 $settingsTable = ($readme -split '## Settings')[1].Split('## Environment')[0]
 $documentedSettings = [regex]::Matches($settingsTable, '(?m)^\| `([a-z_]+\.[a-z_]+)` \|') | ForEach-Object { $_.Groups[1].Value }

@@ -53,6 +53,8 @@ const CLOSE_RED: u32 = 0x00c4_2b1c;
 const CLOSE_WHITE: u32 = 0x00ff_ffff;
 /// The agents' sidebar, in pixels.
 const SIDEBAR_WIDTH: f32 = 300.;
+/// How often the settings file is looked at for a change.
+const SETTINGS_LOOK: Duration = Duration::from_millis(500);
 /// The longest title a tab shows, in characters.
 const TAB_TITLE_CHARS: usize = 28;
 const USAGE: &str = "usage: unifyterm [--config FILE] [--cwd DIRECTORY] [-e PROGRAM [ARGS...]]
@@ -177,6 +179,28 @@ fn tab_directory(asked: Option<&std::path::Path>, home: Option<PathBuf>) -> Resu
     if directory.is_dir() { Ok(directory) } else { Err(format!("--cwd {}: not a directory", asked.display())) }
 }
 
+/// The settings file the window reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SettingsFile {
+    path: PathBuf,
+    /// Named with `--config`: the shells are told, so that `ut setting` changes this file.
+    asked: Asked,
+}
+
+/// Whether the settings file is the default one or one `--config` named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    Default,
+    WithConfig,
+}
+
+/// What tells one state of a file from the next: when it was written, and its size.
+/// `None` for a file that is not there.
+fn stamp(path: &std::path::Path) -> Option<(std::time::SystemTime, u64)> {
+    let about = std::fs::metadata(path).ok()?;
+    Some((about.modified().ok()?, about.len()))
+}
+
 /// What is above the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TitleBar {
@@ -220,6 +244,8 @@ struct Workspace {
     hooks: Option<Hooks>,
     /// Where each tab's program starts (see [`tab_directory`]).
     directory: PathBuf,
+    /// The settings file, when `--config` named it: the tabs' shells are told (see [`Workspace::start`]).
+    named_settings: Option<PathBuf>,
     title_bar: TitleBar,
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
@@ -245,6 +271,8 @@ struct Start {
     recorder: Option<recorder::Recorder>,
     hooks: Option<Hooks>,
     directory: PathBuf,
+    /// The settings file, to read again when it changes, and whether it was named with `--config`.
+    file: Option<SettingsFile>,
     helper: Arc<helper::Helper>,
     /// The first tab's program and its arguments; the shell when `None`.
     command: Option<(String, Vec<String>)>,
@@ -255,9 +283,10 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, commands, recorder, hooks, directory, helper, command, notices } = start;
+        let Start { settings, commands, recorder, hooks, directory, file, helper, command, notices } = start;
         let sidebar = Sidebar::default();
         let title_bar = TitleBar::choose(&settings.config.window);
+        let named_settings = file.as_ref().filter(|file| file.asked == Asked::WithConfig).map(|file| file.path.clone());
         let mut workspace = Self {
             tabs: Vec::new(),
             active: 0,
@@ -266,10 +295,14 @@ impl Workspace {
             recorder,
             hooks,
             directory,
+            named_settings,
             title_bar,
             helper,
             sidebar,
         };
+        if let Some(file) = file {
+            Self::follow_settings(file.path, cx);
+        }
         workspace.open(command, window, cx);
         if workspace.settings.config.agents.sidebar {
             workspace.toggle_agents(cx);
@@ -279,6 +312,51 @@ impl Workspace {
             tab.view.update(cx, |view, _| view.announce(&text.join("\n")));
         }
         workspace
+    }
+
+    /// Reads the settings file again whenever it changes (`ut setting`
+    /// writes it; so does an editor), and gives every tab the new settings.
+    ///
+    /// The font, the colors and the padding change at once. The shell and
+    /// its arguments are used by the next tab. What was set up when the
+    /// window opened (UnifyTerm's commands, the history, the model, the
+    /// title bar) stays until UnifyTerm starts again. A file that is wrong
+    /// changes nothing: the settings in use stay, and the log says why.
+    fn follow_settings(path: PathBuf, cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |this, cx| {
+            let mut seen = stamp(&path);
+            loop {
+                cx.background_executor().timer(SETTINGS_LOOK).await;
+                let now = stamp(&path);
+                if now == seen {
+                    continue;
+                }
+                seen = now;
+                let read = Config::load(&path);
+                let alive = this.update(cx, |this, cx| match read {
+                    Ok(config) => this.use_settings(config, cx),
+                    Err(error) => log::warn!("settings: the changed file is not used: {error:#}"),
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Puts settings that were read again to use (see [`Workspace::follow_settings`]).
+    fn use_settings(&mut self, config: Config, cx: &mut Context<'_, Self>) {
+        if config == self.settings.config {
+            return;
+        }
+        let theme = config::theme(&config);
+        self.settings = Arc::new(Settings { config, theme });
+        for tab in &self.tabs {
+            let settings = Arc::clone(&self.settings);
+            tab.view.update(cx, |view, cx| view.use_settings(settings, cx));
+        }
+        cx.notify();
     }
 
     /// Opens a tab running `command`, or the configured shell.
@@ -333,6 +411,11 @@ impl Workspace {
         let mut command =
             shell::command(program, args, self.commands.as_ref(), self.hooks.as_ref(), shell::ShellStart::here())?;
         command.cwd(&self.directory);
+        // `ut setting`, run in this tab, changes the file this window reads.
+        match &self.named_settings {
+            Some(file) => command.env(unifyterm_config::FILE_VARIABLE, file),
+            None => command.env_remove(unifyterm_config::FILE_VARIABLE),
+        }
         let name = command.get_argv().first().map(|program| tab_name(&program.to_string_lossy())).unwrap_or_default();
         Ok((TerminalView::start(command, &self.settings)?, name))
     }
@@ -787,13 +870,18 @@ fn main() {
     logging::init();
     // A settings file with a mistake does not keep the terminal from
     // opening: it opens with the defaults and says what is wrong.
+    let asked = if args.config.is_some() { Asked::WithConfig } else { Asked::Default };
     let path = args.config.or_else(Config::default_path);
+    // The file as the tabs' programs name it, whatever directory they are in.
+    let file = path
+        .as_deref()
+        .map(|path| SettingsFile { path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()), asked });
     let (config, mut notices) = match path.as_deref().map(Config::load) {
         Some(Err(error)) => (Config::default(), vec![format!("settings not used: {error:#}")]),
         Some(Ok(config)) => (config, Vec::new()),
         None => (Config::default(), Vec::new()),
     };
-    let theme = config.theme().unwrap_or_default();
+    let theme = config::theme(&config);
     let (commands, told) = Commands::prepare(&config.commands);
     notices.extend(told);
     // The history and the hooks that feed it go together: one without the other is no use.
@@ -814,7 +902,7 @@ fn main() {
     notices.extend(told);
     let settings = Arc::new(Settings { config, theme });
     let helper = Arc::new(helper);
-    let start = Start { settings, commands, recorder, hooks, directory, helper, command: args.command, notices };
+    let start = Start { settings, commands, recorder, hooks, directory, file, helper, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());

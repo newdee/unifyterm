@@ -16,6 +16,11 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $Exe = (Resolve-Path $Exe).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-verify-$PID"
+# The user's own history file, as it is before the checks: there or not, how long, when written.
+# (This machine's owner may use UnifyTerm: the file being there says nothing; its changing would.)
+$realHistory = Join-Path $env:LOCALAPPDATA 'unifyterm\history.db'
+$StampOf = { param($file) if (Test-Path $file) { $i = Get-Item $file; "$($i.Length) bytes, written $($i.LastWriteTimeUtc.ToString('o'))" } else { 'not there' } }
+$realHistoryBefore = & $StampOf $realHistory
 # unifyterm's data (command links, start scripts, history, log) for these checks only:
 # never the user's own. Every unifyterm started below inherits it.
 $env:UNIFYTERM_DATA_DIR = Join-Path $work 'data'
@@ -218,6 +223,18 @@ if ($Section -in 'all', 'settings') {
 
     $t = Run 'shell' "{WAIT:500}" "[shell]`nprogram = `"cmd.exe`"`nargs = [`"/k`", `"echo from-cmd-shell`"]"
     Report 'shell.program and shell.args start that program' ((Count $t 'from-cmd-shell') -ge 1) "'from-cmd-shell' seen $(Count $t 'from-cmd-shell') times"
+
+    # ut setting, run in a tab, changes the file this window reads, and the window takes
+    # the change at once: a larger font leaves fewer columns, a new background is drawn.
+    $t = Run 'live' "echo `"file=`$(Split-Path -Leaf `$env:UNIFYTERM_CONFIG) w1=`$([Console]::WindowWidth)`"$Unsaved{ENTER}{WAIT:700}ut setting set font.size 24$Unsaved{ENTER}{WAIT:2500}echo `"w2=`$([Console]::WindowWidth) size=`$(ut setting get font.size)`"$Unsaved{ENTER}{WAIT:700}ut setting set theme.background 102030$Unsaved{ENTER}{WAIT:2500}ut setting set font.size 500$Unsaved{ENTER}{WAIT:800}" "# kept`n[font]`nsize = 14" -after 1.5
+    $flat = $t -replace "`n", ' '
+    $w1 = [int][regex]::Match($flat, '(?<!")w1=(\d+)').Groups[1].Value; $w2 = [int][regex]::Match($flat, '(?<!")w2=(\d+)').Groups[1].Value
+    Report 'a tab''s ut setting changes the window''s own file' ($flat -match 'file=live\.toml' -and $flat -match 'size=24\.0') "the file the tab was told: $([regex]::Match($flat, 'file=[\w.-]+\.toml').Value); font.size read back: $([regex]::Match($flat, 'size=[\d.]+').Value)"
+    Report 'a changed font size is used at once' ($w1 -ge 80 -and $w2 -gt 0 -and $w2 -lt $w1 * 0.7) "$w1 columns at 14 pixels, $w2 at 24"
+    $ground = CountColor 'live' '#102030' 300 200 400 300
+    Report 'a changed background is used at once' ($ground -ge 100000) "$ground of 120000 pixels in the middle of the window are #102030"
+    $file = Get-Content (Join-Path $work 'live.toml') -Raw
+    Report 'a refused value is not written, and the file keeps its comment' ($flat -match 'font\.size is 500: it must be from 6 to 72' -and $file -match '(?m)^# kept' -and $file -match 'size = 24\.0' -and $file -notmatch '500') "said why: $($flat -match 'it must be from 6 to 72'); comment kept: $($file -match '(?m)^# kept'); size in the file: $([regex]::Match($file, 'size = [\d.]+').Value)"
 }
 
 if ($Section -in 'all', 'edges') {
@@ -481,8 +498,8 @@ if ($Section -in 'all', 'history') {
             Report "$($shell): kept, and the list shows" ($keptLine -match "echo $name-one" -and $listed -gt 300) "kept: '$($keptLine.Trim())'; list pixels: $listed"
         }
     } finally { $env:UNIFYTERM_DATA_DIR = $keptData }
-    $real = Join-Path $env:LOCALAPPDATA 'unifyterm\history.db'
-    Report "the user's own history file is not touched" (-not (Test-Path $real)) "$real exists: $(Test-Path $real)"
+    $realHistoryAfter = & $StampOf $realHistory
+    Report "the user's own history file is not touched" ($realHistoryAfter -ceq $realHistoryBefore) "before the checks: $realHistoryBefore; after: $realHistoryAfter$(if ($realHistoryAfter -cne $realHistoryBefore) { ' (your own UnifyTerm, used meanwhile, writes it too)' })"
 }
 if ($Section -in 'all', 'ai') {
     "--- ai ---"

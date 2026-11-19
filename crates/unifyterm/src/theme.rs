@@ -7,12 +7,7 @@ pub(crate) struct Rgb(pub(crate) u8, pub(crate) u8, pub(crate) u8);
 impl Rgb {
     /// `#rrggbb` (the `#` may be left out).
     pub(crate) fn parse(text: &str) -> Option<Self> {
-        let hex = text.strip_prefix('#').unwrap_or(text);
-        if hex.len() != 6 || !hex.is_ascii() {
-            return None;
-        }
-        let channel = |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).ok();
-        Some(Self(channel(0)?, channel(2)?, channel(4)?))
+        unifyterm_config::parse_color(text).map(|[red, green, blue]| Self(red, green, blue))
     }
 
     /// This color moved `amount` (0 to 1) of the way to `other`.
