@@ -14,6 +14,13 @@
 
 跑了什么（只跑受影响的部分）：`ut setting` 的 16 个测试（Windows、Linux 各一遍，其中 6 个新的：字体列表和过滤、列表里没有的名字被拒绝而 `e` 能打、多选按顺序、需要别的设置时列表留着、←→ 的步长和上限、颜色块）；`ut` 和整个工作区的 clippy（Windows、Linux）；真实窗口里：打开字体列表（本机 114 个字体）、打 `maple` 过滤到 3 个、选中写入 `family = "Maple Mono"`；打开 shell 列表（默认、pwsh、powershell、cmd、bash、sh）；←→ 把字号从 14 调到 16。全工作区单元测试 233 个通过。
 
+发布：CI 在 `c3e1ee7` 上三个系统都通过（各 21 步）。我等 CI 的后台脚本没能接着打标签：函数把输出的文字和结论一起返回，比较结论时比的是数组，被当成"不成功"。手动打了 `v0.2.1`；之后的脚本把结论单独存。发布工作流 4 个任务一次通过，9 个文件的 SHA-256 不符 0 处；tap 在 macOS 和 Linux 上各 10 步通过，提交了 0.2.1。
+
+Scoop bucket 的"有新版本就装新清单"这条路第一次走到，连出两个错（之前写明了它没走过）：
+1. 跟随那一步在有变化时总是失败：`git diff --quiet` 有变化时返回 1，GitHub 给 pwsh 步骤加的结尾按 `$LASTEXITCODE` 退出。步骤末尾把它清零。
+2. `scoop install bucket/unifyterm.json` 被 Scoop 当成"名为 bucket 的 bucket 里的 unifyterm.json"。改成完整路径。
+修完后：unifyterm 0.2.1 和 keepane 0.80.0 都在 Windows 上装上、运行（`UnifyTerm 0.2.1 (c3e1ee7)`、`keepane 0.80.0`）、卸载，然后提交了 `keepane 0.80.0, unifyterm 0.2.1`。
+
 ### 开机启动
 
 - 在用户的"启动"文件夹里放了 `UnifyTerm.lnk`，指向 `C:\Program Files\unifyterm\unifyterm.exe`（已装的是 0.2.0），起始目录是主目录。
