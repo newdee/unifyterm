@@ -5,6 +5,7 @@
 - 已验收：M0、M1、M2、M3、M4、M5、M6、M7。每轮验收的数字见 `docs/verification-log.md`。
 - 已发布：**0.1.0**，2026-11-18，标签 `v0.1.0`（提交 `b93e5ff`）。Release 里有 9 个安装文件，各带一个 `.sha256`。scoop 清单已由工作流提交回 `main`；formula 在 `newdee/homebrew-tap`；网页在 https://dfine.tech/unifyterm/ 。
 - 已发布：**0.1.1**，2026-11-19，标签 `v0.1.1`（提交 `7b3962b`）：macOS 上从桌面启动的三个问题（登录 shell、标签页从主目录开始、侧栏用登录 shell 找 keepane）。scoop 清单和 formula 都已是 0.1.1。三处修复已在一台真实的 Mac 上确认（见验收记录）。
+- 已发布：**0.2.0**，2026-11-19，标签 `v0.2.0`（提交 `ca11002`）：程序文件带图标；Windows 和 macOS 上标签栏兼作标题栏；`ut setting` 设置界面，窗口随设置文件的变化立即更新。macOS 上去掉标题栏后的样子还没有人看过。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
