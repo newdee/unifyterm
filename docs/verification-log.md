@@ -1,5 +1,14 @@
 # 验收记录
 
+## 2026-11-19 · Scoop bucket；网页加上"设置"一节
+
+用户问为什么不能直接 `scoop install unifyterm`，"keepane 直接就可以"。核实：keepane 在这台机器上也是按地址装的（`scoop info keepane` 的 Source 是 raw 地址），本机的 bucket 只有 `main` 和 `nerd-fonts`，`scoop search keepane` 找不到。按名字能用，是因为装过一次。要在新机器上按名字装，需要一个 bucket。用户选了自建：`newdee/scoop-bucket`。
+
+- 新仓库 `newdee/scoop-bucket`（公开，MIT）：`bucket/unifyterm.json`，以及工作流 `unifyterm.yml`。每 6 小时从 unifyterm 的 `main` 复制清单；有变化时先在 Windows 上用 Scoop 装上、运行、卸载，通过才提交。推送到这个仓库时，按用户的方式检查一遍：`scoop bucket add newdee <仓库>`，`scoop install unifyterm`。
+- 第一次运行（干净的 Windows 运行器）：`unifyterm --version` 是 `UnifyTerm 0.2.0 (ca11002)`，`ut --version` 和 `ut cat` 正常，开始菜单里有快捷方式，卸载后 `unifyterm` 不在 PATH 上。手动触发的跟随运行：`manifest 0.2.0, changed: false`，没有提交。"有新版本时装新清单"这条路要等下一次发布才第一次走到。
+- README、网页的 scoop 安装命令改成两行：`scoop bucket add newdee https://github.com/newdee/scoop-bucket`，`scoop install unifyterm`。网页顶部那一条一行放不下两行，写成 `…; scoop install unifyterm`。`site-check` 把 `; ` 当作换行再和 README 比；README 改错一个词时它报错（试过）。
+- 网页加了"设置"一节（文案按用户之前的写法），配 `ut setting` 的真实截图（`tools/promo.ps1 -Stills` 录的）。`site-check` 8/8（116 段文字都有中文）；中文切换改了 94 处，切回后逐字相同；4 个安装标签各自显示自己的命令；320、390、1440 px 横向溢出 0，小于 24 px 的点击目标 0。
+
 ## 2026-11-19 · 0.2.0：图标、去掉系统标题栏、`ut setting`
 
 用户用 MSI 装了 0.1.1 后提了三件事：看不到应用图标；能不能去边框；用 `ut setting` 给一个设置界面。同时改了验收的做法（用户："每次代码改动，测试用例主要测本地改动的影响范围，不需要全量"）：每轮只跑受影响的部分，全量交给 CI。

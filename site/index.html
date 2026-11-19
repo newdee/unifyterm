@@ -64,6 +64,7 @@
         <a href="#media" data-i18n="nav.media">Media</a>
         <a href="#help" data-i18n="nav.help">Assistance</a>
         <a href="#agents" data-i18n="nav.agents">Agents</a>
+        <a href="#settings" data-i18n="nav.settings">Settings</a>
         <a href="#observations" data-i18n="nav.observations">Limits</a>
         <a href="#install" data-i18n="nav.install">Install</a>
       </nav>
@@ -158,7 +159,7 @@
         <div class="mrz" id="take">
           <div class="mrz__tabs" role="tablist" aria-label="How to install" data-i18n-attr="aria-label:mrz.label">
             <button role="tab" type="button" id="tab-brew" aria-controls="mrz-line" aria-selected="true" data-command="brew install newdee/tap/unifyterm">brew</button>
-            <button role="tab" type="button" id="tab-scoop" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json">scoop</button>
+            <button role="tab" type="button" id="tab-scoop" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="scoop bucket add newdee https://github.com/newdee/scoop-bucket; scoop install unifyterm">scoop</button>
             <button role="tab" type="button" id="tab-curl" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh">curl</button>
             <button role="tab" type="button" id="tab-irm" aria-controls="mrz-line" aria-selected="false" tabindex="-1" data-command="irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex">PowerShell</button>
           </div>
@@ -328,6 +329,40 @@ ut view clip.mp4</code></pre>
         </div>
       </section>
 
+      <!-- Settings -->
+      <section class="page page--cyan" id="settings" aria-labelledby="h-settings">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="spread spread--flip">
+          <div class="spread__text">
+            <h2 id="h-settings" data-i18n="settings.h">Settings in the terminal</h2>
+            <p data-i18n="settings.p1">UnifyTerm keeps its settings in one file, <code>config.toml</code>. <code>ut setting</code> shows every setting and lets you change it from the keyboard.</p>
+            <pre><code>ut setting</code></pre>
+            <ul class="points">
+              <li data-i18n="settings.l1">Use the arrow keys to move and <kbd>Enter</kbd> to change a value.</li>
+              <li data-i18n="settings.l2">Each setting shows what it does, the values it accepts and its default.</li>
+              <li data-i18n="settings.l3">Invalid values are rejected with the reason, and nothing is written.</li>
+              <li data-i18n="settings.l4">Comments and the order of your file are preserved.</li>
+            </ul>
+            <p data-i18n="settings.p2">Changes to the font, colors and padding apply immediately in open windows. Other settings apply later, for example to the next tab or after a restart; the settings screen shows when each one applies.</p>
+            <p data-i18n="settings.p3">For example, on Windows and macOS the tab row also serves as the title bar. Set <code>window.system_title_bar</code> to <code>true</code> to use the system title bar instead.</p>
+            <p data-i18n="settings.p4">The same settings are available to scripts and agents:</p>
+            <pre><code>ut setting list
+ut setting set font.size 16</code></pre>
+          </div>
+          <figure class="plate">
+            <img src="img/settings.png" width="960" height="620" loading="lazy" alt="The settings screen in the terminal: the settings in sections, each with its value; under the list, what the chosen setting does, the values it accepts and its default." data-i18n-attr="alt:settings.alt" />
+            <svg class="stamp stamp--box" viewBox="0 0 250 120" role="img" aria-label="Stamp: 31 settings in one file, comments kept" data-i18n-attr="aria-label:stamp.settings" style="--turn: 6deg; --ink: var(--ink-teal)">
+              <g filter="url(#ink)">
+                <rect x="4" y="4" width="242" height="112" rx="6" /><rect x="11" y="11" width="228" height="98" rx="3" class="thin" />
+                <text class="row" x="125" y="44">31 SETTINGS</text>
+                <text class="row" x="125" y="70">ONE FILE</text>
+                <text class="row row--small" x="125" y="96">COMMENTS KEPT</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
       <!-- The film -->
       <section class="page page--film" id="film" aria-labelledby="h-film">
         <div class="guilloche" aria-hidden="true"></div>
@@ -369,7 +404,8 @@ ut view clip.mp4</code></pre>
           <div class="way">
             <h3>Windows</h3>
             <p data-i18n="install.scoop">With Scoop:</p>
-            <pre><code>scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json</code></pre>
+            <pre><code>scoop bucket add newdee https://github.com/newdee/scoop-bucket
+scoop install unifyterm</code></pre>
             <p data-i18n="install.irm">Or with the PowerShell install script:</p>
             <pre><code>irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex</code></pre>
           </div>

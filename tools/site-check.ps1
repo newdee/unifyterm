@@ -64,8 +64,10 @@ $commands = @([regex]::Matches($html, 'data-command="([^"]+)"') | ForEach-Object
 # Only the install page's blocks: the other pages show commands to run, not to install with.
 $installPage = ($html -split '<section[^>]*id="install"')[1].Split('</section>')[0]
 $commands += [regex]::Matches($installPage, '<pre><code>([^<]+)</code></pre>') | ForEach-Object { [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value) }
-$commands = @($commands | Sort-Object -Unique)
-$unknown = @($commands | Where-Object { -not $readme.Contains($_) })
+# The band gives a command of two lines on one (`a; b`): it is the README's two lines.
+$commands = @($commands | ForEach-Object { $_ -replace '; ', "`n" } | Sort-Object -Unique)
+$readmeText = $readme.Replace("`r", '')
+$unknown = @($commands | Where-Object { -not $readmeText.Contains($_) })
 Report 'install commands are the README''s' ($commands.Count -eq 4 -and $unknown.Count -eq 0) ("{0} commands{1}" -f $commands.Count, $(if ($unknown) { "; not in the README: $($unknown -join ' | ')" }))
 
 # 6. Nothing of the machine it was made on: no home folder, no mail address.

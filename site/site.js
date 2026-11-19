@@ -32,6 +32,7 @@
     "nav.media": "图片",
     "nav.help": "辅助",
     "nav.agents": "Agent",
+    "nav.settings": "设置",
     "nav.observations": "限制",
     "nav.install": "安装",
     "theme.label": "切换浅色和深色",
@@ -53,7 +54,7 @@
     "mrz.copy": "复制",
     "mrz.copied": "已复制",
     "mrz.note.brew": "macOS 和 Linux，使用 Homebrew。",
-    "mrz.note.scoop": "Windows，使用 Scoop。",
+    "mrz.note.scoop": "Windows，使用 Scoop。bucket 只需添加一次，之后直接 scoop install unifyterm。",
     "mrz.note.curl": "macOS 和 Linux，使用安装脚本。不需要 root 权限。",
     "mrz.note.irm": "Windows，使用 PowerShell 安装脚本。不需要管理员权限。",
     "commands.h": "统一的命令环境",
@@ -108,6 +109,17 @@
     "agents.p6": "如果同时使用 <a href=\"https://github.com/newdee/keepane\" rel=\"noopener\">keepane</a>，还可以在终端中查看 Agent 的运行信息，包括模型、费用、上下文和内存占用等。",
     "agents.alt": "终端右侧的侧栏列出两个 agent，以及各自的模型、窗格、费用和内存。",
     "stamp.agents": "印章：MCP，四个工具，只读",
+    "settings.h": "在终端里修改设置",
+    "settings.p1": "UnifyTerm 的设置保存在一个文件 <code>config.toml</code> 中。运行 <code>ut setting</code> 可以查看全部设置项，并用键盘修改。",
+    "settings.l1": "使用方向键移动，按 <kbd>Enter</kbd> 修改。",
+    "settings.l2": "每个设置项都会显示用途、可取的值和默认值。",
+    "settings.l3": "不合法的值会被拒绝并说明原因，不会写入文件。",
+    "settings.l4": "文件中原有的注释和顺序会保留。",
+    "settings.p2": "字体、颜色和边距的修改会在已打开的窗口中立即生效。其他设置稍后生效，例如在下一个标签页或重启之后；设置界面中会注明每一项何时生效。",
+    "settings.p3": "例如，在 Windows 和 macOS 上，标签栏同时作为标题栏使用。将 <code>window.system_title_bar</code> 设为 <code>true</code>，可以改回系统标题栏。",
+    "settings.p4": "脚本和 Agent 也可以使用同样的设置：",
+    "settings.alt": "终端里的设置界面：设置项按分组列出，每项后面是它的值；列表下方是所选设置项的用途、可取的值和默认值。",
+    "stamp.settings": "印章：31 个设置项，一个文件，注释保留",
     "film.h": "实际运行效果",
     "film.p": "这里展示 UnifyTerm 在真实环境中的运行过程，包括命令执行、历史搜索、内容查看和 Agent 集成。",
     "film.link": "观看演示视频",
@@ -137,7 +149,7 @@
     curl: "mrz.note.curl",
     irm: "mrz.note.irm",
   };
-  en["mrz.note.scoop"] = "Windows, with Scoop.";
+  en["mrz.note.scoop"] = "Windows, with Scoop. The bucket is added once; after that, scoop install unifyterm.";
   en["mrz.note.curl"] = "macOS and Linux, with the install script. No root required.";
   en["mrz.note.irm"] = "Windows, with the PowerShell install script. No administrator rights required.";
   en["mrz.copied"] = "Copied";

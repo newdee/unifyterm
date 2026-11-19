@@ -8,7 +8,7 @@
 #
 # Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif. With -Stills, also one
 # picture of the window for each scene (the site's pictures, cut to the rows that have
-# something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png. Needs ffmpeg and Microsoft Edge (for the cards).
+# something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png, settings.png. Needs ffmpeg and Microsoft Edge (for the cards).
 param(
     [string]$Exe = (Join-Path (Split-Path $PSScriptRoot) 'target/release/unifyterm.exe'),
     [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media'),
@@ -165,6 +165,15 @@ if ($Stills) {
     $keys = "cat Cargo.toml | grep -n version{ENTER}{WAIT:700}echo '[1,2,3]' | jq add{ENTER}{WAIT:700}ut view unifyterm.png --width 10{ENTER}{WAIT:1500}" + (Shots 'sh' 2 300)
     Record 'sh' "" $keys
     Save-Still 'sh' 'hero' 430
+
+    # The settings screen, on a file of the demo folder's own (the picture names it: no path of this machine).
+    # With colors: this script's own shell may ask for none (NO_COLOR), the picture is of what a person sees.
+    $script:frame = 0
+    [IO.File]::WriteAllText("${drive}:\config.toml", "[font]`nsize = 16`n`n[theme]`nbackground = `"#16161e`"`n")
+    $noColor = $env:NO_COLOR; Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+    try { Record 'ss' "" ("ut setting --config config.toml{ENTER}{WAIT:1500}{DOWN}{WAIT:400}" + (Shots 'ss' 2 300) + "q{WAIT:500}") }
+    finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item "${drive}:\config.toml" -ErrorAction SilentlyContinue }
+    Save-Still 'ss' 'settings' 620
 }
 
 # 7. How to get it.

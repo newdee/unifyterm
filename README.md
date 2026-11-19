@@ -37,11 +37,14 @@ Or with one line, for you alone (no root): it puts `unifyterm` and `ut` in `~/.l
 curl -fsSL https://raw.githubusercontent.com/newdee/unifyterm/main/install.sh | sh
 ```
 
-**Windows** 10 1809 or later, with [Scoop](https://scoop.sh):
+**Windows** 10 1809 or later, with [Scoop](https://scoop.sh): add the bucket once, then install by name.
 
 ```powershell
-scoop install https://raw.githubusercontent.com/newdee/unifyterm/main/packaging/scoop/unifyterm.json
+scoop bucket add newdee https://github.com/newdee/scoop-bucket
+scoop install unifyterm
 ```
+
+Installed earlier from the manifest's address, it keeps updating from there: `scoop update unifyterm`.
 
 Or with one line, for you alone (no administrator rights): it puts UnifyTerm in `%LOCALAPPDATA%\Programs\unifyterm`, on your `PATH` and in the Start menu.
 
