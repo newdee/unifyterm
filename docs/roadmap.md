@@ -8,6 +8,7 @@
 - 已发布：**0.2.0**，2026-11-19，标签 `v0.2.0`（提交 `ca11002`）：程序文件带图标；Windows 和 macOS 上标签栏兼作标题栏；`ut setting` 设置界面，窗口随设置文件的变化立即更新。macOS 上去掉标题栏后的样子还没有人看过。
 - 已发布：**0.2.1**、**0.2.2**，2026-11-19：设置界面里选择（0.2.1）；Windows 程序自带 C 运行库（0.2.2）。
 - 已发布：**0.2.3**，2026-11-20，标签 `v0.2.3`（提交 `09f6c56`）：`ut shell enable`（所有 shell 里用 ut 的命令，含 keepane 窗格）、全屏（F11、Alt+Enter；macOS Cmd+Enter）、`updates.check` 更新检测、Windows 上键盘被隐藏的控制台窗口拿走时收回、MSI 默认建桌面图标且快捷方式显示程序图标。Release 18 个文件；formula 和 Scoop bucket 都是 0.2.3，sha256 和 Release 一致。
+- 已发布：**0.2.4**，2026-11-20，标签 `v0.2.4`（提交 `019e25b`）：skill 写明命令在哪里能用、agent 的 PowerShell 里写 `cat.exe`；`find -name`、`grep --include` 这类选项的值不展开（agent 的 `find . -name "*.md"` 原来会坏）；标签页不再继承上一层 UnifyTerm 的 `UNIFYTERM_*` 变量。Release 18 个文件；formula 和 Scoop bucket 都是 0.2.4，4 个哈希和 Release 一致。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。

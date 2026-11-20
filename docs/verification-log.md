@@ -30,6 +30,8 @@
 | 2 | 机制通路存活 | 同一条 agent 命令用已装的 0.2.3 和新编译的 ut 各跑一次；真实开窗口，父进程放假的 `UNIFYTERM_COMMANDS` 和 `UNIFYTERM_LOGIN` | 0.2.3 报 unknown predicate，新的列出 3 个 `.md`；关命令时标签页里两个变量都空，开命令时是窗口自己的目录、`LOGIN` 空 |
 | 3 | 边界与退化输入 | 选项在最后、两个 `-name`、带空格的值、`--include` 两次、值本身是 `-name`；全套检查 | 缺参数照常报错；8 个、0 个、12 个、0 行（同 GNU find）；全套检查同第 1 轮 |
 
+发布 0.2.4：CI（`019e25b`）三个平台通过；后台等 CI 的任务因连 GitHub 超时（`TLS handshake timeout`）没拿到结果，按规则没打标签，重查确认通过后补打签名标签。发布 4 个任务通过，18 个文件；tap 和 bucket 都提交了 `unifyterm 0.2.4`，4 个哈希和 Release 的 `.sha256` 一致（4/4）。CI 上 Linux、macOS 的 pwsh 跑了 `ut shell` 的真实 shell 测试，通过。
+
 没有验证的：Linux 上 PowerShell 的行为（WSL 没装 pwsh，靠 CI）；pi 和 Codex 是否真的加载了 skill（只确认了 Claude Code）。别的机器上的 agent 要等下一个版本带上新的 skill，再运行 `ut skill --install`。
 ## 2026-11-20 · 0.2.3 追加：MSI 默认建桌面图标；开始菜单图标显示成空白页
 
