@@ -747,7 +747,10 @@ mod tests {
                 .map(|output| String::from_utf8_lossy(&output.stdout).trim().replace('\\', "/"))
         };
         let script = places.script(Kind::PowerShell).display().to_string();
-        let ask = "(Get-Command cat).CommandType.ToString() + ' ' + [bool]$global:__unifyterm_loaded";
+        // Where `cat` is found, and the mark. Without the script it is not ours: an alias on
+        // Windows (no source), the system's program elsewhere (PowerShell on Linux has no such alias).
+        let ours = links.join(if cfg!(windows) { "cat.exe" } else { "cat" }).display().to_string().replace('\\', "/");
+        let ask = "(Get-Command cat).Source + '|' + [bool]$global:__unifyterm_loaded";
         let child = format!("pwsh -NoProfile -Command \"{}\"", ask.replace('$', "`$"));
         let command = format!(
             ". '{script}'; . '{script}'; {ask}; pwsh -NoProfile -Command \". '{script}'; {}\"",
@@ -757,12 +760,13 @@ mod tests {
         for shell in ["pwsh", "powershell"] {
             let command = command.replace("pwsh -NoProfile", &format!("{shell} -NoProfile"));
             let Some(said) = run(shell, &["-NoProfile", "-Command", &command]) else { continue };
-            assert_eq!(said.lines().collect::<Vec<_>>(), ["Application True", "Application True"], "{shell}: {said}");
+            let found = format!("{ours}|True");
+            assert_eq!(said.lines().collect::<Vec<_>>(), [found.as_str(), found.as_str()], "{shell}: {said}");
             let child = child.replace("pwsh -NoProfile", &format!("{shell} -NoProfile"));
             let without = run(shell, &["-NoProfile", "-Command", &format!(". '{script}'; {child}")]).unwrap();
             assert!(
-                without.starts_with("Alias") || without.starts_with("Cmdlet"),
-                "{shell}: a shell that does not run it keeps its alias: {without}"
+                !without.starts_with(&ours) && without.ends_with("|False"),
+                "{shell}: a shell that does not run it does not find ours: {without}"
             );
         }
         #[cfg(unix)]
