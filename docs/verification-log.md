@@ -7,6 +7,7 @@
 - 原因：开始菜单的快捷方式是通告式的，目标和图标都是 Windows Installer 缓存里的 `UnifyTermIcon`，一个没有扩展名的文件。本机装的 0.2.2 也是这样（读快捷方式核实：目标 `C:\WINDOWS\Installer\{8A1320AB-…}\UnifyTermIcon`）。0.2.2 时我写"本机有图标、没能复现"，是只看了用缓存的界面，这个判断不对。
 - 定性：结构缺陷。通告式快捷方式本身要求图标文件名带对的扩展名；"应用和功能"用的是同一个图标项。
 - 修改：开始菜单快捷方式改成普通快捷方式，直接指向 `unifyterm.exe`，用程序里的图标；新增公共桌面的快捷方式，默认建，`DESKTOPSHORTCUT=0` 不建；图标项改名 `UnifyTerm.ico`。CI 的 Windows 任务新增一步：静默安装 MSI，检查两个快捷方式都指向 `C:\Program Files\unifyterm\unifyterm.exe`，卸载后都不在，`DESKTOPSHORTCUT=0` 时没有桌面图标。本地不能运行 WiX，MSI 的构建和这一步只在 CI 上跑。
+- 发布：第三次 CI（`09f6c56`）三个平台通过。打标签时 `git tag` 停在 `fatal: no tag message?`：用户的 git 设置了 `tag.gpgsign = true`，签名标签必须带说明。照 v0.2.2 打了签名标签（说明 `UnifyTerm 0.2.3`）。发布工作流 4 个任务通过，18 个文件。下载发布的 MSI 核对：sha256 一致；读它的表（不安装）：两个快捷方式的目标都是 `[#UnifyTermExe]`、不另设图标，`DESKTOPSHORTCUT` = 1，图标项 `UnifyTerm.ico`。tap 和 bucket 都提交了 `unifyterm 0.2.3`；formula 的 3 个 sha256、bucket 的 zip 哈希和 Release 的 `.sha256` 逐个一致（4/4）。V2EX 第 4 楼回复了图标的原因和桌面图标（用户定稿）。
 - 会不会引入新问题：升级时 MajorUpgrade 先卸旧版（连同旧的通告式快捷方式），再装新版；新快捷方式不再触发 Windows Installer 的修复检查。
 ## 2026-11-20 · 所有 shell 里用 UnifyTerm 的命令；全屏；更新检测；键盘被隐藏的控制台窗口拿走
 
