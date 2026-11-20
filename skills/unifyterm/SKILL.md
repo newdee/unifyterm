@@ -1,19 +1,19 @@
 ---
 name: unifyterm
-description: Working in UnifyTerm, the terminal with the same Unix commands on Windows, macOS and Linux and a searchable command history. Use when the shell you run in is UnifyTerm's (TERM_PROGRAM=unifyterm), or when asked to look up commands run before.
+description: UnifyTerm's commands - the same Unix commands (cat, ls, grep, sed, find, jq, xargs and 90 more) on Windows, macOS and Linux - and its searchable command history. Use when they are on PATH (UNIFYTERM_COMMANDS is set, or 'ut --version' answers): in UnifyTerm's tabs, in keepane's panes, and in any shell, an agent's own included, once 'ut shell enable' ran. Also when asked to look up commands run before.
 ---
 
 # Working in UnifyTerm
 
-UnifyTerm is a terminal. Its shells are the system's own (PowerShell, cmd, bash, zsh, fish); what it adds is below.
+UnifyTerm is a terminal. Its shells are the system's own (PowerShell, cmd, bash, zsh, fish); what it adds is below. Its commands are in the shells its tabs start, and in every shell once `ut shell enable` ran: other terminals, keepane's panes, the shell an agent's tool starts. When they are there, prefer them on Windows too: the same command and options work on every system.
 
 ## The same commands everywhere
 
 On Windows too, these run as on Linux: `cat`, `ls`, `cp`, `mv`, `rm`, `mkdir`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`, `sed`, `grep`, `find`, `xargs`, `diff`, `jq`, `which` and the rest of coreutils (99 commands on Windows, 114 on Linux; `ut --list` names them).
 
-- In PowerShell, `cat`, `ls`, `rm` and the like are these programs, not PowerShell's aliases.
+- In PowerShell, 16 of these names are also PowerShell's own aliases or functions: `cat`, `cp`, `diff`, `dir`, `echo`, `kill`, `ls`, `mkdir`, `more`, `mv`, `pwd`, `rm`, `rmdir`, `sleep`, `sort`, `tee`. UnifyTerm's start script takes them out of the way, but it runs only in UnifyTerm's tabs and from the profile (after `ut shell enable`). A PowerShell started with `-NoProfile`, as an agent's tool usually is, still has them: there write `cat.exe`, `ls.exe`, `sort.exe` ... or `ut cat`, `ut ls` for the Unix command. `Get-Command cat` says which one a name is now. The other names (`grep`, `sed`, `find`, `head`, `wc`, `jq`, ...) need nothing.
 - Paths are printed with `/` (`C:/Users/me/x`). Windows reads them as well as `\`.
-- A wildcard (`*.txt`) becomes the names it matches, as a Unix shell does it. In quotes (`"*.txt"`) it stays as typed: quote a pattern meant for `find -name` or `grep`.
+- On Windows a wildcard (`*.txt`) becomes the names it matches, as a Unix shell does it. The value of `find`'s `-name`, `-iname`, `-path`, `-regex` and `grep`'s `--include`, `--exclude`, `--exclude-dir` is always kept as typed. Elsewhere quotes keep a pattern only when it is typed at UnifyTerm's prompt; a command given to PowerShell with `-Command` (an agent's) loses the quotes before the command sees them, so there set `$env:UT_NO_GLOB = '1'` in the same command line when an argument must keep its `*` (`sed`, `grep` patterns that match file names).
 - There is no `awk` and no `rg`. Use `grep`, `sed`, `jq` or `cut`.
 - `ut view FILE` shows a picture; `ut md FILE` shows markdown.
 - UnifyTerm's settings: `ut setting list` prints them, `ut setting get NAME` one, `ut setting set NAME VALUE` changes one (`ut setting set font.size 16`), `ut setting reset NAME` puts the default back. A value that is not allowed is refused with the reason. The font and the colors change in the window at once. Ask before you change a person's settings.

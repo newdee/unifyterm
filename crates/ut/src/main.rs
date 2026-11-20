@@ -284,8 +284,9 @@ Started under a command's name (a link made by --links), ut is that command.
 On Windows the commands print paths with / (pwd, find, realpath, ...).
 Set UT_NATIVE_PATHS to keep Windows' own \\.
 On Windows a wildcard (*.txt) becomes the names it matches, as a Unix
-shell does it; in quotes (\"*.txt\") it stays as typed. Set UT_NO_GLOB
-to keep every wildcard as typed.";
+shell does it; in quotes (\"*.txt\") at UnifyTerm's prompt it stays as typed,
+and so does the value of find -name, -path, -regex and grep --include,
+--exclude. Set UT_NO_GLOB to keep every wildcard as typed.";
 
 /// `ut 0.1.0 (c5a6513, 99 commands)`: the version, the commit it was built from, the commands.
 fn version() -> String {

@@ -1,5 +1,36 @@
 # 验收记录
 
+## 2026-11-20 · 让 agent 知道并用好 UnifyTerm 的命令
+
+用户："有没有办法让 ai 也知道有这么多命令可以直接用？""keepane 里的 ai 工作的时候可以用这些命令更好地实现功能""或者给其他 ai 用"。
+
+### 查到的事实
+
+- 这台机器没有运行 `ut shell enable`（status 3 项都是 disabled）。keepane 服务是从 UnifyTerm 标签页里重启的，继承了 PATH 和 `UNIFYTERM_COMMANDS`，所以窗格里的 agent 找得到 `grep`、`jq`、`sed`，但 `cat`、`ls` 仍是 PowerShell 的别名。
+- Claude Code 启动 PowerShell 用 `pwsh -NoProfile -NonInteractive -Command`：不读 profile，所以 `ut shell enable` 加在 profile 里的去别名对 agent 不起作用；PATH 起作用。`cat.exe` 能找到 UnifyTerm 的程序（`'hi' | cat.exe -n` 输出 `1 hi`）。
+- 原来的 skill 说"在 PowerShell 里 `cat` 就是这些程序"，只在 UnifyTerm 标签页里成立；它的触发条件也只写了 UnifyTerm 的 shell。
+- **agent 的 `find . -name "*.md"` 会坏**：`find: unknown predicate 'PRODUCT.md'`。Windows 上 ut 自己展开通配符，原来靠交互输入时给带引号的参数加标记来区分；`-Command` 不经过交互输入，引号被 PowerShell 去掉，ut 拿到 `*.md` 就展开了。单引号、双引号都一样。
+
+### 修改
+
+1. 通配符：`find` 的 `-name`、`-iname`、`-path`、`-ipath`、`-wholename`、`-iwholename`、`-regex`、`-iregex`、`-lname`、`-ilname` 和 `grep` 的 `--include`、`--exclude`、`--exclude-dir`，后面那个参数一律不展开。这些选项的值永远是模式。不分命令判断；不含 `-e`（`echo -e *.txt` 照常展开）。`ut --help` 的说明同步改了。
+2. skill：触发条件改成"UnifyTerm 的命令在 PATH 上"（含 keepane 窗格、agent 自己的 shell）；写明 16 个和 PowerShell 别名同名的命令，在不读 profile 的 PowerShell 里要写 `cat.exe` 或 `ut cat`；通配符按实际行为重写。
+3. 本机安装：skill 写到 `~/.agents/skills/unifyterm`（本机的做法），Claude Code、pi、Codex 的 skill 目录各建一个目录链接指向它（Codex 程序里出现的是 `.codex/skills`，不是 `.agents/skills`）。新启动的无头 Claude Code 回答能看到这个 skill。
+
+### 验收中发现并修掉的（这些轮不计数）
+
+- 窗口程序的测试 `without_commands_the_shell_is_started_as_it_is` 失败：没启用命令时，`UNIFYTERM_COMMANDS` 从父进程继承下来。本机这次碰巧带着它（keepane 服务从标签页里启动），以前没暴露。定性：边界遗漏，有共性。窗口给标签页设的 `UNIFYTERM_COMMANDS`、`UNIFYTERM_LOGIN`、`UNIFYTERM_ZDOTDIR` 都是需要时才设、不需要时不清。改为 `command()` 开头先删掉这 3 个，再按需要设置。用户自己设的 `UNIFYTERM_DATA_DIR`、`UNIFYTERM_RAW_LOG` 不动。
+- docs-check：`UNIFYTERM_ZDOTDIR` 改成常量后被认出来，归进内部变量名单。
+
+### 三轮干净
+
+| 轮 | 视角 | 做了什么 | 结果 |
+|---|---|---|---|
+| 1 | 静态一致性 | skill 列的 16 个名字和代码对照；skill 和 `--help` 写的选项是代码里 13 个的子集；fmt、两个系统的 clippy、受影响的测试、三个检查脚本 | 16 对 16 一致；各项 exit 0；Windows 40 + 19 + 13 个、Linux 48 个通过 |
+| 2 | 机制通路存活 | 同一条 agent 命令用已装的 0.2.3 和新编译的 ut 各跑一次；真实开窗口，父进程放假的 `UNIFYTERM_COMMANDS` 和 `UNIFYTERM_LOGIN` | 0.2.3 报 unknown predicate，新的列出 3 个 `.md`；关命令时标签页里两个变量都空，开命令时是窗口自己的目录、`LOGIN` 空 |
+| 3 | 边界与退化输入 | 选项在最后、两个 `-name`、带空格的值、`--include` 两次、值本身是 `-name`；全套检查 | 缺参数照常报错；8 个、0 个、12 个、0 行（同 GNU find）；全套检查同第 1 轮 |
+
+没有验证的：Linux 上 PowerShell 的行为（WSL 没装 pwsh，靠 CI）；pi 和 Codex 是否真的加载了 skill（只确认了 Claude Code）。别的机器上的 agent 要等下一个版本带上新的 skill，再运行 `ut skill --install`。
 ## 2026-11-20 · 0.2.3 追加：MSI 默认建桌面图标；开始菜单图标显示成空白页
 
 - 第一次推送 0.2.3（`0619898`）时 CI 在 Ubuntu 上失败：`ut shell` 的真实 shell 测试假定"不加载脚本时 `cat` 是 PowerShell 的别名"，这只在 Windows 成立；Linux 版 pwsh 没有这个别名。本地 WSL 没装 pwsh，那一段被跳过，所以没测出来。改成看 `cat` 从哪个目录找到（`0f9af93`），Windows 12 个通过。没打标签。第二次（`aed0689`）Linux 和 macOS 又失败在同一个测试的反向断言上：子 shell 继承父 shell 的 PATH，所以那里没加载脚本的子 shell 也找到我们的 `cat`（CI 输出 `…/data/bin-…/cat|False`），这是对的；只有去别名属于当前会话、只在 Windows 有意义。断言改为：标记不传给子 shell（所有系统）；`cat` 在 Windows 上被别名挡住，在别处是我们的。两次都是把 Windows 的行为当成了所有系统的行为。

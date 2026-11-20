@@ -10,6 +10,10 @@
 //! passes the quotes on, and they are seen here. PowerShell takes them
 //! away, so UnifyTerm's PowerShell start script puts [`LITERAL`] first in a
 //! quoted argument instead; it is taken off here and the rest is left alone.
+//! A command PowerShell runs with `-Command` (an agent's, a script's) does not
+//! pass through that reader, so the value of an option that always takes a
+//! pattern (`find -name`, `grep --include`: `PATTERN_OPTIONS` below) is
+//! taken as typed, quoted or not.
 //!
 //! A program that starts a command (`find -exec`, `xargs`, `env`) gives it
 //! its arguments as they are meant, `*` and all: no shell is in between.
@@ -86,11 +90,33 @@ mod windows {
         unsafe { std::slice::from_raw_parts(start, length) }.to_vec()
     }
 
+    /// Options whose value is always a pattern for the command to match, never
+    /// files: `find`'s tests by name and `grep`'s file filters. The argument
+    /// after one is taken as typed. This is what lets `find . -name "*.rs"` work
+    /// where nothing marks the quotes: a command an agent or a script gives
+    /// PowerShell (`-Command`) does not pass through the start script's reader.
+    /// (`--include=*.rs` needs no help: no file has that name.)
+    const PATTERN_OPTIONS: [&str; 13] = [
+        "-name",
+        "-iname",
+        "-path",
+        "-ipath",
+        "-wholename",
+        "-iwholename",
+        "-regex",
+        "-iregex",
+        "-lname",
+        "-ilname",
+        "--include",
+        "--exclude",
+        "--exclude-dir",
+    ];
+
     /// The arguments of a command line, the program's name first, patterns
     /// replaced by what they match.
     pub(super) fn expand(line: &[u16]) -> Vec<OsString> {
         let mut parser = CommandLineWParser::new(line);
-        let mut all = Vec::new();
+        let mut all: Vec<OsString> = Vec::new();
         loop {
             // Each unit of the argument, and whether it was typed outside quotes.
             let mut units: Vec<(u16, bool)> = Vec::new();
@@ -101,9 +127,12 @@ mod windows {
             if !more {
                 return all;
             }
-            if all.is_empty() {
-                // The program's own name is a name, whatever characters are in it.
-                all.push(OsString::from_wide(&units.iter().map(|(unit, _)| *unit).collect::<Vec<u16>>()));
+            let after_pattern_option =
+                all.last().and_then(|last| last.to_str()).is_some_and(|last| PATTERN_OPTIONS.contains(&last));
+            if all.is_empty() || after_pattern_option {
+                // The program's own name is a name, whatever characters are in it; a pattern option's value is a pattern.
+                let text = OsString::from_wide(&units.iter().map(|(unit, _)| *unit).collect::<Vec<u16>>());
+                all.push(super::unmarked(text));
             } else {
                 all.extend(expanded(&units));
             }
@@ -244,6 +273,34 @@ mod windows {
                 line(&format!("{at}/*.txt x")),
                 [format!("{at}/*.txt"), "x".to_owned()],
                 "the program's name is never a pattern"
+            );
+        }
+
+        /// What an agent's PowerShell (`-Command`) passes: the quotes are gone and nothing marks them.
+        #[test]
+        fn a_pattern_options_value_is_a_pattern_without_quotes() {
+            let (_dir, at) = files("options");
+            for option in PATTERN_OPTIONS {
+                assert_eq!(
+                    line(&format!("ut x {option} {at}/*.txt")),
+                    ["ut", "x", option, &format!("{at}/*.txt")],
+                    "{option}"
+                );
+            }
+            assert_eq!(
+                line(&format!("find {at} -iname {at}/*.TXT -o {at}/*.log")),
+                ["find", &at, "-iname", &format!("{at}/*.TXT"), "-o", &format!("{at}/c.log")],
+                "only the option's own value: the next pattern is replaced again"
+            );
+            assert_eq!(
+                line(&format!("grep x --include {LITERAL}*.rs")),
+                ["grep", "x", "--include", "*.rs"],
+                "the mark is taken off there too"
+            );
+            assert_eq!(
+                line(&format!("ut echo -e {at}/*.log")),
+                ["ut", "echo", "-e", &format!("{at}/c.log")],
+                "-e is no such option"
             );
         }
 

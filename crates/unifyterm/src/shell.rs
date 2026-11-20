@@ -25,6 +25,8 @@ use crate::session;
 const COMMANDS_VARIABLE: &str = "UNIFYTERM_COMMANDS";
 /// Tells bash's hook to read the profile files a login bash reads (see [`ShellStart::Login`]).
 const LOGIN_VARIABLE: &str = "UNIFYTERM_LOGIN";
+/// The `ZDOTDIR` zsh had before UnifyTerm's hook took its place: the hook reads the user's files from it.
+const ZDOTDIR_VARIABLE: &str = "UNIFYTERM_ZDOTDIR";
 
 /// UnifyTerm's commands, ready for a shell to use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,6 +277,11 @@ pub(crate) fn command(
     start: ShellStart,
 ) -> Result<CommandBuilder> {
     let mut command = session::shell_command(program, args);
+    // What a UnifyTerm this one was started from set for its own tab is not this tab's
+    // (`commands.builtin` off here, a bash that is no login one): each is set below only where it applies.
+    for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE] {
+        command.env_remove(name);
+    }
     if let Some(commands) = commands {
         command.env("PATH", path_with(&commands.directory, std::env::var_os("PATH"))?);
         command.env(COMMANDS_VARIABLE, &commands.directory);
@@ -314,7 +321,7 @@ pub(crate) fn command(
             }
             if let Some(hooks) = hooks {
                 let own = std::env::var_os("ZDOTDIR").or_else(|| dirs::home_dir().map(PathBuf::into_os_string));
-                command.env("UNIFYTERM_ZDOTDIR", own.unwrap_or_default());
+                command.env(ZDOTDIR_VARIABLE, own.unwrap_or_default());
                 command.env("ZDOTDIR", &hooks.zsh);
             }
         }
@@ -560,7 +567,13 @@ mod tests {
     fn without_commands_the_shell_is_started_as_it_is() {
         let plain = command(Some("pwsh.exe"), &[], None, None, ShellStart::Plain).unwrap();
         assert_eq!(argv(&plain), ["pwsh.exe"]);
-        assert_eq!(plain.get_env(COMMANDS_VARIABLE), None);
+        for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE] {
+            assert_eq!(
+                plain.get_env(name),
+                None,
+                "{name}: none of its own, and none passed on from a UnifyTerm it was started from"
+            );
+        }
     }
 
     #[test]
