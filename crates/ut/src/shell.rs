@@ -747,8 +747,7 @@ mod tests {
                 .map(|output| String::from_utf8_lossy(&output.stdout).trim().replace('\\', "/"))
         };
         let script = places.script(Kind::PowerShell).display().to_string();
-        // Where `cat` is found, and the mark. Without the script it is not ours: an alias on
-        // Windows (no source), the system's program elsewhere (PowerShell on Linux has no such alias).
+        // Where `cat` is found (an alias has no source), and the mark.
         let ours = links.join(if cfg!(windows) { "cat.exe" } else { "cat" }).display().to_string().replace('\\', "/");
         let ask = "(Get-Command cat).Source + '|' + [bool]$global:__unifyterm_loaded";
         let child = format!("pwsh -NoProfile -Command \"{}\"", ask.replace('$', "`$"));
@@ -764,10 +763,10 @@ mod tests {
             assert_eq!(said.lines().collect::<Vec<_>>(), [found.as_str(), found.as_str()], "{shell}: {said}");
             let child = child.replace("pwsh -NoProfile", &format!("{shell} -NoProfile"));
             let without = run(shell, &["-NoProfile", "-Command", &format!(". '{script}'; {child}")]).unwrap();
-            assert!(
-                !without.starts_with(&ours) && without.ends_with("|False"),
-                "{shell}: a shell that does not run it does not find ours: {without}"
-            );
+            // A shell started from one that ran it has its PATH, not its mark. On Windows PowerShell's
+            // alias is back in it; elsewhere there is no alias, and the PATH it was given finds ours.
+            assert!(without.ends_with("|False"), "{shell}: the mark is not passed on: {without}");
+            assert_eq!(without.starts_with(&ours), !cfg!(windows), "{shell}: {without}");
         }
         #[cfg(unix)]
         {

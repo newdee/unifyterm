@@ -2,7 +2,7 @@
 
 ## 2026-11-20 · 0.2.3 追加：MSI 默认建桌面图标；开始菜单图标显示成空白页
 
-- 第一次推送 0.2.3（`0619898`）时 CI 在 Ubuntu 上失败：`ut shell` 的真实 shell 测试假定"不加载脚本时 `cat` 是 PowerShell 的别名"，这只在 Windows 成立；Linux 版 pwsh 没有这个别名。本地 WSL 没装 pwsh，那一段被跳过，所以没测出来。改成看 `cat` 从哪个目录找到（`0f9af93`），Windows 12 个通过。没打标签。
+- 第一次推送 0.2.3（`0619898`）时 CI 在 Ubuntu 上失败：`ut shell` 的真实 shell 测试假定"不加载脚本时 `cat` 是 PowerShell 的别名"，这只在 Windows 成立；Linux 版 pwsh 没有这个别名。本地 WSL 没装 pwsh，那一段被跳过，所以没测出来。改成看 `cat` 从哪个目录找到（`0f9af93`），Windows 12 个通过。没打标签。第二次（`aed0689`）Linux 和 macOS 又失败在同一个测试的反向断言上：子 shell 继承父 shell 的 PATH，所以那里没加载脚本的子 shell 也找到我们的 `cat`（CI 输出 `…/data/bin-…/cat|False`），这是对的；只有去别名属于当前会话、只在 Windows 有意义。断言改为：标记不传给子 shell（所有系统）；`cat` 在 Windows 上被别名挡住，在别处是我们的。两次都是把 Windows 的行为当成了所有系统的行为。
 - V2EX 第 3 楼：0.2.2"可以启动，但没有桌面图标不方便。另外图标有问题，显示不正常"，截图是开始菜单搜索"最近"里的 UnifyTerm 显示成空白页。
 - 原因：开始菜单的快捷方式是通告式的，目标和图标都是 Windows Installer 缓存里的 `UnifyTermIcon`，一个没有扩展名的文件。本机装的 0.2.2 也是这样（读快捷方式核实：目标 `C:\WINDOWS\Installer\{8A1320AB-…}\UnifyTermIcon`）。0.2.2 时我写"本机有图标、没能复现"，是只看了用缓存的界面，这个判断不对。
 - 定性：结构缺陷。通告式快捷方式本身要求图标文件名带对的扩展名；"应用和功能"用的是同一个图标项。
