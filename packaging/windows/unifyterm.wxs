@@ -6,7 +6,9 @@
 
   It installs into Program Files\unifyterm: unifyterm.exe, ut.exe, the ConPTY
   (conpty.dll and OpenConsole.exe, which unifyterm finds beside itself), the
-  license files, and a Start menu item. Uninstalling removes all of them; the
+  license files, a Start menu item and a desktop icon (for every user; not made
+  with DESKTOPSHORTCUT=0: msiexec /i unifyterm-VERSION-x64.msi DESKTOPSHORTCUT=0).
+  Both are plain shortcuts to unifyterm.exe and show its own icon. Uninstalling removes all of them; the
   user's settings, history and log (in %APPDATA% and %LOCALAPPDATA%) stay.
   The UpgradeCode never changes: a newer version replaces an older one.
 -->
@@ -15,15 +17,19 @@
     <MajorUpgrade DowngradeErrorMessage="A newer UnifyTerm is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="UnifyTermIcon" SourceFile="$(var.Root)\packaging\icons\unifyterm.ico" />
-    <Property Id="ARPPRODUCTICON" Value="UnifyTermIcon" />
+    <!-- For "Apps and features". Its name ends in .ico: Windows reads an icon file by its extension. -->
+    <Icon Id="UnifyTerm.ico" SourceFile="$(var.Root)\packaging\icons\unifyterm.ico" />
+    <Property Id="ARPPRODUCTICON" Value="UnifyTerm.ico" />
+    <Property Id="DESKTOPSHORTCUT" Value="1" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/newdee/unifyterm" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="unifyterm">
         <Component Id="UnifyTerm">
           <File Id="UnifyTermExe" Source="$(var.BinDir)\unifyterm.exe" KeyPath="yes">
-            <Shortcut Id="StartMenuUnifyTerm" Directory="ProgramMenuFolder" Name="UnifyTerm" Description="One terminal for Windows, macOS and Linux" WorkingDirectory="INSTALLFOLDER" Icon="UnifyTermIcon" Advertise="yes" />
+            <!-- Not advertised: an advertised shortcut leads to a copy of the icon in Windows Installer's
+                 cache, a file without an extension, which some of Windows draws as a blank page. -->
+            <Shortcut Id="StartMenuUnifyTerm" Directory="ProgramMenuFolder" Name="UnifyTerm" Description="One terminal for Windows, macOS and Linux" WorkingDirectory="INSTALLFOLDER" />
           </File>
         </Component>
         <Component Id="Ut">
@@ -45,6 +51,13 @@
       </Directory>
     </StandardDirectory>
 
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Condition="DESKTOPSHORTCUT = &quot;1&quot;">
+        <Shortcut Id="DesktopUnifyTerm" Name="UnifyTerm" Description="One terminal for Windows, macOS and Linux" Target="[#UnifyTermExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\unifyterm" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
     <Feature Id="Main" Title="UnifyTerm">
       <ComponentRef Id="UnifyTerm" />
       <ComponentRef Id="Ut" />
@@ -52,6 +65,7 @@
       <ComponentRef Id="OpenConsole" />
       <ComponentRef Id="License" />
       <ComponentRef Id="Notices" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
   </Package>
 </Wix>

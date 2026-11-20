@@ -1,5 +1,13 @@
 # 验收记录
 
+## 2026-11-20 · 0.2.3 追加：MSI 默认建桌面图标；开始菜单图标显示成空白页
+
+- 第一次推送 0.2.3（`0619898`）时 CI 在 Ubuntu 上失败：`ut shell` 的真实 shell 测试假定"不加载脚本时 `cat` 是 PowerShell 的别名"，这只在 Windows 成立；Linux 版 pwsh 没有这个别名。本地 WSL 没装 pwsh，那一段被跳过，所以没测出来。改成看 `cat` 从哪个目录找到（`0f9af93`），Windows 12 个通过。没打标签。
+- V2EX 第 3 楼：0.2.2"可以启动，但没有桌面图标不方便。另外图标有问题，显示不正常"，截图是开始菜单搜索"最近"里的 UnifyTerm 显示成空白页。
+- 原因：开始菜单的快捷方式是通告式的，目标和图标都是 Windows Installer 缓存里的 `UnifyTermIcon`，一个没有扩展名的文件。本机装的 0.2.2 也是这样（读快捷方式核实：目标 `C:\WINDOWS\Installer\{8A1320AB-…}\UnifyTermIcon`）。0.2.2 时我写"本机有图标、没能复现"，是只看了用缓存的界面，这个判断不对。
+- 定性：结构缺陷。通告式快捷方式本身要求图标文件名带对的扩展名；"应用和功能"用的是同一个图标项。
+- 修改：开始菜单快捷方式改成普通快捷方式，直接指向 `unifyterm.exe`，用程序里的图标；新增公共桌面的快捷方式，默认建，`DESKTOPSHORTCUT=0` 不建；图标项改名 `UnifyTerm.ico`。CI 的 Windows 任务新增一步：静默安装 MSI，检查两个快捷方式都指向 `C:\Program Files\unifyterm\unifyterm.exe`，卸载后都不在，`DESKTOPSHORTCUT=0` 时没有桌面图标。本地不能运行 WiX，MSI 的构建和这一步只在 CI 上跑。
+- 会不会引入新问题：升级时 MajorUpgrade 先卸旧版（连同旧的通告式快捷方式），再装新版；新快捷方式不再触发 Windows Installer 的修复检查。
 ## 2026-11-20 · 所有 shell 里用 UnifyTerm 的命令；全屏；更新检测；键盘被隐藏的控制台窗口拿走
 
 用户提了四件事："keepane 里无法使用 unifyterm 里的命令？有办法让两者结合吗？""把自动更新检测也做一下""加一个全屏功能……像 win 终端一样，铺满屏幕"（又补了"alt enter，或者 command enter"），以及"在 keepane 里切换窗口后，键盘聚焦好像不在 keepane 里了，需要用鼠标点一下 unifyterm 终端才行"。

@@ -112,6 +112,38 @@ jobs:
           $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages | Where-Object name -eq 'unifyterm' | ForEach-Object version
           wix build packaging/windows/unifyterm.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o "unifyterm-$version-x64.msi"
 
+      # Installs the MSI as a user would and looks at what it made: the Start menu item and the desktop
+      # icon lead to unifyterm.exe itself (so they show its icon), uninstalling takes them away, and
+      # DESKTOPSHORTCUT=0 makes no desktop icon.
+      - name: The MSI's shortcuts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem unifyterm-*-x64.msi).FullName
+          $exe = 'C:\Program Files\unifyterm\unifyterm.exe'
+          $start = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\UnifyTerm.lnk"
+          $desktop = "$env:PUBLIC\Desktop\UnifyTerm.lnk"
+          $shell = New-Object -ComObject WScript.Shell
+          function Invoke-Msi([string[]]$arguments) {
+            $run = Start-Process msiexec -ArgumentList ($arguments + @('/qn', '/l*v', 'msi.log')) -Wait -PassThru
+            if ($run.ExitCode -ne 0) { Get-Content msi.log -Tail 40; throw "msiexec $($arguments -join ' '): exit $($run.ExitCode)" }
+          }
+          Invoke-Msi @('/i', "`"$msi`"")
+          foreach ($lnk in $start, $desktop) {
+            if (-not (Test-Path $lnk)) { throw "$lnk is not there" }
+            $made = $shell.CreateShortcut($lnk)
+            if ($made.TargetPath -ne $exe) { throw "$lnk leads to '$($made.TargetPath)', not $exe" }
+            if ($made.IconLocation -notmatch '^,?0?$' -and $made.IconLocation -notlike "$exe*") { throw "$lnk takes its icon from '$($made.IconLocation)'" }
+            "$lnk -> $($made.TargetPath) (icon: '$($made.IconLocation)')"
+          }
+          Invoke-Msi @('/x', "`"$msi`"")
+          foreach ($left in $start, $desktop, $exe) { if (Test-Path $left) { throw "$left is still there after uninstalling" } }
+          Invoke-Msi @('/i', "`"$msi`"", 'DESKTOPSHORTCUT=0')
+          if (-not (Test-Path $start)) { throw 'DESKTOPSHORTCUT=0: no Start menu item' }
+          if (Test-Path $desktop) { throw 'DESKTOPSHORTCUT=0 made a desktop icon' }
+          Invoke-Msi @('/x', "`"$msi`"")
+          'shortcuts: made and plain, gone after uninstalling; none on the desktop with DESKTOPSHORTCUT=0'
+
       - name: Package (Linux .deb and AppImage)
         if: runner.os == 'Linux'
         run: |

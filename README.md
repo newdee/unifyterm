@@ -56,7 +56,7 @@ irm https://raw.githubusercontent.com/newdee/unifyterm/main/install.ps1 | iex
 
 | System | File |
 |---|---|
-| Windows | `unifyterm-VERSION-x64.msi` (into Program Files, for every user), or `unifyterm-vVERSION-windows-x86_64.zip` |
+| Windows | `unifyterm-VERSION-x64.msi` (into Program Files, for every user, with a Start menu item and a desktop icon; `msiexec /i unifyterm-VERSION-x64.msi DESKTOPSHORTCUT=0` makes no desktop icon), or `unifyterm-vVERSION-windows-x86_64.zip` |
 | macOS | `unifyterm-VERSION-macos-aarch64.dmg` or `-macos-x86_64.dmg`, or the `.tar.gz` |
 | Debian, Ubuntu | `unifyterm_VERSION-1_amd64.deb`: `sudo apt install ./unifyterm_VERSION-1_amd64.deb` |
 | Other Linux | `unifyterm-VERSION-x86_64.AppImage`, or the `.tar.gz` |
