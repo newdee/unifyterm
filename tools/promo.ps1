@@ -6,13 +6,15 @@
 #
 #   pwsh tools/promo.ps1 [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img]
 #
-# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif. With -Stills, also one
+# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif (no sound); with -Narrate also OUT/unifyterm-promo-zh.mp4 and -en.mp4. With -Stills, also one
 # picture of the window for each scene (the site's pictures, cut to the rows that have
 # something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png, settings.png. Needs ffmpeg and Microsoft Edge (for the cards).
 param(
     [string]$Exe = (Join-Path (Split-Path $PSScriptRoot) 'target/release/unifyterm.exe'),
     [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media'),
-    [string]$Stills = ''
+    [string]$Stills = '',
+    # Speak each part's line in each language (see $narration), and write a video for each.
+    [switch]$Narrate
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
@@ -51,6 +53,53 @@ $caption = @{
     s9       = 'Enter full screen with <b>F11</b> (<b>Cmd-Enter</b> on macOS)'
     s10      = 'Tab bar shows new versions and how to upgrade'
     install  = 'Install it from the UnifyTerm website'
+}
+# What is said over each part, one line a part, in each language (written by an agent from the README).
+# With -Narrate each language's lines are spoken (edge-tts: the words go to Microsoft's speech service)
+# and each part lasts until its longest line is said; OUT/unifyterm-promo-<language>.mp4 has that voice.
+$narration = [ordered]@{
+    zh = @{
+        voice = 'zh-CN-XiaoxiaoNeural'
+        title = '这个终端在 Windows、macOS 和 Linux 上都能用。'
+        s2    = '这里是在 Windows 上，直接用 grep 查文本。'
+        s3    = '打几个字，选中以前用过的命令，回车就填好了。'
+        s4    = '图片可以直接看，文档也能按原来的排版读。'
+        s5    = '配好模型并确认后，就能逐段查看命令的含义。'
+        s6    = '打开侧栏，就能看每个助手的模型、费用和上下文用量。'
+        s7    = '用方向键选个本机字体，窗口马上就换好了。'
+        s8    = '启用后，新开的窗格和助手的终端也能用这些命令。'
+        s9    = '切到全屏后，终端会盖住任务栏。'
+        s10   = '有新版时，看标签栏就知道怎么升级。'
+        end   = '安装方法在官网，网址见视频结尾和简介。'
+    }
+    en = @{
+        voice = 'en-US-AriaNeural'
+        title = 'UnifyTerm runs on Windows, macOS and Linux.'
+        s2    = 'Here on Windows, you can run Unix commands like grep directly in PowerShell.'
+        s3    = 'Start typing, pick a command from your history, then press Enter to fill it in.'
+        s4    = 'You can view a picture here, then read a Markdown file with its formatting.'
+        s5    = 'Once you configure a model and give permission, it can explain the command piece by piece.'
+        s6    = "Open the sidebar to see each agent's model, cost and context usage."
+        s7    = 'Pick an installed font with the arrow keys. The window changes as soon as you apply it.'
+        s8    = 'Once enabled, the commands also work in new keepane panes and in new shells opened by agents.'
+        s9    = 'Switch to full screen and the terminal covers the taskbar.'
+        s10   = 'When a new version is available, the tab bar tells you how to update.'
+        end   = "The website has installation instructions. You'll find the link on screen and in the description."
+    }
+}
+# Each part's least length in seconds: its longest spoken line, a little before it and after it. None without -Narrate.
+$least = @{}
+if ($Narrate) {
+    foreach ($language in $narration.Keys) {
+        $lines = $narration[$language]
+        foreach ($part in $lines.Keys | Where-Object { $_ -ne 'voice' }) {
+            $mp3 = Join-Path $work "say-$language-$part.mp3"
+            uvx edge-tts --voice $lines.voice --text $lines[$part] --write-media $mp3 2>&1 | Out-Null
+            if (-not (Test-Path $mp3)) { throw "promo: edge-tts said nothing for $language $part" }
+            $seconds = [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $mp3) + 0.9
+            $least[$part] = [math]::Max($seconds, ($least[$part] ?? 0))
+        }
+    }
 }
 # PowerShell writes every typed line to the user's history file unless told not to, and shows lines from that
 # file in grey as you type (its predictions): neither, so no command of the user's is seen. The screen is cleared after.
@@ -98,6 +147,7 @@ function Record([string]$scene, [string]$toml, [string]$keys, [hashtable]$data =
 function Join-Scene([string]$scene, [string]$backdrop, [double]$hold) {
     $frames = @(Get-ChildItem $work -Filter "$scene-0*.png" | Sort-Object Name)
     if (-not $frames) { throw "promo: no pictures for $scene" }
+    $hold = [math]::Max($hold, ($least[$scene] ?? 0) - $frames.Count / $fps)
     $list = Join-Path $work "$scene.txt"
     $lines = foreach ($f in $frames) { "file '$($f.FullName -replace '\\', '/')'"; "duration $([math]::Round(1 / $fps, 4))" }
     $lines += "file '$($frames[-1].FullName -replace '\\', '/')'"; $lines += "duration $hold"; $lines += "file '$($frames[-1].FullName -replace '\\', '/')'"
@@ -119,6 +169,7 @@ function Save-Still([string]$scene, [string]$name, [int]$height, [int]$frame = 0
 function Join-Fitted([string]$scene, [string]$backdrop, [double]$hold) {
     $frames = @(Get-ChildItem $work -Filter "$scene-0*.png" | Sort-Object Name)
     if (-not $frames) { throw "promo: no pictures for $scene" }
+    $hold = [math]::Max($hold, ($least[$scene] ?? 0) - $frames.Count / $fps)
     $fitted = foreach ($f in $frames) {
         # A PNG's width: four bytes, high first, at byte 16.
         $head = [IO.File]::ReadAllBytes($f.FullName)[16..19]
@@ -136,7 +187,8 @@ function Join-Fitted([string]$scene, [string]$backdrop, [double]$hold) {
     ffmpeg -v error -y -i $backdrop -f concat -safe 0 -i $list -filter_complex "[1:v]fps=$fps[w];[0:v][w]overlay=160:72,format=yuv420p,fade=t=in:st=0:d=0.3[v]" -map '[v]' -r $fps $clip
     $clip
 }
-function Join-Card([string]$card, [double]$seconds, [string]$name) {
+function Join-Card([string]$card, [double]$seconds, [string]$name, [string]$part) {
+    $seconds = [math]::Max($seconds, ($least[$part] ?? 0))
     $clip = Join-Path $work "$name.mp4"
     ffmpeg -v error -y -loop 1 -t $seconds -i $card -vf "format=yuv420p,fade=t=in:st=0:d=0.4,fade=t=out:st=$($seconds - 0.4):d=0.4" -r $fps $clip
     $clip
@@ -145,7 +197,7 @@ function Join-Card([string]$card, [double]$seconds, [string]$name) {
 $clips = @()
 # 1. The name and what it is.
 $title = Save-Card 'title' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px'><div style='width:200px;height:200px'>$mark</div><div style='font-size:76px;font-weight:700;letter-spacing:-2px;color:#e6e9f5'>Unify<b>Term</b></div><div style='font-size:30px;opacity:.9'>$($caption.subtitle)</div><div style='font-size:21px;opacity:.6'>$($caption.points)</div></div>"
-$clips += Join-Card $title 3.2 'c-title'
+$clips += Join-Card $title 3.2 'c-title' 'title'
 
 # 2. The same commands on Windows.
 $script:frame = 0
@@ -251,7 +303,7 @@ if ($Stills) {
 
 # 7. How to get it.
 $end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#e6e9f5'>Unify<b>Term</b></div></div><div style='font-size:28px'>$($caption.install)</div><div style='font-size:26px;line-height:1.7;text-align:center'><b>https://dfine.tech/unifyterm/</b><br>https://github.com/newdee/unifyterm</div></div>"
-$clips += Join-Card $end 3.4 'c-end'
+$clips += Join-Card $end 3.4 'c-end' 'end'
 
 # All of it, then the GIF.
 $list = Join-Path $work 'all.txt'
@@ -260,6 +312,24 @@ $mp4 = Join-Path $Out 'unifyterm-promo.mp4'
 ffmpeg -v error -y -f concat -safe 0 -i $list -c:v libx264 -preset slow -crf 20 -pix_fmt yuv420p -movflags +faststart $mp4
 $gif = Join-Path $Out 'unifyterm-promo.gif'
 ffmpeg -v error -y -i $mp4 -vf "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" $gif
+# Each language's voice over the same pictures: a part's line starts 0.3 s into its clip, silence fills the rest.
+if ($Narrate) {
+    foreach ($language in $narration.Keys) {
+        $pieces = foreach ($clip in $clips) {
+            $part = [IO.Path]::GetFileNameWithoutExtension($clip) -replace '^c-', ''
+            $span = [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $clip)
+            $piece = Join-Path $work "voice-$language-$part.wav"
+            ffmpeg -v error -y -i (Join-Path $work "say-$language-$part.mp3") -af "adelay=300|300,apad=whole_dur=$span,atrim=0:$span" -ar 48000 -ac 2 $piece
+            "file '$($piece -replace '\\', '/')'"
+        }
+        $voiceList = Join-Path $work "voice-$language.txt"; [IO.File]::WriteAllLines($voiceList, @($pieces))
+        $voice = Join-Path $work "voice-$language.wav"
+        ffmpeg -v error -y -f concat -safe 0 -i $voiceList -c copy $voice
+        $spoken = Join-Path $Out "unifyterm-promo-$language.mp4"
+        ffmpeg -v error -y -i $mp4 -i $voice -map 0:v -map 1:a -c:v copy -c:a aac -b:a 160k -shortest -movflags +faststart $spoken
+        "promo: {0} ({1:N1} s)" -f $spoken, [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $spoken)
+    }
+}
 $length = [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $mp4)
 "promo: {0} ({1:N1} s, {2:N1} MB), {3} ({4:N1} MB)" -f $mp4, $length, ((Get-Item $mp4).Length / 1MB), $gif, ((Get-Item $gif).Length / 1MB)
 subst "${drive}:" /d
