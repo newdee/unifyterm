@@ -699,7 +699,9 @@ mod tests {
         let lines = text(&mut screen, 120, 100);
         assert!(lines[0].starts_with("UnifyTerm settings   ") && lines[0].ends_with("config.toml"), "{}", lines[0]);
         for key in &KEYS {
-            assert_eq!(lines.iter().filter(|line| line.trim_start().starts_with(key.name)).count(), 1, "{}", key.name);
+            // The whole name: `ai.ask` is not `ai.ask_enter`.
+            let named = |line: &&String| line.split_whitespace().next() == Some(key.name);
+            assert_eq!(lines.iter().filter(named).count(), 1, "{}", key.name);
         }
         assert_eq!(lines.iter().filter(|line| line.starts_with('[')).count(), 10, "ten sections");
         assert!(
@@ -899,11 +901,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   5 of 32");
+        assert_eq!(lines[1], "/color   5 of 35");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 32");
+        assert_eq!(lines[1], "/colorzzz   0 of 35");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }

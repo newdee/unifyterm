@@ -105,7 +105,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 }
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 32] = [
+pub const KEYS: [Key; 35] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -148,23 +148,42 @@ pub const KEYS: [Key; 32] = [
     setting("history.limit", Kind::Whole { least: 1, most: 20 }, "The most commands the list shows."),
     setting(
         "ai.provider",
-        Kind::OneOf(&["none", "anthropic", "openai-compatible"]),
-        "Which model helps with commands: anthropic (Claude), openai-compatible (a local model, for one), or none.",
+        Kind::OneOf(&crate::providers::NAMES),
+        "Which model helps with commands: a service (anthropic, openai, openai-compatible), a model server on this machine (ollama, lm-studio, vllm), an agent's command line (claude-code, codex, pi, command), or none.",
     ),
-    setting("ai.model", Kind::Text, "The model's name, as the service knows it: claude-opus-5-5."),
+    setting(
+        "ai.model",
+        Kind::Text,
+        "The model's name, as the service knows it: claude-opus-5-5. An agent's command line uses its own when none is named.",
+    ),
     setting(
         "ai.base_url",
         Kind::Text,
-        "Where the service is: needed for openai-compatible; for anthropic, only through a proxy.",
+        "Where the service is: needed for openai-compatible; else only for another address than the provider's own.",
     ),
     setting(
         "ai.api_key_env",
         Kind::Text,
         "The environment variable that holds the key. The key itself is never in this file.",
     ),
-    setting("ai.suggest", Kind::Switch, "The rest of the command in grey while typing."),
+    setting(
+        "ai.command",
+        Kind::Words,
+        "For the provider command: the program that answers, with its arguments. It reads the question, or gets it in place of {prompt}.",
+    ),
+    setting(
+        "ai.suggest",
+        Kind::Switch,
+        "The rest of the command in grey while typing. Not from an agent's command line: that is too slow.",
+    ),
     setting("ai.fix", Kind::Switch, "A corrected command when one is not found."),
     setting("ai.explain", Kind::Switch, "What each part of a command means (Ctrl-Shift-E)."),
+    setting("ai.ask", Kind::Switch, "A line that begins with # is a sentence: Enter turns it into a command."),
+    setting(
+        "ai.ask_enter",
+        Kind::OneOf(&["manual", "auto"]),
+        "The command made from a sentence: manual puts it on the line; auto also runs it when it only reads.",
+    ),
     setting("agents.sidebar", Kind::Switch, "Show the agents' sidebar when the window opens."),
     setting(
         "agents.poll_ms",

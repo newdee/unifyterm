@@ -10,7 +10,7 @@ One terminal for Windows, macOS and Linux. The page that introduces it: [dfine.t
 
 - **The same Unix commands everywhere.** `cat`, `ls`, `grep`, `jq`, `find`, `sed` and the rest of 99 commands (114 on Linux) come with it (`ut`): on Windows too, and before PowerShell's aliases. Paths are printed with `/`.
 - **A command history you can search as you type.** Every command a shell runs is kept (without secrets) with its directory and exit code; a list of matches shows while you type.
-- **Help with commands.** A corrected command when one is not found, guessed on your machine from the commands it knows. With a model you name and agree to once: better corrections, what each part of a command means (Ctrl-Shift-E), and the rest of a command in grey.
+- **Help with commands.** A corrected command when one is not found, guessed on your machine from the commands it knows. With a model you name and agree to once: better corrections, what each part of a command means (Ctrl-Shift-E), the rest of a command in grey, and a command for what you say in words (`# the five largest files here`, then Enter). The model is a service, a model server on your machine, or an agent's command line you already have (Claude Code, Codex, pi).
 - **Pictures, video and markdown in the terminal.** `ut view photo.png`, `ut view clip.mp4`, `ut md README.md`.
 - **For agents.** A sidebar with the agents keepane watches (Ctrl-Shift-A); `ut mcp`, an MCP server with the history and the commands' help; a skill file.
 
@@ -122,20 +122,44 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `history.enabled` | `true` | Keep the commands shells run. Off: no shell hook, no history file |
 | `history.candidates` | `true` | Show the list while typing |
 | `history.limit` | `8` | The most commands the list shows, 1 to 20 |
-| `ai.provider` | `"none"` | `"anthropic"` (Claude) or `"openai-compatible"` (a local model, for one) |
-| `ai.model` | | The model's name, as the service knows it (`"claude-opus-5-5"`) |
-| `ai.base_url` | | Where the service is: needed for `openai-compatible`; for `anthropic`, only through a proxy |
+| `ai.provider` | `"none"` | Where the model is: see the table below |
+| `ai.model` | | The model's name, as the service knows it (`"claude-opus-5-5"`). An agent's command line uses its own when none is named |
+| `ai.base_url` | | Where the service is: needed for `openai-compatible`; else only for another address than the provider's own |
 | `ai.api_key_env` | | The environment variable that holds the key (the key itself is never in this file) |
-| `ai.suggest` | `true` | The rest of the command in grey while typing |
+| `ai.command` | `[]` | For the provider `command`: the program that answers, with its arguments |
+| `ai.suggest` | `true` | The rest of the command in grey while typing (not from an agent's command line) |
 | `ai.fix` | `true` | A corrected command when one is not found |
 | `ai.explain` | `true` | What each part of a command means (Ctrl-Shift-E) |
+| `ai.ask` | `true` | A line that begins with `#` is a sentence: Enter turns it into a command |
+| `ai.ask_enter` | `"manual"` | The command made from a sentence: `"manual"` puts it on the line; `"auto"` also runs it when it only reads |
 | `agents.sidebar` | `false` | Show the agents' sidebar when the window opens |
 | `agents.poll_ms` | `2000` | How often the agents are asked for while the sidebar shows, 500 to 60000 |
 | `agents.command` | `["keepane", "list-agents", "-J"]` | The program that prints the agents as JSON |
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 | `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
 
-Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first.
+Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, what you write after `#`, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first.
+
+**Where the model is** (`ai.provider`):
+
+| Provider | What it is | What else to set |
+|---|---|---|
+| `anthropic` | Claude, Anthropic's service | `ai.model`, `ai.api_key_env` |
+| `openai` | OpenAI's service | `ai.model`, `ai.api_key_env` |
+| `openai-compatible` | Any service with OpenAI's chat-completions shape: llama.cpp's server, LocalAI, Jan, OpenRouter, DeepSeek | `ai.model`, `ai.base_url` (as `http://localhost:8080/v1`); `ai.api_key_env` if it wants a key |
+| `ollama` | Ollama on this machine, at `http://localhost:11434/v1` | `ai.model` (as `qwen2.5-coder:1.5b`) |
+| `lm-studio` | LM Studio's server, at `http://localhost:1234/v1` | `ai.model` |
+| `vllm` | vLLM, at `http://localhost:8000/v1` | `ai.model` |
+| `claude-code` | Claude Code's command line (`claude`), as you are logged in to it | nothing; `ai.model` to name a model |
+| `codex` | Codex's command line (`codex`) | nothing; `ai.model` to name a model |
+| `pi` | pi's command line (`pi`) | nothing; `ai.model` to name a model |
+| `command` | A program of your own | `ai.command`, as `["my-agent", "--quiet"]` |
+
+UnifyTerm brings no model and downloads none. A service is asked for JSON that fits the answer's shape (`response_format: json_schema`); one that refuses that is asked for plain JSON, then without `response_format`, and the way that worked is kept while the window is open.
+
+An agent's command line is started once for each question, with its tools off (Claude Code `--tools ""`, Codex `--sandbox read-only`, pi `--no-tools`), no session kept, in an empty directory of its own under UnifyTerm's data: it can answer, and nothing else. It takes 10 to 40 seconds and counts against your plan with that agent, so it gives corrections, explanations and commands for sentences, but no grey suggestions. It gets 90 seconds; then it is stopped. A program of your own (`command`) gets the question on its standard input, or in place of `{prompt}` in an argument, and prints the answer; what it may do is its own business. Cursor's command line is not among these: its documentation says that print mode writes files whatever the flags, so it cannot be made to only answer.
+
+**A command for a sentence.** With a model set, type `#` and what you want at the prompt, then Enter: `# the five largest files here`. UnifyTerm asks the model and puts its command on the input line in place of the sentence. It is not run: read it, change it, press Enter. Ctrl-Shift-E explains it. With `ai.ask_enter = "auto"` a command that only reads is run at once; "only reads" means every program on the line is one of a short list (`ls`, `cat`, `grep`, `find` without `-delete` or `-exec`, `git status`, PowerShell's `Get-…` and the like) and the line writes nothing (`>`), runs nothing inside itself (`$(…)`, `{…}`) and nothing in the background. Anything else waits for your Enter, and so does every command in cmd.exe. With no model set, or `ai.ask = false`, such a line goes to the shell as before, which takes it as a comment.
 
 A tab starts in your home directory, however UnifyTerm was started: from the Dock, the Start menu, a launcher or another shell. `unifyterm --cwd DIRECTORY` starts the tabs in another one (`unifyterm --cwd .` for the directory you are in).
 
@@ -197,6 +221,8 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - On macOS with `history.enabled = false`, zsh, bash and fish have no start file of UnifyTerm's, so the system's directories come before UnifyTerm's commands in `PATH`.
 - The agent sidebar finds `keepane` in UnifyTerm's own `PATH` or, on macOS and Linux, where your login shell finds it (`$SHELL -l -c 'command -v keepane'`, asked once). A `PATH` that only your `.zshrc` sets is not seen: then give `agents.command` keepane's full path.
 - On Windows the command links are hard links to `ut.exe`: after an update they lead to the old one until UnifyTerm opens a window or `ut shell enable` runs again.
+- Where the model is: Claude Code and Codex were tried with their real answers (a command with a fitting program for 30 of 30 sentences with Claude Code, 10 of 10 with Codex). The services (`openai`, `ollama`, `lm-studio`, `vllm`) are written to their documents and tried against a stand-in on this machine, not yet against the real thing; `pi` is written to its documents. No model is right every time: read a command before you run it.
+- A correction from an agent's command line comes 10 to 40 seconds after the command that was not found, and each one starts the agent once: `ai.fix = false` turns that off.
 - The builds are not signed.
 
 ## License

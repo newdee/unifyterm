@@ -111,7 +111,7 @@ mod tests {
         let provider = for_key(key("ai.provider").unwrap()).unwrap();
         assert_eq!(provider.pick, Pick::One);
         let names: Vec<&str> = provider.items.iter().map(|choice| choice.value.as_str()).collect();
-        assert_eq!(names, ["none", "anthropic", "openai-compatible"]);
+        assert_eq!(names, unifyterm_config::providers::NAMES, "every provider the settings take, in their order");
         let commands = for_key(key("commands.system").unwrap()).unwrap();
         assert_eq!(commands.pick, Pick::Many);
         assert_eq!(commands.items.len(), crate::commands().len(), "every command of ut's");

@@ -1,6 +1,6 @@
 # 实施计划：M8 用一句话写命令；更多的模型来源
 
-状态：设计稿，2026-11-23。还没有开始写代码。规则沿用 `docs/plan.md` 第 0 节（固定流程、代码规则、测试规则）。
+状态：2026-11-23 的设计稿，2026-11-24 已按它实现。实现时改掉的决定列在文末"实现时改动的决定"一节：正文与那一节不一致时，以那一节为准。规则沿用 `docs/plan.md` 第 0 节（固定流程、代码规则、测试规则）。
 
 ## 目标
 
@@ -315,3 +315,36 @@ ask_enter = "manual"   # manual | auto
 - 不写 `#`，直接打一句中文：shell 报"找不到命令"后，由 `fix` 的弹窗接手。英文句子不行（`find big files` 会被当成 `find` 运行），所以只能是补充。
 - UnifyTerm 自己下载并管理 `llama-server`。等评测集的数字出来再决定。
 - 关掉弹窗时取消还在运行的请求。
+
+## 实现时改动的决定（2026-11-24）
+
+第 0 步验证出来的事实，和写代码时发现的问题，让下面这些地方和正文不同。
+
+| 正文里写的 | 实际做的 | 原因 |
+|---|---|---|
+| 预设 `llama-cpp`，默认地址 `http://localhost:8080/v1` | 没有这个预设。llama.cpp 用 `openai-compatible`，自己写 `ai.base_url` | llama.cpp 的默认端口随版本变：它现在的 README 写 9931，旧版本是 8080。一个对一半用户是错的默认值，不如没有 |
+| 预设 `cursor`，待验证 | 没有这个预设 | Cursor CLI 的文档写明：print 模式不带 `--force` 也会写工作区里的文件。它没有"只回答"的开法，不满足"必须关掉工具"这一条。想用的人用 `command` |
+| `pi` 要实际运行一次 | 参数和"print 模式读标准输入"按它自带的文档核对；没有实际问过 | 这台机器上的 pi 没有登录（退出码 1，"Use /login"） |
+| 命令里有 `{system}` 占位符；`claude` 用 `--system-prompt {system}` | 没有 `{system}`。指示、回答的形状、问题合成一段文字，全部走标准输入。`claude` 的 `--system-prompt` 是一句固定的短话 | npm 装的命令行在 Windows 上是 `.cmd`：带换行或引号的参数传给批处理文件不安全，Rust 会直接拒绝。固定的短参数没有这个问题 |
+| 别的来源写了 `ai.command` 就报错 | 不报错，那一项只是不用 | 在 `ut setting` 里换一下来源再换回来是常事；换走就报错，等于逼人先删掉它 |
+| 命令行来源的超时先按 60 秒 | 90 秒 | 实测：Claude Code 一次 9 到 11 秒（5 次），Codex 一次 20 到 39 秒（3 次）。60 秒离 39 秒太近 |
+| Windows 上用作业对象结束进程树 | Windows 用 `taskkill /T /F`，Unix 用 `kill -KILL -- -进程组` | 这些命令行问一次就自己结束，不需要"终端退出时带走它"。两条系统自带的命令不用 `unsafe`，不加依赖。有一个测试证明孙进程也被结束了 |
+| 弹窗里说明"`xxx` 在这台机器上没有找到" | 没做 | 判断"找不到"要知道 shell 的内建命令、别名和函数；只看 `PATH` 会把 `cd`、`mkdir`（PowerShell 的函数）这类报成找不到。准确的来源是路线图里的命令清单协议，等它 |
+| `runs_alone(command, shell)`，只读表里有 `file`、`stat`、`find`…… | 函数叫 `only_reads`。表里没有 `file`（`file -C` 会写文件）。带 `!` 的命令不算（bash 和 zsh 的历史展开会把以前的整条命令放进来）。带 `( ) { }` 的不算（PowerShell 的脚本块里可以是任何命令）。cmd.exe 里什么都不算 | cmd.exe 先把 `%变量%` 的值放进这一行，再解析这一行：变量里可以藏第二条命令 |
+| 模型给的命令以 `#` 开头 | 当作"没有命令" | 它填进输入行以后，再按 Enter 又会被当成一句话拿去问 |
+| 设置项 32 → 35 | 相同：`ai.command`、`ai.ask`、`ai.ask_enter` | |
+
+第 0 步的结果（2026-11-23 到 24，本机）：
+
+| # | 结果 |
+|---|---|
+| 1 | Ollama `http://localhost:11434/v1`，文档列出支持 `response_format`；LM Studio `http://localhost:1234/v1`，支持 `json_schema`，没有写 `json_object`；vLLM 的例子都是 `http://localhost:8000/v1`，默认支持 `json_schema`；llama.cpp 见上表。没有在真实的服务上发过请求（这台机器上一个都没装） |
+| 2 | OpenAI 的文档：`max_tokens` 已废弃，o 系列模型不接受它，改用 `max_completion_tokens`。所以 `openai` 用后者，其余用 `max_tokens` |
+| 3 | llama.cpp 默认把思考放在 `message.reasoning_content`，也可以留在 `content` 的 `<think>` 里；vLLM 放在 `message.reasoning`。所以只读 `content`，并且先去掉最后一个 `</think>` 之前的全部内容 |
+| 4 | `claude -p` 没有提示词参数时读标准输入：是。`--tools ""` 时让它建一个文件：它回答 `{"done": false}`，文件不存在。用户自己的 hook 不改变标准输出里的 JSON |
+| 5 | `codex exec`：最后的回答在标准输出，过程在标准错误。`--sandbox read-only` 时让它建文件：回答 `{"done": false}`，文件不存在 |
+| 6、7 | 见上表（pi、Cursor） |
+| 8 | 见上表（耗时） |
+| 9 | 超时后孙进程也结束：单元测试 `a_program_that_takes_too_long_is_stopped_with_what_it_started`；去掉结束进程树的那一行，这个测试失败 |
+| 10 | 找程序：先在窗口进程的 `PATH` 里找，再问登录 shell（`$SHELL -l -c 'printenv PATH'`），并用那个 `PATH` 运行它。没有在从程序坞启动的 Mac 上试过 |
+| 11 | 实机检查：pwsh 里英文和中文的句子，模型收到的字和打的字相同 |

@@ -16,7 +16,7 @@
 
 ## 下一步（2026-11-23 定）
 
-1. **M8：用一句话写命令；更多的模型来源。** 设计稿在 `docs/plan-m8.md`，还没开始写代码。行首 `#` 加一句话，回车后换成命令；来源增加 OpenAI、Ollama、LM Studio、llama.cpp、vLLM 的预设，和本机的 agent 命令行（Claude Code、Codex、pi、任意命令）。不带模型，不下载模型。
+1. **M8：用一句话写命令；更多的模型来源。** 已做完，随 0.3.0 发布（2026-11-24）。设计和实现时改动的决定在 `docs/plan-m8.md`。行首 `#` 加一句话，回车后换成命令；来源增加 OpenAI、Ollama、LM Studio、vLLM 的预设，和本机的 agent 命令行（Claude Code、Codex、pi、任意命令）。不带模型，不下载模型。还没有用真实的 Ollama、LM Studio、vLLM、OpenAI 试过。
 2. **命令清单协议**（用户在做宣传视频期间提出，还没有设计）：程序（先是 keepane）声明自己有哪些命令和参数，UnifyTerm 收集起来，用在打字时的提示、打错时的纠正和解释里。M8 的模型也能用这份清单，少编不存在的参数。
 
 ## 自己的 shell：另起一个项目 UnifyShell

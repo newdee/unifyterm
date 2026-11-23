@@ -294,7 +294,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (26, 6), "26 with a default written, 6 that are not set");
+        assert_eq!((written.len(), unset_by_default), (29, 6), "29 with a default written, 6 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -308,7 +308,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (14, 3, 2, 13)
+            (14, 3, 2, 16)
         );
     }
 
@@ -351,7 +351,7 @@ mod tests {
             ("font.ligatures", "maybe", "true or false"),
             ("history.limit", "0", "from 1 to 20"),
             ("terminal.scrollback", "-1", "whole number"),
-            ("ai.provider", "gpt", "one of none, anthropic, openai-compatible"),
+            ("ai.provider", "gpt", "one of none, anthropic, openai, openai-compatible, ollama"),
             ("theme.cursor", "red", "not a color"),
             ("theme.ansi", "#000000, #111111", "has 2 colors"),
             ("font.family", " ", "font.family is empty"),

@@ -508,9 +508,13 @@ if ($Section -in 'all', 'ai') {
     # A stand-in for the model's service on this machine (tools/fake-model.ps1); nothing leaves it.
     $port = 8765
     $requests = Join-Path $work 'model-requests.jsonl'
-    function Start-Model([int]$delay) {
-        Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$requests`" -DelaySeconds $delay" -PassThru -WindowStyle Hidden
+    function Start-Model([int]$delay, [string]$takes = 'schema') {
+        Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$requests`" -DelaySeconds $delay -Takes $takes" -PassThru -WindowStyle Hidden
     }
+    # The last line of a screen's text that is not empty: the input line, when the shell waits at its prompt.
+    function LastLine([string]$text) { @($text -split "`n" | Where-Object { $_.Trim() })[-1] }
+    # The questions about a sentence among the requests from number $from on.
+    function Asked([int]$from) { @(Sent | Select-Object -Skip $from | Where-Object { $_ -match 'Request: ' }).Count }
     function Sent { @(Get-Content $requests -ErrorAction Ignore) }
     $env:UNIFYTERM_TEST_KEY = 'test-key'
     # The history's own list is off throughout: the pictures are of the model's help alone.
@@ -561,7 +565,13 @@ if ($Section -in 'all', 'ai') {
         Run 'ai-explain-off' "tar -czf a.tgz src{WAIT:400}{WAIT:3000}" $quiet | Out-Null
         $explained = Below 'ai-explain' 'ai-explain-off'
         $asks = @(Sent | Select-Object -Skip $before | Where-Object { $_ -match '"parts"' }).Count
-        Report 'Ctrl-Shift-E explains the line in a box' ($explained -gt 1000 -and $asks -ge 1) "the box: $explained pixels; questions about parts: $asks"
+        Report 'Ctrl-Shift-E explains the line in a box' ($explained -gt 1000 -and $asks -ge 1) "the box: $explained pixels; questions about parts: $asks"        # The first time ever (nothing agreed to yet): the question whether the model may be asked, and,
+        # after the yes, the explanation itself: the same picture as an explanation asked for later.
+        $keptAi = $env:UNIFYTERM_DATA_DIR; $env:UNIFYTERM_DATA_DIR = Join-Path $work 'data-ai-first'
+        Run 'ai-explain-first' "tar -czf a.tgz src{WAIT:400}{KEY:CTRL+SHIFT+E}{WAIT:1200}{ENTER}{WAIT:3000}" $model | Out-Null
+        $env:UNIFYTERM_DATA_DIR = $keptAi
+        $first = Below 'ai-explain-first' 'ai-explain'
+        Report 'the first explanation comes right after the yes' ($first -lt 500) "pixels that differ from an explanation asked for later: $first (the box alone is $explained)"
 
         Run 'ai-secret' "echo --token abc123secretvalue{WAIT:2000}" $model | Out-Null
         $all = (Sent) -join "`n"
@@ -574,6 +584,47 @@ if ($Section -in 'all', 'ai') {
         $logged = Get-Content (Join-Path $env:UNIFYTERM_DATA_DIR 'unifyterm.log') -Raw -ErrorAction Ignore
         Report 'a refused key is written to the log' ($logged -match 'suggestion: .*401.*invalid x-api-key') "the log has the 401: $($logged -match 'suggestion: .*401')"
 
+        # A sentence after # at the prompt. With no model named the line is the shell's, a comment, as it was.
+        $before = (Sent).Count
+        $t = Run 'ask-none' "# list the files{ENTER}{WAIT:1200}echo after{ENTER}{WAIT:600}" $quiet
+        Report 'no model: a line with # is the shell''s comment' ((Sent).Count -eq $before -and (Count $t '# list the files') -eq 1 -and (Count $t 'after') -eq 2) "requests: $((Sent).Count - $before); the line on the screen: $(Count $t '# list the files') time(s); 'after' seen $(Count $t 'after') times (the line, then its output)"
+
+        # With a model the sentence becomes a command on the input line: not run until Enter.
+        $t = Run 'ask-put' "# list the files{ENTER}{WAIT:2500}" $model
+        $words = ((Sent | Select-Object -Skip $before) -join "`n") -match 'Request: list the files'
+        Report 'a sentence becomes a command on the line, not run' ((LastLine $t) -match '> echo asked-by-model$' -and (Count $t 'asked-by-model') -eq 1 -and $words) "last line: '$(LastLine $t)'; 'asked-by-model' seen $(Count $t 'asked-by-model') time(s); the words were sent: $words"
+        $t = Run 'ask-run' "# list the files{ENTER}{WAIT:2500}{ENTER}{WAIT:800}" $model
+        Report 'Enter then runs it' ((Count $t 'asked-by-model') -eq 2) "'asked-by-model' seen $(Count $t 'asked-by-model') times (the line, then its output)"
+        $t = Run 'ask-chinese' "# 列出文件{ENTER}{WAIT:2500}" $model
+        $words = ((Sent) -join "`n") -match 'Request: 列出文件'
+        Report 'a sentence in Chinese is sent as written' ((LastLine $t) -match '> echo asked-by-model$' -and $words) "last line: '$(LastLine $t)'; the words were sent: $words"
+
+        $before = (Sent).Count
+        $t = Run 'ask-off' "# list the files{ENTER}{WAIT:1500}" "$model`nask = false"
+        Report 'ai.ask = false leaves the line to the shell' ((Asked $before) -eq 0 -and (Count $t 'asked-by-model') -eq 0) "questions about a sentence: $(Asked $before)"
+
+        $t = Run 'ask-lines' "# two lines please{ENTER}{WAIT:2500}" $model
+        Report 'a command of two lines never reaches the line' ((LastLine $t) -match '> # two lines please$' -and (Count $t 'echo one') -eq 0) "last line: '$(LastLine $t)'; 'echo one' seen $(Count $t 'echo one') time(s)"
+        $t = Run 'ask-nothing' "# nothing to do{ENTER}{WAIT:2500}" $model
+        Report 'no command for the sentence: the line stays' ((LastLine $t) -match '> # nothing to do$') "last line: '$(LastLine $t)'"
+
+        # ask_enter = "auto": what only reads is run at once, anything else waits for Enter.
+        $auto = "$model`nask_enter = `"auto`""
+        $t = Run 'ask-auto' "# list the files{ENTER}{WAIT:3000}" $auto
+        Report 'auto: a command that only reads is run' ((Count $t 'asked-by-model') -eq 2) "'asked-by-model' seen $(Count $t 'asked-by-model') times (the line, then its output)"
+        $t = Run 'ask-auto-held' "# delete the build{ENTER}{WAIT:3000}" $auto
+        Report 'auto: one that may change something waits' ((LastLine $t) -match '> rm -rf zz-not-there$' -and (Count $t 'zz-not-there') -eq 1) "last line: '$(LastLine $t)'; 'zz-not-there' seen $(Count $t 'zz-not-there') time(s) (2 would be the command's own error)"
+
+        # Not at the prompt (a program reads the keyboard): the line is the program's, and nothing is asked.
+        $before = (Sent).Count
+        $t = Run 'ask-program' "`$x = Read-Host{ENTER}{WAIT:800}# list the files{ENTER}{WAIT:1500}echo got=`$x{ENTER}{WAIT:600}" $model
+        Report 'a program that reads the keyboard gets the line' ((Count $t 'got=# list the files') -eq 1 -and (Asked $before) -eq 0) "the program got it: $((Count $t 'got=# list the files') -eq 1); questions about a sentence: $(Asked $before)"
+
+        # The answer takes 3 s and the line is changed meanwhile: the command is not put over it.
+        Stop-Process -Id $server.Id -Force; $server = Start-Model 3; Start-Sleep 2
+        $t = Run 'ask-changed' "# list the files{ENTER}{WAIT:600}x{WAIT:4500}" $model
+        Report 'a line changed meanwhile is left as it is' ((LastLine $t) -match '> # list the filesx$' -and (Count $t 'asked-by-model') -eq 0) "last line: '$(LastLine $t)'"
+
         # A service that takes 20 s: the terminal goes on, nothing waits for it.
         Stop-Process -Id $server.Id -Force; $server = Start-Model 20; Start-Sleep 2
         $t = Run 'ai-slow' "zzqqyy-nothing{ENTER}{WAIT:500}echo still-alive{ENTER}{WAIT:1200}" $model
@@ -581,6 +632,31 @@ if ($Section -in 'all', 'ai') {
 
         $t = Run 'ai-nokey' "echo x{ENTER}" ($model -replace 'UNIFYTERM_TEST_KEY', 'UNIFYTERM_NO_SUCH_KEY_7Q') -keep
         Report 'a key that is not set is named, the terminal works' ((Count $t 'UNIFYTERM_NO_SUCH_KEY_7Q') -ge 1 -and (Count $t 'x') -ge 1) "the notice names the variable: $((Count $t 'UNIFYTERM_NO_SUCH_KEY_7Q') -ge 1)"
+        # A service with OpenAI's shape that knows only JSON mode: asked the strictest way, then the way it takes.
+        # Another model than the one agreed to: the first Enter brings the question, the second says yes.
+        Stop-Process -Id $server.Id -Force; $server = Start-Model 0 'object'; Start-Sleep 2
+        $chat = "$quiet`n[ai]`nprovider = `"openai-compatible`"`nmodel = `"local`"`nbase_url = `"http://localhost:$port/v1`""
+        $before = (Sent).Count
+        $t = Run 'ask-chat' "# list the files{ENTER}{WAIT:1200}{ENTER}{WAIT:3000}" $chat
+        $formats = @(Sent | Select-Object -Skip $before | ForEach-Object { ($_ | ConvertFrom-Json).response_format.type }) -join ', '
+        Report 'an OpenAI-shaped service is asked the way it takes' ((LastLine $t) -match '> echo asked-by-model$' -and $formats -eq 'json_schema, json_object') "last line: '$(LastLine $t)'; response_format of its requests: $formats"
+        $before = (Sent).Count
+        $t = Run 'ask-chat-again' "# list the files{ENTER}{WAIT:2500}" $chat
+        $again = @(Sent | Select-Object -Skip $before | ForEach-Object { ($_ | ConvertFrom-Json).response_format.type }) -join ', '
+        Report 'a new window starts from the strictest way again' ((LastLine $t) -match '> echo asked-by-model$' -and $again -eq 'json_schema, json_object') "response_format of its requests: $again"
+
+        # A program on this machine answers: the question on its standard input, in a directory of its own.
+        $questions = Join-Path $work 'agent-questions.txt'
+        $script = "$PSScriptRoot\fake-agent.ps1" -replace '\\', '/'
+        $agent = "$quiet`n[ai]`nprovider = `"command`"`ncommand = [`"pwsh`", `"-NoProfile`", `"-File`", `"$script`", `"-Log`", `"$($questions -replace '\\', '/')`"]"
+        $before = (Sent).Count
+        $t = Run 'ask-agent' "# list the files{ENTER}{WAIT:1200}{ENTER}{WAIT:6000}" $agent
+        $got = (Get-Content $questions -Raw -ErrorAction Ignore) -match 'Request: list the files'
+        $own = Join-Path $env:UNIFYTERM_DATA_DIR 'agent-cwd'
+        $empty = (Test-Path $own) -and @(Get-ChildItem $own -Force).Count -eq 0
+        Report 'a program on this machine answers a sentence' ((LastLine $t) -match '> echo asked-by-agent$' -and $got -and $empty -and (Sent).Count -eq $before) "last line: '$(LastLine $t)'; it read the question: $got; its directory is there and empty: $empty; requests to a service: $((Sent).Count - $before)"
+        $t = Run 'ask-agent-missing' "# list the files{ENTER}{WAIT:1200}{ENTER}{WAIT:2500}" "$quiet`n[ai]`nprovider = `"command`"`ncommand = [`"unifyterm-no-such-agent-71b3`"]"
+        Report 'a program that is not there: the line stays' ((LastLine $t) -match '> # list the files$') "last line: '$(LastLine $t)'"
     } finally {
         Stop-Process -Id $server.Id -Force -ErrorAction Ignore
         $env:UNIFYTERM_DATA_DIR = $keptData
@@ -641,7 +717,9 @@ if ($Section -in 'all', 'graphics') {
     if (Get-Command wt -ErrorAction SilentlyContinue) {
         $said = Join-Path $work 'wt-choice.txt'
         $utExe = Join-Path (Split-Path $Exe) 'ut.exe'
-        Start-Process wt -ArgumentList @('-w', 'new', '--title', 'unifyterm-verify', 'cmd', '/c', "`"$utExe`" view `"$png`" --width 8 --verbose 2> `"$said`" & ping -n 2 127.0.0.1 >nul")
+        # These checks may be run from a tab of UnifyTerm: what it tells its own shells (TERM_PROGRAM)
+        # would go on to the program in Windows Terminal, which would take that for the terminal it is in.
+        Start-Process wt -ArgumentList @('-w', 'new', '--title', 'unifyterm-verify', 'cmd', '/c', "set TERM_PROGRAM=& set KITTY_WINDOW_ID=& `"$utExe`" view `"$png`" --width 8 --verbose 2> `"$said`" & ping -n 2 127.0.0.1 >nul")
         for ($i = 0; $i -lt 50 -and -not ((Test-Path $said) -and (Get-Item $said).Length -gt 0); $i++) { Start-Sleep -Milliseconds 200 }
         $choice = if (Test-Path $said) { (Get-Content $said -Raw).Trim() } else { '(nothing said)' }
         Report 'in Windows Terminal, ut view chooses sixel by itself' ($choice -match '^ut view: sixel') $choice

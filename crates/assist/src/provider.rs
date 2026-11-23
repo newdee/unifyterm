@@ -3,6 +3,7 @@
 //! Plain HTTP with JSON; the key is read from an environment variable the
 //! user names, never from the settings file.
 
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -110,32 +111,95 @@ impl Provider for Anthropic {
     }
 }
 
+/// Which field of the request says how long the answer may be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tokens {
+    /// `max_tokens`: what such services have in common.
+    Max,
+    /// `max_completion_tokens`: what `OpenAI`'s own service asks for.
+    MaxCompletion,
+}
+
+/// How a service is told that the answer is JSON, from the strictest down.
+/// A service is asked the strictest way first; when it refuses the request,
+/// the next way is tried, and the way that worked is kept for the questions
+/// that follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    /// `response_format: json_schema`: the service lets the model write only what fits the schema.
+    Schema,
+    /// `response_format: json_object`: JSON of any shape.
+    Object,
+    /// No `response_format`: the shape is only in the instructions.
+    Plain,
+}
+
+impl Format {
+    const fn looser(self) -> Option<Self> {
+        match self {
+            Self::Schema => Some(Self::Object),
+            Self::Object => Some(Self::Plain),
+            Self::Plain => None,
+        }
+    }
+}
+
 /// A service with `OpenAI`'s chat-completions shape (`POST {base}/chat/completions`).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct OpenAiCompatible {
     base_url: String,
     model: String,
     /// Empty for a service that needs none (a local one).
     key: String,
+    tokens: Tokens,
+    format: Mutex<Format>,
 }
 
 impl OpenAiCompatible {
     #[must_use]
     pub fn new(base_url: &str, model: &str, key: &str) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_owned(), model: model.to_owned(), key: key.to_owned() }
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            model: model.to_owned(),
+            key: key.to_owned(),
+            tokens: Tokens::Max,
+            format: Mutex::new(Format::Schema),
+        }
     }
-}
 
-impl Provider for OpenAiCompatible {
-    fn complete(&self, request: &Request) -> Result<String, Error> {
-        // JSON mode is what such services have in common; the shape is in the instructions.
+    /// The same service, told the answer's length in the field `tokens` names.
+    #[must_use]
+    pub fn with_tokens(mut self, tokens: Tokens) -> Self {
+        self.tokens = tokens;
+        self
+    }
+
+    fn format(&self) -> Format {
+        *self.format.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One request, with the answer's JSON asked for in the way `format` says.
+    fn ask(&self, request: &Request, format: Format) -> Result<String, Error> {
         let system = format!("{}\nThe JSON schema of the answer: {}", request.system, request.schema);
-        let body = json!({
+        let mut body = json!({
             "model": self.model,
-            "max_tokens": request.max_tokens,
             "messages": [{ "role": "system", "content": system }, { "role": "user", "content": request.user }],
-            "response_format": { "type": "json_object" },
         });
+        let length = match self.tokens {
+            Tokens::Max => "max_tokens",
+            Tokens::MaxCompletion => "max_completion_tokens",
+        };
+        body[length] = json!(request.max_tokens);
+        match format {
+            Format::Schema => {
+                body["response_format"] = json!({
+                    "type": "json_schema",
+                    "json_schema": { "name": "answer", "strict": true, "schema": request.schema },
+                });
+            }
+            Format::Object => body["response_format"] = json!({ "type": "json_object" }),
+            Format::Plain => {}
+        }
         let bearer = format!("Bearer {}", self.key);
         let mut headers = vec![("content-type", "application/json")];
         if !self.key.is_empty() {
@@ -146,6 +210,33 @@ impl Provider for OpenAiCompatible {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| Error::BadAnswer("no choices[0].message.content".into()))
+    }
+}
+
+impl Provider for OpenAiCompatible {
+    fn complete(&self, request: &Request) -> Result<String, Error> {
+        let mut format = self.format();
+        // What the service said to the strictest way: the most telling, if no way works.
+        let mut refused = None;
+        loop {
+            match self.ask(request, format) {
+                // "Bad request", "unprocessable": the service does not take the request as it is written.
+                Err(Error::Status(code @ (400 | 422), body)) => {
+                    let said = refused.take().unwrap_or(Error::Status(code, body));
+                    let Some(looser) = format.looser() else { return Err(said) };
+                    refused = Some(said);
+                    format = looser;
+                }
+                answered => {
+                    // Kept only when it worked: a request refused for another reason (a model
+                    // the service does not have) must not make the next questions looser.
+                    if answered.is_ok() {
+                        *self.format.lock().unwrap_or_else(PoisonError::into_inner) = format;
+                    }
+                    return answered;
+                }
+            }
+        }
     }
 }
 
@@ -160,36 +251,42 @@ mod tests {
     /// One HTTP exchange on 127.0.0.1: the server answers `status` and `body`
     /// after `delay`, and hands back the request's head and body it got.
     fn serve(status: u16, body: &str, delay: Duration) -> (String, mpsc::Receiver<(String, String)>) {
+        serve_each(vec![(status, body.to_owned())], delay)
+    }
+
+    /// The same for several exchanges, one connection each, answered in order.
+    fn serve_each(answers: Vec<(u16, String)>, delay: Duration) -> (String, mpsc::Receiver<(String, String)>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let (tell, inbox) = mpsc::channel();
-        let body = body.to_owned();
         std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut head = String::new();
-            let mut length = 0;
-            loop {
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                    length = value.trim().parse().unwrap();
+            for (status, body) in answers {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut head = String::new();
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap();
+                    }
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    head.push_str(&line);
                 }
-                if line == "\r\n" || line.is_empty() {
-                    break;
-                }
-                head.push_str(&line);
+                let mut sent = vec![0; length];
+                reader.read_exact(&mut sent).unwrap();
+                let _ = tell.send((head, String::from_utf8(sent).unwrap()));
+                std::thread::sleep(delay);
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
             }
-            let mut sent = vec![0; length];
-            reader.read_exact(&mut sent).unwrap();
-            let _ = tell.send((head, String::from_utf8(sent).unwrap()));
-            std::thread::sleep(delay);
-            let mut stream = stream;
-            let _ = write!(
-                stream,
-                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            );
         });
         (url, inbox)
     }
@@ -266,10 +363,65 @@ mod tests {
         assert!(head.to_ascii_lowercase().starts_with("post /v1/chat/completions "), "{head}");
         assert!(!head.to_ascii_lowercase().contains("authorization"), "no key: no header");
         let body: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(body["response_format"]["type"], "json_schema", "the strictest way first");
+        assert_eq!(body["response_format"]["json_schema"]["schema"], json!({"type": "object"}));
+        assert_eq!((body["max_tokens"].as_u64(), body.get("max_completion_tokens")), (Some(100), None));
         assert!(body["messages"][0]["content"].as_str().unwrap().contains("JSON schema"));
         let (url, inbox) = serve(200, answer, Duration::ZERO);
-        OpenAiCompatible::new(&url, "m", "secret-key").complete(&request(SECOND * 5)).unwrap();
-        assert!(inbox.recv().unwrap().0.to_ascii_lowercase().contains("authorization: bearer secret-key"));
+        let openai = OpenAiCompatible::new(&url, "m", "secret-key").with_tokens(Tokens::MaxCompletion);
+        openai.complete(&request(SECOND * 5)).unwrap();
+        let (head, body) = inbox.recv().unwrap();
+        assert!(head.to_ascii_lowercase().contains("authorization: bearer secret-key"));
+        let body: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((body["max_completion_tokens"].as_u64(), body.get("max_tokens")), (Some(100), None));
+    }
+
+    /// The `response_format.type` of each request the server got, in order ("none" for a request without).
+    fn formats(inbox: &mpsc::Receiver<(String, String)>) -> Vec<String> {
+        inbox
+            .try_iter()
+            .map(|(_, body)| {
+                let body: Value = serde_json::from_str(&body).unwrap();
+                body["response_format"]["type"].as_str().unwrap_or("none").to_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_service_is_asked_the_way_it_takes_and_that_way_is_kept() {
+        let good = (200, r#"{"choices": [{"message": {"content": "{}"}}]}"#.to_owned());
+        let no = |why: &str| (400, format!(r#"{{"error": "{why}"}}"#));
+        // A service that takes JSON of any shape only: asked twice the first time, once from then on.
+        let (url, inbox) = serve_each(
+            vec![no("response_format.type must be json_object"), good.clone(), good.clone()],
+            Duration::ZERO,
+        );
+        let service = OpenAiCompatible::new(&url, "m", "");
+        assert_eq!(service.complete(&request(SECOND * 5)).unwrap(), "{}");
+        assert_eq!(service.complete(&request(SECOND * 5)).unwrap(), "{}");
+        assert_eq!(formats(&inbox), ["json_schema", "json_object", "json_object"]);
+        // One that takes no response_format at all: three requests, then one.
+        let (url, inbox) =
+            serve_each(vec![no("unknown field"), no("unknown field"), good.clone(), good.clone()], Duration::ZERO);
+        let service = OpenAiCompatible::new(&url, "m", "");
+        assert_eq!(service.complete(&request(SECOND * 5)).unwrap(), "{}");
+        assert_eq!(service.complete(&request(SECOND * 5)).unwrap(), "{}");
+        assert_eq!(formats(&inbox), ["json_schema", "json_object", "none", "none"]);
+        // Refused whatever the way (the model is not there): what the service said first is the error,
+        // and the next question starts from the strictest way again.
+        let (url, inbox) =
+            serve_each(vec![no("no model m"), no("second"), (422, "third".to_owned()), good], Duration::ZERO);
+        let service = OpenAiCompatible::new(&url, "m", "");
+        let Err(Error::Status(400, said)) = service.complete(&request(SECOND * 5)) else { panic!("refused") };
+        assert!(said.contains("no model m"), "{said}");
+        assert_eq!(service.complete(&request(SECOND * 5)).unwrap(), "{}");
+        assert_eq!(formats(&inbox), ["json_schema", "json_object", "none", "json_schema"]);
+        // Another failure (the key is wrong) is not a reason to ask again.
+        let (url, inbox) = serve_each(vec![(401, "bad key".to_owned())], Duration::ZERO);
+        assert!(matches!(
+            OpenAiCompatible::new(&url, "m", "k").complete(&request(SECOND * 5)),
+            Err(Error::Status(401, _))
+        ));
+        assert_eq!(formats(&inbox), ["json_schema"]);
     }
 }

@@ -2,7 +2,7 @@
 //! each may be, how the file is read) are `unifyterm-config`, which
 //! `ut setting` uses too: this adds what only the window needs.
 
-pub(crate) use unifyterm_config::{AiConfig, CommandsConfig, Config, Provider, WindowConfig};
+pub(crate) use unifyterm_config::{AiConfig, AskEnter, CommandsConfig, Config, Provider, WindowConfig};
 
 use crate::theme::{Rgb, Theme};
 

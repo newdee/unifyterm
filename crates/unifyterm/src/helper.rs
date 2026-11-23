@@ -1,7 +1,8 @@
 //! Help with commands, as the settings and the user allow it: the local fix
-//! for a misspelt command name always, a language model's suggestion, fix
-//! and explanation when `[ai]` names one and the user has agreed, once, to
-//! what is sent. Every question to the model runs on a thread of its own;
+//! for a misspelt command name always; a language model's suggestion, fix
+//! and explanation, and its command for a sentence, when `[ai]` names one
+//! and the user has agreed, once, to what is sent. The model is a service or
+//! a program on this machine (an agent's command line): `ai.provider` says. Every question to the model runs on a thread of its own;
 //! the answer comes back on a channel and the window never waits.
 
 use std::path::PathBuf;
@@ -9,9 +10,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use regex::Regex;
 use smol::channel::Receiver;
-use unifyterm_assist::{Anthropic, Context, Error, Failure, Fix, OpenAiCompatible, Part, Provider};
+use unifyterm_assist::{
+    Anthropic, Ask, Asked, Command, Context, Error, Failure, Fix, OpenAiCompatible, Part, Provider, Tokens,
+};
+use unifyterm_config::providers::Reach;
 
-use crate::config::{AiConfig, Provider as ProviderSetting};
+use crate::config::{AiConfig, AskEnter, Provider as ProviderSetting};
 
 /// The user's answer to "may this be sent?".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,18 +33,33 @@ pub(crate) enum Feature {
     Suggest,
     Fix,
     Explain,
+    /// A command for the sentence on a line that begins with `#`.
+    Ask,
 }
 
 /// What may be sent, as the window asks the user.
-pub(crate) const WHAT_IS_SENT: &str = "The command line you type (secrets replaced), the directory, your last \
-five commands, and for a command that was not found, the last 40 lines it printed.";
+pub(crate) const WHAT_IS_SENT: &str = "The command line you type (secrets replaced), what you write after # at the \
+prompt, the directory, your last five commands, and for a command that was not found, the last 40 lines it printed.";
+/// The directory, in UnifyTerm's data, where an agent's command line runs: nothing is in it.
+const AGENT_DIRECTORY: &str = "agent-cwd";
+
+/// The operating system, as a person calls it: the model writes commands for it.
+const SYSTEM: &str = if cfg!(windows) {
+    "Windows"
+} else if cfg!(target_os = "macos") {
+    "macOS"
+} else {
+    "Linux"
+};
 
 /// The help, shared by every tab.
 pub(crate) struct Helper {
     settings: AiConfig,
     provider: Option<Arc<dyn Provider>>,
-    /// The model's service, name and address: agreeing is agreeing to these.
+    /// The model's service, name and address, or the program that answers: agreeing is agreeing to these.
     asked_for: String,
+    /// What the model is called when the user is asked.
+    shown: String,
     consent_file: Option<PathBuf>,
     consent: Mutex<Consent>,
     /// UnifyTerm's commands: their own help goes along with an explanation.
@@ -118,7 +137,8 @@ impl Helper {
             Some(String::new())
         } else {
             let key = std::env::var(&settings.api_key_env).ok().filter(|key| !key.is_empty());
-            if key.is_none() && settings.provider != ProviderSetting::None {
+            // A program has its own way to its model: a key named for another provider is not its business.
+            if key.is_none() && matches!(settings.provider.reach(), Reach::Anthropic | Reach::Chat { .. }) {
                 told.push(format!(
                     "ai.api_key_env names {}, which is not set: the model's help is off",
                     settings.api_key_env
@@ -126,16 +146,31 @@ impl Helper {
             }
             key
         };
-        let provider: Option<Arc<dyn Provider>> = match (&settings.provider, key) {
-            (ProviderSetting::Anthropic, Some(key)) => {
-                Some(Arc::new(Anthropic::new(&settings.base_url, &settings.model, &key)))
+        let provider: Option<Arc<dyn Provider>> = match (settings.provider.reach(), key) {
+            (Reach::Anthropic, Some(key)) => Some(Arc::new(Anthropic::new(&settings.base_url, &settings.model, &key))),
+            (Reach::Chat { .. }, Some(key)) => {
+                // OpenAI's own service names the answer's length its own way.
+                let tokens =
+                    if settings.provider == ProviderSetting::Openai { Tokens::MaxCompletion } else { Tokens::Max };
+                Some(Arc::new(OpenAiCompatible::new(&settings.address(), &settings.model, &key).with_tokens(tokens)))
             }
-            (ProviderSetting::OpenaiCompatible, Some(key)) => {
-                Some(Arc::new(OpenAiCompatible::new(&settings.base_url, &settings.model, &key)))
-            }
+            (Reach::Program { .. } | Reach::OwnProgram, _) => settings.program().map(|line| {
+                let data = unifyterm_history::data_directory().unwrap_or_else(|_| std::env::temp_dir());
+                let program: Arc<dyn Provider> = Arc::new(Command::new(line, data.join(AGENT_DIRECTORY)));
+                program
+            }),
             _ => None,
         };
-        let asked_for = format!("{:?} {} {}", settings.provider, settings.model, settings.base_url);
+        let program = settings.program().unwrap_or_default();
+        // As it was before programs could answer, so that who agreed then is not asked again.
+        let mut asked_for = format!("{:?} {} {}", settings.provider, settings.model, settings.base_url);
+        if !program.is_empty() {
+            asked_for = format!("{asked_for} {}", program.join(" "));
+        }
+        let shown = match program.first() {
+            Some(program) if settings.model.trim().is_empty() => program.clone(),
+            _ => settings.model.clone(),
+        };
         let consent_file = unifyterm_history::data_directory().ok().map(|directory| directory.join("ai-consent"));
         let given = consent_file
             .as_ref()
@@ -151,6 +186,7 @@ impl Helper {
             settings: settings.clone(),
             provider,
             asked_for,
+            shown,
             consent_file,
             consent: Mutex::new(if given { Consent::Given } else { Consent::Unasked }),
             ut,
@@ -163,10 +199,18 @@ impl Helper {
     pub(crate) fn offers(&self, feature: Feature) -> bool {
         self.provider.is_some()
             && match feature {
-                Feature::Suggest => self.settings.suggest,
+                // Not from a program: each question starts it anew, which takes seconds and is
+                // counted against the user's plan; a suggestion is asked for at every pause in typing.
+                Feature::Suggest => self.settings.suggest && !self.settings.provider.is_program(),
                 Feature::Fix => self.settings.fix,
                 Feature::Explain => self.settings.explain,
+                Feature::Ask => self.settings.ask,
             }
+    }
+
+    /// Whether a command made from a sentence may be run without the user's Enter, when it only reads.
+    pub(crate) fn runs_what_only_reads(&self) -> bool {
+        self.settings.ask_enter == AskEnter::Auto
     }
 
     /// Whether a model is in use at all (named in the settings, with its key).
@@ -193,9 +237,9 @@ impl Helper {
         *self.consent.lock().expect("lock poisoned") = Consent::Refused;
     }
 
-    /// The model's name, for the window to show.
+    /// The model's name (or the program that answers, when no model is named), for the window to show.
     pub(crate) fn model(&self) -> &str {
-        &self.settings.model
+        &self.shown
     }
 
     /// The fix that needs no model, for a command that was not found.
@@ -264,6 +308,26 @@ impl Helper {
         })
     }
 
+    /// The command for a sentence the user wrote at the prompt.
+    pub(crate) fn command_for(
+        &self,
+        words: String,
+        cwd: String,
+        shell: String,
+        recent: Vec<String>,
+    ) -> Option<Receiver<Result<Option<Asked>, Error>>> {
+        if !self.offers(Feature::Ask) {
+            return None;
+        }
+        // UnifyTerm's commands are in every tab's PATH: the model may use them on any system.
+        let programs = self.ut.as_ref().map(|(_, names)| names.clone()).unwrap_or_default();
+        self.ask(move |provider| {
+            let ask =
+                Ask { words: &words, cwd: &cwd, shell: &shell, system: SYSTEM, programs: &programs, recent: &recent };
+            unifyterm_assist::ask(provider, &ask)
+        })
+    }
+
     pub(crate) fn explain(&self, command: String, shell: String) -> Option<Receiver<Result<Vec<Part>, Error>>> {
         if !self.offers(Feature::Explain) {
             return None;
@@ -321,9 +385,10 @@ mod tests {
     fn with_no_model_there_is_the_local_fix_and_nothing_is_asked() {
         let (helper, told) = Helper::new(&AiConfig::default(), None, None);
         assert!(told.is_empty());
-        for feature in [Feature::Suggest, Feature::Fix, Feature::Explain] {
+        for feature in [Feature::Suggest, Feature::Fix, Feature::Explain, Feature::Ask] {
             assert!(!helper.offers(feature));
         }
+        assert!(helper.command_for("list files".into(), String::new(), "pwsh".into(), Vec::new()).is_none());
         assert!(helper.suggest("ls".into(), String::new(), "pwsh".into(), Vec::new()).is_none());
         let recent = vec!["git status".to_owned()];
         let fixed = helper.local_fix("gti log", "bash: gti: command not found", Some(127), &recent).unwrap();
@@ -354,5 +419,45 @@ mod tests {
             helper.refuse();
             assert!(helper.fix("gti".into(), Some(1), String::new(), "pwsh".into()).is_none(), "refused");
         }
+    }
+
+    #[test]
+    fn a_program_answers_all_but_suggestions() {
+        // A program that is not there: nothing is started by these checks.
+        let ai = AiConfig {
+            provider: ProviderSetting::Command,
+            command: vec!["unifyterm-no-such-agent-71b3".into(), "--quiet".into()],
+            ..AiConfig::default()
+        };
+        let (helper, told) = Helper::new(&ai, None, None);
+        assert!(told.is_empty(), "{told:?}");
+        assert!(helper.has_model());
+        // A key's variable left in the file from another provider, and not set: the program answers all the same.
+        let left = AiConfig { api_key_env: "UNIFYTERM_TEST_NO_SUCH_VARIABLE_8D2F".into(), ..ai };
+        let (with_key_left, told) = Helper::new(&left, None, None);
+        assert!(told.is_empty() && with_key_left.has_model(), "{told:?}");
+        assert!(!helper.offers(Feature::Suggest), "too slow, and counted, at every pause in typing");
+        for feature in [Feature::Fix, Feature::Explain, Feature::Ask] {
+            assert!(helper.offers(feature), "{feature:?}");
+        }
+        assert_eq!(helper.model(), "unifyterm-no-such-agent-71b3", "no model named: the program's name is shown");
+        assert!(helper.asked_for.ends_with("unifyterm-no-such-agent-71b3 --quiet"), "{}", helper.asked_for);
+        let named =
+            AiConfig { provider: ProviderSetting::ClaudeCode, model: "claude-haiku-5-5".into(), ..AiConfig::default() };
+        let (helper, _) = Helper::new(&named, None, None);
+        assert_eq!(helper.model(), "claude-haiku-5-5");
+        assert!(helper.asked_for.contains("--tools") && helper.asked_for.contains("--model claude-haiku-5-5"));
+    }
+
+    #[test]
+    fn the_settings_turn_the_sentence_off_and_choose_who_presses_enter() {
+        let on = settings(ProviderSetting::Ollama);
+        let (helper, _) = Helper::new(&on, None, None);
+        assert!(helper.offers(Feature::Ask) && !helper.runs_what_only_reads(), "on, and the user presses Enter");
+        let (helper, _) = Helper::new(&AiConfig { ask: false, ask_enter: AskEnter::Auto, ..on }, None, None);
+        assert!(!helper.offers(Feature::Ask) && helper.runs_what_only_reads());
+        // Who agreed before programs could answer is not asked again: the words agreed to are as they were.
+        let (helper, _) = Helper::new(&settings(ProviderSetting::OpenaiCompatible), None, None);
+        assert_eq!(helper.asked_for, "OpenaiCompatible m http://127.0.0.1:9");
     }
 }

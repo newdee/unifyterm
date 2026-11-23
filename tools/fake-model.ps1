@@ -1,20 +1,28 @@
 # A stand-in for a language model's service, on this machine only: it
-# answers unifyterm's questions in the Messages API's shape with fixed
-# answers, and writes every request's body to a log, one JSON a line.
+# answers unifyterm's questions with fixed answers, and writes every
+# request's body to a log, one JSON a line. It speaks the Messages API's
+# shape, and OpenAI's chat-completions shape for a path that ends in
+# /chat/completions.
 #
-#   pwsh tools/fake-model.ps1 -Port 8765 -Log requests.jsonl [-DelaySeconds 0] [-Meanings FILE]
+#   pwsh tools/fake-model.ps1 -Port 8765 -Log requests.jsonl [-DelaySeconds 0] [-Meanings FILE] [-Takes schema|object|none]
 #
-# What it answers, by the shape the question asks for:
+# What it answers, by what the question's instructions ask for:
 #   completion       what was typed, then " --from-model"
 #   command, reason  "echo fixed-by-model"
 #   parts            the command cut at its spaces, each part "part N" (or, with -Meanings,
 #                    the meaning that JSON file gives the part, as {"tar": "..."})
+#   command, note    for a sentence: "echo asked-by-model"; a sentence with "delete" in it gets
+#                    "rm -rf zz-not-there", with "two lines" a command of two lines, with
+#                    "nothing" an empty command
 # The key `bad-key` gets 401, as a wrong key would.
+# -Takes: which `response_format` the chat-completions shape accepts. `object` refuses
+# json_schema with 400, as a service that knows only JSON mode does; `none` refuses both.
 param(
     [Parameter(Mandatory)][int]$Port,
     [Parameter(Mandatory)][string]$Log,
     [int]$DelaySeconds = 0,
-    [string]$Meanings = ''
+    [string]$Meanings = '',
+    [ValidateSet('schema', 'object', 'none')][string]$Takes = 'schema'
 )
 $known = if ($Meanings) { Get-Content -Raw $Meanings | ConvertFrom-Json -AsHashtable } else { @{} }
 $listener = [System.Net.HttpListener]::new()
@@ -33,21 +41,42 @@ while ($listener.IsListening) {
         continue
     }
     $request = $body | ConvertFrom-Json
-    $user = [string]$request.messages[0].content
-    $schema = $request.output_config.format.schema.properties
-    $answer = if ($schema.completion) {
+    $chat = $context.Request.Url.AbsolutePath.EndsWith('/chat/completions')
+    if ($chat) {
+        $format = [string]$request.response_format.type
+        $refused = ($Takes -eq 'object' -and $format -eq 'json_schema') -or ($Takes -eq 'none' -and $format)
+        if ($refused) {
+            $context.Response.StatusCode = 400
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"error`":{`"message`":`"response_format.type $format is not supported`"}}")
+            $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+            $context.Response.Close()
+            continue
+        }
+    }
+    # The instructions and the question: where each shape has them.
+    $system = if ($chat) { [string]$request.messages[0].content } else { [string]$request.system }
+    $user = if ($chat) { [string]$request.messages[1].content } else { [string]$request.messages[0].content }
+    $answer = if ($system.Contains('"completion"')) {
         $typed = [regex]::Match($user, '(?m)^Typed so far: (.*)$').Groups[1].Value
         @{ completion = "$typed --from-model" }
-    } elseif ($schema.parts) {
+    } elseif ($system.Contains('"parts"')) {
         $command = [regex]::Match($user, '(?m)^Command: (.*)$').Groups[1].Value
         $n = 0
         @{ parts = @($command -split ' ' | Where-Object { $_ } | ForEach-Object { $n++; @{ text = $_; meaning = $(if ($known.ContainsKey($_)) { $known[$_] } else { "part $n" }) } }) }
+    } elseif ($system.Contains('"note"')) {
+        $words = [regex]::Match($user, '(?m)^Request: (.*)$').Groups[1].Value
+        $command = if ($words -match 'delete') { 'rm -rf zz-not-there' } elseif ($words -match 'two lines') { "echo one`necho two" } elseif ($words -match 'nothing') { '' } else { 'echo asked-by-model' }
+        @{ command = $command; note = 'the fake model always says this' }
     } else {
         @{ command = 'echo fixed-by-model'; reason = 'the fake model always says this' }
     }
     if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
     $text = $answer | ConvertTo-Json -Depth 5 -Compress
-    $reply = @{ content = @(@{ type = 'text'; text = $text }); stop_reason = 'end_turn' } | ConvertTo-Json -Depth 5 -Compress
+    $reply = if ($chat) {
+        @{ choices = @(@{ message = @{ role = 'assistant'; content = $text } }) } | ConvertTo-Json -Depth 6 -Compress
+    } else {
+        @{ content = @(@{ type = 'text'; text = $text }); stop_reason = 'end_turn' } | ConvertTo-Json -Depth 5 -Compress
+    }
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($reply)
     $context.Response.ContentType = 'application/json'
     $context.Response.ContentLength64 = $bytes.Length

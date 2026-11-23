@@ -595,6 +595,12 @@ impl Screen {
         self.prompt.enter(typed, std::time::Instant::now());
     }
 
+    /// Enter is pressed for the user, with `command` put on the input line just before: the
+    /// screen may not show it yet, so the command's text is said, not read from the line.
+    pub(crate) fn enter_with(&mut self, command: &str) {
+        self.prompt.enter(Some(command.to_owned()), std::time::Instant::now());
+    }
+
     /// What is typed at the prompt; `None` when the shell is not at its
     /// input line, a program has the whole screen, the view is scrolled
     /// back, or the input runs over more than one line.

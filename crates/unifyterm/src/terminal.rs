@@ -109,8 +109,17 @@ pub(crate) struct TerminalView {
 #[derive(Debug, Clone)]
 enum Pending {
     Suggest(String),
-    Fix { command: String, exit: Option<i32>, output: String },
+    Fix {
+        command: String,
+        exit: Option<i32>,
+        output: String,
+    },
     Explain(String),
+    /// A sentence to make a command of: the words after `#`, and the input line as it was.
+    Ask {
+        words: String,
+        line: String,
+    },
 }
 
 /// A box over the text, under the input line.
@@ -123,9 +132,18 @@ enum Popup {
     /// The model is asked what a command means.
     Waiting(String),
     Explained(String, Vec<unifyterm_assist::Part>),
+    /// The command made of a sentence, and what became of it (one of the lines below).
+    Asked(unifyterm_assist::Asked, &'static str),
     /// A short line: why there is no answer.
     Note(String),
 }
+
+/// What became of a command made of a sentence.
+const ON_THE_LINE: &str = "Enter: run it    any other key: change it first";
+const NOT_RUN: &str = "It may change something, so it was not run.    Enter: run it";
+const NOT_PUT: &str = "The line changed meanwhile: the command was not put on it.";
+/// What a line begins with when it is a sentence for the model, not a command.
+const SENTENCE: char = '#';
 
 /// How long typing must pause before the model is asked for a suggestion.
 const SUGGEST_PAUSE: std::time::Duration = std::time::Duration::from_millis(300);
@@ -397,6 +415,30 @@ impl TerminalView {
                 })
                 .detach();
             }
+            Pending::Ask { words, line } => {
+                let number = self.open(Popup::Waiting(format!("{SENTENCE} {words}")));
+                let cwd = self.session.cwd().unwrap_or_default().to_owned();
+                let Some(answer) = self.helper.command_for(words, cwd, shell, self.recent.clone()) else {
+                    self.open(Popup::Note("The model is not in use.".into()));
+                    return;
+                };
+                cx.spawn(async move |this, cx| {
+                    let answered = answer.recv().await;
+                    let _ = this.update(cx, |view, cx| {
+                        if view.popup_number != number {
+                            return; // Closed meanwhile: the answer is not wanted.
+                        }
+                        match answered {
+                            Ok(Ok(Some(asked))) => view.asked(asked, &line, cx),
+                            Ok(Ok(None)) => view.popup = Some(Popup::Note("The model has no command for that.".into())),
+                            Ok(Err(error)) => view.popup = Some(Popup::Note(error.to_string())),
+                            Err(_) => view.popup = Some(Popup::Note("No answer.".into())),
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
             Pending::Explain(command) => {
                 let number = self.open(Popup::Waiting(command.clone()));
                 let Some(answer) = self.helper.explain(command.clone(), shell) else {
@@ -434,6 +476,10 @@ impl TerminalView {
         }
         let Some(typed) = input else { return };
         if !self.helper.offers(Feature::Suggest) || self.helper.consent() == Consent::Refused {
+            return;
+        }
+        // A sentence for the model is not a command to complete.
+        if typed.trim_start().starts_with(SENTENCE) && self.helper.offers(Feature::Ask) {
             return;
         }
         if self.suggested_for.as_deref() == Some(typed.as_str()) || self.candidates.visible().is_some() {
@@ -480,18 +526,25 @@ impl TerminalView {
         let plain = !held.control && !held.shift && !held.alt;
         match (key.key.as_str(), plain) {
             ("enter", true) => {
-                self.popup = None;
+                // The popup is gone before what it stood for is done: a question sent now opens
+                // its own popup, and its answer must not be taken for one meant for this popup.
+                self.close_popup();
                 match popup {
                     Popup::Consent(pending) => {
                         self.helper.agree();
                         self.run(pending, cx);
                     }
                     Popup::Fix(fix) => self.fill(&fix.command, cx),
+                    // The command is on the input line: this Enter is the shell's, and runs it.
+                    Popup::Asked(..) => {
+                        cx.notify();
+                        return false;
+                    }
                     Popup::Waiting(_) | Popup::Explained(..) | Popup::Note(_) => {}
                 }
             }
             ("escape", true) => {
-                self.popup = None;
+                self.close_popup();
                 if let Popup::Consent(_) = popup {
                     self.helper.refuse();
                 }
@@ -504,9 +557,14 @@ impl TerminalView {
                 return false;
             }
         }
-        self.popup_number += 1;
         cx.notify();
         true
+    }
+
+    /// Closes the popup for good: an answer still on its way to it is no longer wanted.
+    fn close_popup(&mut self) {
+        self.popup = None;
+        self.popup_number += 1;
     }
 
     /// Asks the history about what is on the input line now, if that changed.
@@ -534,13 +592,7 @@ impl TerminalView {
     /// without running it. The keys that empty the line are the shell's
     /// own; for a shell that did not say what it is, nothing is done.
     fn fill(&mut self, text: &str, cx: &mut Context<'_, Self>) {
-        let empty_line: &[u8] = match self.session.shell() {
-            // PowerShell's line editor and cmd.exe: Escape empties the line.
-            Some("pwsh" | "powershell" | "cmd") => b"\x1b",
-            // Emacs keys: to the end, then everything before.
-            Some("bash" | "zsh" | "fish") => b"\x05\x15",
-            _ => return,
-        };
+        let Some(empty_line) = self.empties_the_line() else { return };
         // A line break would run it.
         if text.contains(['\n', '\r']) {
             return;
@@ -549,6 +601,57 @@ impl TerminalView {
         logged(self.session.paste(text));
         self.session.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// The keys that empty this shell's input line; `None` for a shell that did not say what it is.
+    fn empties_the_line(&self) -> Option<&'static [u8]> {
+        match self.session.shell() {
+            // PowerShell's line editor and cmd.exe: Escape empties the line.
+            Some("pwsh" | "powershell" | "cmd") => Some(b"\x1b"),
+            // Emacs keys: to the end, then everything before.
+            Some("bash" | "zsh" | "fish") => Some(b"\x05\x15"),
+            _ => None,
+        }
+    }
+
+    /// The sentence on the input line, when Enter is to hand it to the model and not to the
+    /// shell: the words after `#`, and the line as it is. `None` leaves Enter to the shell,
+    /// which takes such a line as a comment: with no model set, nothing changes.
+    fn sentence(&self) -> Option<(String, String)> {
+        if !self.helper.offers(Feature::Ask) || self.helper.consent() == Consent::Refused {
+            return None;
+        }
+        // The command is put on the line in the sentence's place: only where that can be done.
+        self.empties_the_line()?;
+        let line = self.session.input()?.text;
+        let words = line.trim_start().strip_prefix(SENTENCE)?.trim();
+        (!words.is_empty()).then(|| (words.to_owned(), line.clone()))
+    }
+
+    /// The model's command for a sentence: put on the input line in the sentence's place, if the
+    /// line is still as it was, and run when the settings say so and it only reads.
+    fn asked(&mut self, asked: unifyterm_assist::Asked, line: &str, cx: &mut Context<'_, Self>) {
+        if self.session.input().is_none_or(|input| input.text != line) {
+            self.popup = Some(Popup::Asked(asked, NOT_PUT));
+            return;
+        }
+        self.fill(&asked.command, cx);
+        if !self.helper.runs_what_only_reads() {
+            self.popup = Some(Popup::Asked(asked, ON_THE_LINE));
+        } else if unifyterm_assist::only_reads(&asked.command, self.session.shell().unwrap_or_default()) {
+            // As the Enter key does it: the command starts now, and its text is known.
+            self.session.enter_with(&asked.command);
+            self.candidates.question(None);
+            self.suggestion = None;
+            let cursor_keys = self.session.modes().cursor_keys;
+            if let Some(enter) = keys::encode("enter", None, Mods::default(), cursor_keys) {
+                self.send(&enter, cx);
+            }
+            // No box: it would lie over what the command prints. The command itself is on the screen.
+            self.popup = None;
+        } else {
+            self.popup = Some(Popup::Asked(asked, NOT_RUN));
+        }
     }
 
     /// Sends bytes the user's input made, and shows where they go: the
@@ -763,6 +866,17 @@ impl TerminalView {
                     return;
                 }
             }
+        }
+        if key.key == "enter"
+            && plain
+            && let Some((words, line)) = self.sentence()
+        {
+            // A sentence, not a command: it goes to the model, and the shell gets no Enter.
+            self.candidates.question(None);
+            self.suggestion = None;
+            self.send_to_model(Pending::Ask { words, line }, cx);
+            cx.stop_propagation();
+            return;
         }
         if key.key == "enter" && plain {
             // What is on the input line now is the command the shell is about to run.
@@ -1163,6 +1277,14 @@ impl TerminalView {
                     (format!("{}{}  {}", part.text, " ".repeat(pad), part.meaning), false)
                 }));
                 lines.push(("Enter or Esc: close".to_owned(), false));
+                lines
+            }
+            Popup::Asked(asked, became) => {
+                let mut lines = vec![(asked.command.clone(), true)];
+                if !asked.note.is_empty() {
+                    lines.push((asked.note.clone(), false));
+                }
+                lines.push(((*became).to_owned(), false));
                 lines
             }
             Popup::Note(text) => vec![(text.clone(), false), ("Enter or Esc: close".to_owned(), false)],

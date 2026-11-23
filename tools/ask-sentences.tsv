@@ -1,0 +1,33 @@
+# Sentences for `cargo run -p unifyterm-assist --example ask`: sentence, then what a right command has in pwsh, then in zsh.
+# The words were written by a person before any model was asked. They say that a fitting program or option is in the
+# command: not that the command does the whole of what was asked.
+list the files here, newest first	lastwritetime	ls -lt|ls -t|ls -alt|ls -lat|ls -lta|ls -tl
+show the five largest files in this directory	length	sort|du 
+count the lines in main.rs	measure-object|.count|.length	wc -l
+find all files ending in .log under this directory	*.log	*.log
+search for the word TODO in all rust files	select-string|sls |rg |grep	grep|rg 
+show the last 20 lines of server.log	-tail 20|tail 	tail 
+show how much disk space is free	get-psdrive|get-volume|win32_logicaldisk	df 
+show the running processes that use the most memory	get-process	ps |top 
+which process listens on port 8080	get-nettcpconnection|netstat	lsof|netstat
+show the git commits of the last week	git log	git log
+undo the last git commit but keep the changes	git reset	git reset
+make a directory called build and go into it	mkdir|new-item|md 	mkdir
+compress the folder src into src.tar.gz	tar 	tar 
+download https://example.com/file.zip to this directory	invoke-webrequest|iwr |curl|start-bitstransfer	curl|wget
+show my ip address	ipconfig|get-netipaddress|invoke-restmethod|curl	ifconfig|ipconfig|curl|ip 
+列出当前目录下所有文件，包括隐藏文件	-force|-hidden|ls -a	ls -a|ls -la|ls -al
+找出当前目录下大于 100MB 的文件	100mb	find 
+查看 8080 端口被哪个进程占用	get-nettcpconnection|netstat	lsof|netstat
+统计当前目录下有多少个文件	measure-object|.count	wc -l
+在所有 .md 文件里搜索"安装"	select-string|sls |rg |grep	grep|rg 
+显示 README.md 的前 10 行	-totalcount 10|-first 10|-head 10|head 	head 
+把 a.txt 复制成 b.txt	copy-item|cp |copy 	cp 
+删除当前目录下所有 .tmp 文件	remove-item|rm |del 	rm |-delete
+查看当前 git 分支	git branch|git rev-parse|git status|git symbolic-ref	git branch|git rev-parse|git status|git symbolic-ref
+显示最近 5 条 git 提交，每条一行	git log	git log
+查看系统已经运行了多久	lastbootuptime|get-uptime|uptime	uptime
+查看当前目录占用了多少磁盘空间	measure-object|du 	du 
+把 notes.txt 里的 foo 全部替换成 bar	-replace|.replace(|sed 	sed |perl 
+显示今天的日期	get-date|date	date
+结束名叫 node 的所有进程	stop-process|taskkill|kill	pkill|killall|kill

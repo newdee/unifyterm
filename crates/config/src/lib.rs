@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 mod edit;
 mod keys;
+pub mod providers;
 pub mod shell;
 
 pub use edit::{File, default_of};
@@ -166,26 +167,59 @@ pub enum Provider {
     None,
     /// Claude, through Anthropic's Messages API.
     Anthropic,
-    /// A service with `OpenAI`'s chat-completions shape: a local model, for one.
+    /// `OpenAI`'s own service.
+    Openai,
+    /// A service with `OpenAI`'s chat-completions shape, at the address `ai.base_url` gives.
     OpenaiCompatible,
+    /// Model servers on this machine, each at its usual address.
+    Ollama,
+    LmStudio,
+    Vllm,
+    /// An agent's command line on this machine, with its tools off: it only answers.
+    ClaudeCode,
+    Codex,
+    Pi,
+    /// The program `ai.command` names: it reads the question, prints the answer.
+    Command,
+}
+
+/// What happens to the command a sentence was turned into (`# words` at the prompt).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AskEnter {
+    /// It is put on the input line; the user presses Enter.
+    #[default]
+    Manual,
+    /// A command that only reads is run at once; any other waits for Enter.
+    Auto,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a switch of its own in the settings file, on or off whatever the others are"
+)]
 pub struct AiConfig {
     pub provider: Provider,
-    /// The model's name, as the service knows it (`claude-opus-5-5`).
+    /// The model's name, as the service knows it (`claude-opus-5-5`). An agent's program may go without.
     pub model: String,
-    /// Where the service is. Needed for `openai-compatible`; for `anthropic`, only to go through a proxy.
+    /// Where the service is. Needed for `openai-compatible`; else only to say another address than the provider's own.
     pub base_url: String,
     /// The environment variable that holds the key: the key itself is never in this file.
     pub api_key_env: String,
+    /// The program and its arguments for the provider `command`. The question is written to its
+    /// standard input, or put in place of `{prompt}` in an argument; the answer is what it prints.
+    pub command: Vec<String>,
     /// The rest of the command, in grey, while typing.
     pub suggest: bool,
     /// A corrected command when one is not found.
     pub fix: bool,
     /// What each part of a command means (Ctrl-Shift-E).
     pub explain: bool,
+    /// A line that begins with `#` is a sentence: Enter turns it into a command.
+    pub ask: bool,
+    pub ask_enter: AskEnter,
 }
 
 impl Default for AiConfig {
@@ -195,9 +229,12 @@ impl Default for AiConfig {
             model: String::new(),
             base_url: String::new(),
             api_key_env: String::new(),
+            command: Vec::new(),
             suggest: true,
             fix: true,
             explain: true,
+            ask: true,
+            ask_enter: AskEnter::Manual,
         }
     }
 }
@@ -302,19 +339,33 @@ impl Config {
                 bail!("{key} is empty: it is a program and its arguments, as [\"keepane\", ...]");
             }
         }
-        if config.ai.provider != Provider::None {
-            if config.ai.model.trim().is_empty() {
-                bail!("ai.model is empty: name the model, as the service knows it");
-            }
-            if config.ai.provider == Provider::OpenaiCompatible && config.ai.base_url.trim().is_empty() {
-                bail!("ai.base_url is empty: an openai-compatible service needs its address");
-            }
-            if config.ai.provider == Provider::Anthropic && config.ai.api_key_env.trim().is_empty() {
-                bail!("ai.api_key_env is empty: name the environment variable that holds the key");
-            }
-        }
+        config.check_model()?;
         config.check_colors()?;
         Ok(config)
+    }
+
+    /// What the provider named needs is there: a model, an address, a key's variable, a program.
+    fn check_model(&self) -> Result<()> {
+        use providers::{Key, Reach};
+        let empty = |text: &str| text.trim().is_empty();
+        let reach = self.ai.provider.reach();
+        if matches!(reach, Reach::Anthropic | Reach::Chat { .. }) && empty(&self.ai.model) {
+            bail!("ai.model is empty: name the model, as the service knows it");
+        }
+        match reach {
+            Reach::Chat { address: None, .. } if empty(&self.ai.base_url) => {
+                bail!("ai.base_url is empty: an openai-compatible service needs its address")
+            }
+            Reach::Anthropic | Reach::Chat { key: Key::Needed, .. } if empty(&self.ai.api_key_env) => {
+                bail!("ai.api_key_env is empty: name the environment variable that holds the key")
+            }
+            Reach::OwnProgram if self.ai.command.first().is_none_or(|program| empty(program)) => {
+                bail!(
+                    "ai.command is empty: it is the program that answers and its arguments, as [\"my-agent\", \"--quiet\"]"
+                )
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Every color the file gives is one, and `theme.ansi` has all 16.
@@ -431,6 +482,28 @@ mod tests {
         assert!(error("[ai]\nprovider = \"anthropic\"\nmodel = \"m\"").contains("ai.api_key_env"));
         assert!(error("[ai]\nprovider = \"openai-compatible\"\nmodel = \"m\"").contains("ai.base_url"));
         assert!(error("[ai]\nprovider = \"gpt\"").contains("gpt"), "an unknown provider is named");
+        assert!(error("[ai]\nprovider = \"ollama\"").contains("ai.model is empty"));
+        assert!(error("[ai]\nprovider = \"openai\"\nmodel = \"m\"").contains("ai.api_key_env"));
+        assert!(error("[ai]\nprovider = \"command\"").contains("ai.command is empty"));
+        assert!(error("[ai]\nprovider = \"command\"\ncommand = [\" \"]").contains("ai.command is empty"));
+        assert!(error("[ai]\nask_enter = \"always\"").contains("always"), "an unknown way to enter is named");
+        for fine in [
+            "[ai]\nprovider = \"ollama\"\nmodel = \"qwen2.5-coder:1.5b\"",
+            "[ai]\nprovider = \"lm-studio\"\nmodel = \"m\"",
+            "[ai]\nprovider = \"vllm\"\nmodel = \"m\"\nbase_url = \"http://box:8000/v1\"",
+            "[ai]\nprovider = \"openai\"\nmodel = \"m\"\napi_key_env = \"OPENAI_API_KEY\"",
+            "[ai]\nprovider = \"claude-code\"",
+            "[ai]\nprovider = \"codex\"\nmodel = \"gpt-5\"",
+            "[ai]\nprovider = \"pi\"",
+            "[ai]\nprovider = \"command\"\ncommand = [\"my-agent\", \"{prompt}\"]",
+            // What another provider does not use may stay in the file: changing the provider back finds it again.
+            "[ai]\nprovider = \"ollama\"\nmodel = \"m\"\ncommand = [\"my-agent\"]",
+        ] {
+            Config::parse(fine).unwrap_or_else(|error| panic!("{fine}: {error:#}"));
+        }
+        let ask = Config::parse("[ai]\nask = false\nask_enter = \"auto\"").unwrap().ai;
+        assert_eq!((ask.ask, ask.ask_enter), (false, AskEnter::Auto));
+        assert_eq!((AiConfig::default().ask, AiConfig::default().ask_enter), (true, AskEnter::Manual));
         assert!(error("[agents]\npoll_ms = 100").contains("agents.poll_ms is 100"));
         assert!(error("[agents]\ncommand = []").contains("agents.command is empty"));
         assert!(error("[agents]\nfocus = [\"\"]").contains("agents.focus is empty"));
