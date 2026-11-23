@@ -47,6 +47,8 @@
 - Linux（WSL）上 assist 25 通过、config 16 通过，clippy 0 条。Unix 上结束进程组用的 `kill -KILL -- -进程组` 在这里试过。
 - "结束进程树"的测试是活的：去掉结束进程树的那一行，`a_program_that_takes_too_long_is_stopped_with_what_it_started` 失败。
 - 假服务只认 `json_object` 时：第一次问 2 个请求（`json_schema`，`json_object`），同一个窗口里之后每次 1 个（单元测试）；新开一个窗口又从 `json_schema` 开始（实机检查）。
+发布：提交 `03c918e` 的 CI 三个平台通过；标签 `v0.3.0`；发布工作流 4 个构建任务成功，Release 有 18 个文件；Scoop 清单的哈希 `c1e1d623…` 和 formula 的 3 个哈希（`f76b9929…`、`562c5bb8…`、`7b83a657…`）与 Release 里的 `.sha256` 相同。
+
 遗留：
 
 - macOS 上没有实机检查：那台 Mac 的 cargo 镜像连不上，发按键也没有权限。macOS 靠 CI 的编译和单元测试。
