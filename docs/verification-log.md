@@ -17,6 +17,13 @@
 
 遗留：那台 Mac 离线（`link info` 3 秒无回答），macOS 的编译交给 CI，真实长按要用户确认。
 
+追加（同日，Mac 上线后）：
+
+- CI 三个平台通过（`9d2b7af`）。
+- Mac 上自己编译不成：它的 cargo 镜像连不上，`cargo build` 22 分钟没有编译一个包。改用 CI 这次运行的 macOS 安装文件，版本显示 `0.2.4 (9d2b7af)`。
+- 模拟长按没有测成：用 `CGEvent.postToPid` 给修复前（brew 的 `019e25b`）和修复后的程序各发 `k`、`e` 8 次，4 次都是 0 个字符到达，连第一次按下也没有。原因：发按键的进程没有"辅助功能"权限（`AXIsProcessTrusted()` 和 `CGPreflightPostEventAccess()` 都是 `false`）。这个权限要用户在系统设置里给，没有去要。
+- 所以 macOS 上的结论只有两条有数据：能编译；修复的代码路径在 GPUI 的源码里读过（`platform/mac/window.rs`：长按且 `apple_press_and_hold_enabled()` 为 `false` 时走 `replace_text_in_range`）。真实长按仍然要用户按一次。新程序留在那台 Mac 的临时目录里。
+
 ## 2026-11-21 · 宣传视频：9 个场景、中英文旁白，发到 B 站和 YouTube
 
 用户在群聊里让我做宣传视频，文案由群里的 blog（Mac 上的 Codex）写；后来要求加 TTS 旁白，B 站中文、YouTube 英文。
