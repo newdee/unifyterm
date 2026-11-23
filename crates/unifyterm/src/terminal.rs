@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use gpui::{
     App, Bounds, ClipboardItem, ContentMask, Context, Corners, ElementInputHandler, EntityInputHandler, EventEmitter,
-    FocusHandle, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, KeyDownEvent, Modifiers, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, Rgba, ScrollDelta, ScrollWheelEvent,
-    ShapedLine, SharedString, Size, TextRun, UTF16Selection, Window, canvas, div, fill, point, prelude::*, px, rgb,
-    size,
+    FocusHandle, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, InputHandler, KeyDownEvent, Modifiers,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, Rgba, ScrollDelta,
+    ScrollWheelEvent, ShapedLine, SharedString, Size, TextRun, UTF16Selection, Window, canvas, div, fill, point,
+    prelude::*, px, rgb, size,
 };
 use smol::channel::Receiver;
 
@@ -968,6 +968,62 @@ impl EntityInputHandler for TerminalView {
     }
 }
 
+/// The view's input, with one difference from GPUI's own: on macOS a key held
+/// down types again and again, as in other terminals, and does not open the
+/// menu of accented letters (é è ê for `e`; for `k`, nothing at all).
+struct TerminalInput(ElementInputHandler<TerminalView>);
+
+impl InputHandler for TerminalInput {
+    fn selected_text_range(&mut self, ignore: bool, window: &mut Window, cx: &mut App) -> Option<UTF16Selection> {
+        self.0.selected_text_range(ignore, window, cx)
+    }
+
+    fn marked_text_range(&mut self, window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
+        self.0.marked_text_range(window, cx)
+    }
+
+    fn text_for_range(
+        &mut self,
+        range: Range<usize>,
+        adjusted: &mut Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<String> {
+        self.0.text_for_range(range, adjusted, window, cx)
+    }
+
+    fn replace_text_in_range(&mut self, range: Option<Range<usize>>, text: &str, window: &mut Window, cx: &mut App) {
+        self.0.replace_text_in_range(range, text, window, cx);
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        text: &str,
+        selected: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.0.replace_and_mark_text_in_range(range, text, selected, window, cx);
+    }
+
+    fn unmark_text(&mut self, window: &mut Window, cx: &mut App) {
+        self.0.unmark_text(window, cx);
+    }
+
+    fn bounds_for_range(&mut self, range: Range<usize>, window: &mut Window, cx: &mut App) -> Option<Bounds<Pixels>> {
+        self.0.bounds_for_range(range, window, cx)
+    }
+
+    fn character_index_for_point(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut App) -> Option<usize> {
+        self.0.character_index_for_point(at, window, cx)
+    }
+
+    fn apple_press_and_hold_enabled(&mut self) -> bool {
+        false
+    }
+}
+
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let (view, painted) = (cx.entity(), cx.entity());
@@ -994,7 +1050,7 @@ impl Render for TerminalView {
                 canvas(
                     move |bounds, window, cx| view.update(cx, |view, _| view.prepare(bounds, window)),
                     move |bounds, prepared, window, cx| {
-                        window.handle_input(&focus, ElementInputHandler::new(bounds, painted), cx);
+                        window.handle_input(&focus, TerminalInput(ElementInputHandler::new(bounds, painted)), cx);
                         Painter { prepared: &prepared, theme: &settings.theme, fonts: &fonts, font_size }
                             .paint(window, cx);
                     },

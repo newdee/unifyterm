@@ -1,5 +1,22 @@
 # 验收记录
 
+## 2026-11-23 · macOS 上长按字母键不重复输入
+
+用户报告：Mac 上长按一个键不能连续输入。
+
+- 原因：GPUI 的 `ElementInputHandler` 不改 `apple_press_and_hold_enabled`，默认值是 `true`。macOS 因此把长按的字母键交给重音菜单：`e` 弹出 é è ê，`k` 什么都不出。
+- 定性：个性问题，只在 macOS 上出现；属于边界遗漏。全仓只有 `terminal.rs` 一处调用 `handle_input`，没有其他输入框。
+- 改法：`TerminalInput` 包住 `ElementInputHandler`，其余方法原样转交，只让 `apple_press_and_hold_enabled` 返回 `false`。GPUI 只在 macOS 的按键代码里读这个值，Windows 和 Linux 不受影响。
+- 代价：UnifyTerm 里长按不再弹重音菜单。iTerm2、WezTerm、kitty、Zed 的终端做法相同。输入法组字时仍先交给输入法，不受影响。
+
+| 轮 | 视角 | 做了什么 | 结果 |
+|---|---|---|---|
+| 1 | 静态一致性 | `cargo clippy -p unifyterm --all-targets -D warnings`；搜 `handle_input` / `ElementInputHandler` | 0 警告；调用点 1 处 |
+| 2 | 原行为不变 | Windows 上模拟长按 `a` 8 次（`WM_KEYDOWN` 第 30 位置 1） | PowerShell 收到 8 个 `a` |
+| 3 | 回归 | `cargo test -p unifyterm` | 122 通过，0 失败，1 忽略 |
+
+遗留：那台 Mac 离线（`link info` 3 秒无回答），macOS 的编译交给 CI，真实长按要用户确认。
+
 ## 2026-11-21 · 宣传视频：9 个场景、中英文旁白，发到 B 站和 YouTube
 
 用户在群聊里让我做宣传视频，文案由群里的 blog（Mac 上的 Codex）写；后来要求加 TTS 旁白，B 站中文、YouTube 英文。
