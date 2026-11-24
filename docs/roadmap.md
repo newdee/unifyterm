@@ -11,6 +11,7 @@
 - 已发布：**0.2.4**，2026-11-20，标签 `v0.2.4`（提交 `019e25b`）：skill 写明命令在哪里能用、agent 的 PowerShell 里写 `cat.exe`；`find -name`、`grep --include` 这类选项的值不展开（agent 的 `find . -name "*.md"` 原来会坏）；标签页不再继承上一层 UnifyTerm 的 `UNIFYTERM_*` 变量。Release 18 个文件；formula 和 Scoop bucket 都是 0.2.4，4 个哈希和 Release 一致。
 - 已发布：**0.3.0**，2026-11-24，标签 `v0.3.0`（提交 `03c918e`）：行首 `#` 加一句话，回车后换成模型写的命令（默认不运行）；模型来源新增 OpenAI、Ollama、LM Studio、vLLM 和本机的 agent 命令行（Claude Code、Codex、pi、任意程序）；macOS 上长按字母键重复输入；第一次同意后"解释"的等待框不再卡住。Release 18 个文件；formula 和 Scoop bucket 都是 0.3.0，4 个哈希和 Release 一致。macOS 上的长按和从程序坞启动时找 agent 命令行，还没有人在真实的 Mac 上确认。
 - 已发布：**0.4.0**，2026-11-24，标签 `v0.4.0`（提交 `88d1694`）：命令清单。程序用 OpenCLI 0.1 说明自己的命令，`ut program add` 登记；窗口用它在输入行下面列出词、在命令失败后纠正、不用模型解释命令、给模型看并核对模型的回答。Release 18 个文件；formula 和 Scoop bucket 都是 0.4.0，4 个哈希和 Release 一致。macOS 上没有实机检查；带清单的 `#` 一句话没有用真实的模型试过。
+- 已发布：**0.5.0**，2026-11-25，标签 `v0.5.0`（提交 `b4e539d`）：主题和外观。七套主题，`ut theme` 切换；主题文件除颜色外能给透明度、毛玻璃、侧栏的图、圆角、窗口圆角；窗口的标签栏、列表、弹框、侧栏按预览页重画；标签栏可自动收起（Ctrl-Shift-B）。Release 18 个文件；formula 和 Scoop bucket 都是 0.5.0，4 个哈希和 Release 一致。macOS 和 Linux 上新界面没有人看过。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
