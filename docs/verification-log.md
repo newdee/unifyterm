@@ -56,9 +56,21 @@
 | `git commit --amend -m 'fix it'` 按 Ctrl-Shift-E | 4 行，每个词一句；末行"From git's own command list (2.50.1). Nothing was sent." |
 | 读四份清单（5.5 MB） | 16 ms；每次补全、核对、解释 0.03 到 0.46 ms |
 
+keepane 自己的清单（同日稍后，keepane 一侧做出 `keepane opencli` 后发来的文件，keepane 0.89.2，还没发版）：
+
+| 检查 | 结果 |
+|---|---|
+| `ut program check` | 237 个命令、430 个选项，丢弃 0 条；读入 1.1 ms |
+| 列表（release 窗口，截图看过） | `keepane s` 出 6 行，各带说明；`keepane split-window -` 出 6 个选项；`keepane completion ` 出 4 个 shell |
+| 纠正（窗口里真的运行） | `keepane splt-window -h` 失败后弹出 `keepane split-window -h`；`keepane chat sya hello` 给出 `chat say`；两条正确的命令不误报 |
+| 解释 | `keepane -L work split-window -h -c /tmp` 5 行，末行写明来源和"没有发送" |
+| 给模型的文字 | 10546 字节，带选项的一档放得下（上限 16384） |
+
+设计文档里的四条 keepane 验收标准至此都用 keepane 自己的清单验过。CI：提交 `23c27f1` 三个平台通过。
+
 遗留：
 
-- keepane 还没有打印自己清单的命令。2026-11-24 已在群聊 `#unifyterm-keepane` 提出（第 150 条）。验收里的"keepane 的清单"由 git 的真实清单和手写的小清单代替。
+- keepane 的清单没有声明位置参数，解释里这些词只能写"a value"；已告诉 keepane 一侧（群聊第 155 条），可选。keepane 那边的命令还没发版。
 - macOS 上没有实机检查（与以前相同：只有 CI 的编译和单元测试）。
 - 没有用真实的模型跑过带清单的 `#` 一句话：实机检查用的是本机的假服务，只证明清单的文字进了请求、回答被核对。
 - 网页没有提这项功能；README 新加了一节（文案待用户看）。

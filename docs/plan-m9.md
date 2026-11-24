@@ -156,7 +156,7 @@ keepane 一侧的用法：`keepane <打印清单的命令> | ut program add -`�
 - 清单的文字会原样进提示词。恶意的清单可以借此影响模型写出的命令；结果仍然只是填到输入行上，自动运行仍然只限白名单里的只读命令，且清单核对不过的不自动运行。
 ## keepane 一侧（不在本仓库）
 
-keepane 需要一个打印 OpenCLI 文档的命令。它现有的表（`COMMANDS`、`FLAGS`、别名表）有名字和选项，没有每个命令的说明；说明要补。2026-11-24 已在 keepane 的群聊 `#unifyterm-keepane` 里提出（第 150 条），由 keepane 一侧实现。在它做好之前，用 git 的真实清单和一份手写的小清单验收。
+keepane 需要一个打印 OpenCLI 文档的命令。它现有的表（`COMMANDS`、`FLAGS`、别名表）有名字和选项，没有每个命令的说明；说明要补。2026-11-24 已在 keepane 的群聊 `#unifyterm-keepane` 里提出（第 150 条），由 keepane 一侧实现。同日 keepane 一侧做出 `keepane opencli`，发来的清单（237 个命令、430 个选项）已在真实窗口里验过，结果在 `docs/verification-log.md`。
 
 ## 步骤
 
