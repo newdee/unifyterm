@@ -19,6 +19,7 @@
 
 1. **M8：用一句话写命令；更多的模型来源。** 已做完，随 0.3.0 发布（2026-11-24）。设计和实现时改动的决定在 `docs/plan-m8.md`。行首 `#` 加一句话，回车后换成命令；来源增加 OpenAI、Ollama、LM Studio、vLLM 的预设，和本机的 agent 命令行（Claude Code、Codex、pi、任意命令）。不带模型，不下载模型。还没有用真实的 Ollama、LM Studio、vLLM、OpenAI 试过。
 2. **M9：命令清单协议。** UnifyTerm 一侧已做完（2026-11-24），在 `main` 上，还没有发版。设计和实现时改动的决定在 `docs/plan-m9.md`。程序用 OpenCLI 0.1（JSON）说明自己的命令、选项和参数；`ut program add` 存进数据目录的 `programs/`；窗口用它做四件事：输入行下面的列表、失败后的纠正、不用模型的解释（Ctrl-Shift-E）、给模型看并核对模型的回答。用 git、curl、ffmpeg、dotnet 的真实清单试过。keepane 一侧（打印自己的清单）已在群聊 `#unifyterm-keepane` 里提出，还没有做。
+3. **M10：主题**（用户 2026-11-24 提出）：自带几套主题，允许自己写主题文件，一条命令切换，重开后保持。**只有设计**，在 `docs/plan-m10.md`；用户说决定做了再开始写代码。
 
 ## 自己的 shell：另起一个项目 UnifyShell
 
