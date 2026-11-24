@@ -11432,6 +11432,7 @@ Used by:
   unifyterm-assist 0.3.0
   unifyterm-config 0.3.0
   unifyterm-history 0.3.0
+  unifyterm-programs 0.3.0
   unifyterm 0.3.0
   ut 0.3.0
   base64-simd 0.8.0  https://github.com/Nugine/simd
