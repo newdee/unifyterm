@@ -1,0 +1,13 @@
+# 夜航 · UnifyTerm
+# unifyterm --config demo/themes/night.toml
+[theme]
+foreground = "#dce6f1"
+background = "#0e1620"
+cursor = "#f0be6e"
+selection = "#1f3653"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#080f16", "#fd8f96", "#8ddcab", "#f0be6e", "#86b3f3", "#c4b2f0", "#8cd3ef", "#92a2b4",
+  # Bright variants in the same order
+  "#6d7b8b", "#fda8ad", "#a6e4bd", "#f3cc8e", "#a1c4f6", "#d1c3f3", "#a5ddf3", "#dce6f1",
+]

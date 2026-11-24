@@ -1,0 +1,13 @@
+# 冰川 · UnifyTerm
+# unifyterm --config demo/themes/day.toml
+[theme]
+foreground = "#14253a"
+background = "#f4f9fe"
+cursor = "#774000"
+selection = "#c8ddf5"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#14253a", "#9e2a34", "#155c36", "#774000", "#004d9f", "#59418f", "#005469", "#d9e3ec",
+  # Bright variants in the same order
+  "#41546b", "#7b2129", "#10482a", "#5d3200", "#003c7c", "#453370", "#004252", "#f4f9fe",
+]

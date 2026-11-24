@@ -1,0 +1,13 @@
+# 极光 · UnifyTerm
+# unifyterm --config demo/themes/aurora.toml
+[theme]
+foreground = "#e6faf5"
+background = "#0c1c24"
+cursor = "#a6ffce"
+selection = "#254953"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#07161c", "#ff9eb6", "#7bf2ae", "#efdb91", "#95c6ff", "#c0acff", "#70e5ed", "#a6c5ca",
+  # Bright variants in the same order
+  "#7b969c", "#ffb3c6", "#98f5c0", "#f3e3a9", "#acd3ff", "#cebeff", "#8febf1", "#e6faf5",
+]

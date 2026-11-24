@@ -1,0 +1,13 @@
+# 日蚀 · UnifyTerm
+# unifyterm --config demo/themes/eclipse.toml
+[theme]
+foreground = "#ffeee3"
+background = "#21151b"
+cursor = "#ffc178"
+selection = "#55343c"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#190e13", "#ff949a", "#c6dc96", "#ffc178", "#aac4fa", "#dbb0eb", "#93d7d2", "#dcbabe",
+  # Bright variants in the same order
+  "#a88c90", "#ffacb0", "#d3e4ad", "#ffcf96", "#bdd1fb", "#e3c1ef", "#abe0dc", "#ffeee3",
+]

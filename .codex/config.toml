@@ -1,0 +1,11 @@
+[mcp_servers.codegraph]
+command = "codegraph"
+args = ["serve", "--mcp"]
+
+[mcp_servers.xerj]
+command = "xerj"
+args = ["mcp"]
+
+[mcp_servers.xerj.env]
+XERJ_URL = "http://127.0.0.1:9200"
+XERJ_DISABLE_FEEDBACK = "true"

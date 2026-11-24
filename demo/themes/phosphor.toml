@@ -1,0 +1,13 @@
+# 磷光 · UnifyTerm
+# unifyterm --config demo/themes/phosphor.toml
+[theme]
+foreground = "#e4f5d4"
+background = "#101810"
+cursor = "#d9ff8f"
+selection = "#2d442c"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#091009", "#ffae91", "#a6f693", "#e2df8e", "#c4dabb", "#d9d19c", "#b1edac", "#b4caa7",
+  # Bright variants in the same order
+  "#86987d", "#ffc0a9", "#baf8ab", "#e8e6a7", "#d1e2ca", "#e1dbb2", "#c2f1be", "#e4f5d4",
+]

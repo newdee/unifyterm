@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="aurora">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnifyTerm · 终端外观预览</title>
+<style>
+/* Hallmark · macrostructure: workbench · tone: quiet precision · anchor hue: amber */
+/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V4 */
+:root {
+  color-scheme: dark;
+  --desk: oklch(16.4% .019 253);
+  --screen: oklch(19.7% .023 254);
+  --bar: oklch(22% .025 254);
+  --panel: oklch(25% .028 254);
+  --well: oklch(27.5% .033 253);
+  --picked: oklch(32.8% .06 255);
+  --rule: oklch(33% .028 253);
+  --edge: oklch(39% .033 253);
+  --ink: oklch(92% .018 251);
+  --muted: oklch(70.5% .032 251);
+  --amber: oklch(83% .114 78);
+  --swatch-night: oklch(24% .045 252);
+  --swatch-day: oklch(96% .013 244);
+  --cyan: oklch(83% .081 224);
+  --blue: oklch(76% .104 257);
+  --violet: oklch(80% .089 298);
+  --green: oklch(83% .105 156);
+  --red: oklch(77% .133 17);
+  --shadow: oklch(8% .024 253 / .52);
+  --mono: "SFMono-Regular", Menlo, "Cascadia Mono", Consolas, "PingFang SC", monospace;
+  --ui: "Avenir Next", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+}
+:root[data-theme="day"] {
+  color-scheme: light;
+  --desk: oklch(91% .016 246);
+  --screen: oklch(98% .008 246);
+  --bar: oklch(95% .012 246);
+  --panel: oklch(96% .014 251);
+  --well: oklch(92% .021 251);
+  --picked: oklch(89% .04 252);
+  --rule: oklch(86% .021 251);
+  --edge: oklch(76% .028 251);
+  --ink: oklch(26% .047 255);
+  --muted: oklch(44% .044 253);
+  --amber: oklch(43% .102 61);
+  --cyan: oklch(41% .084 219);
+  --blue: oklch(43% .15 255);
+  --violet: oklch(44% .125 295);
+  --green: oklch(42% .093 155);
+  --red: oklch(47% .151 21);
+  --shadow: oklch(28% .034 251 / .17);
+}
+:root[data-theme="aurora"] {
+  color-scheme: dark;
+  --desk: #07161c;
+  --screen: #0c1c24;
+  --bar: #10252d;
+  --panel: #16303b;
+  --well: #203c47;
+  --picked: #254953;
+  --rule: #2c4953;
+  --edge: #496674;
+  --ink: #e6faf5;
+  --muted: #a6c5ca;
+  --amber: #a6ffce;
+  --cyan: #70e5ed;
+  --blue: #95c6ff;
+  --violet: #c0acff;
+  --green: #7bf2ae;
+  --red: #ff9eb6;
+}
+:root[data-theme="eclipse"] {
+  color-scheme: dark;
+  --desk: #190e13;
+  --screen: #21151b;
+  --bar: #2b1a21;
+  --panel: #36232b;
+  --well: #432b32;
+  --picked: #55343c;
+  --rule: #54353e;
+  --edge: #79535e;
+  --ink: #ffeee3;
+  --muted: #dcbabe;
+  --amber: #ffc178;
+  --cyan: #ffa6a0;
+  --blue: #aac4fa;
+  --violet: #dbb0eb;
+  --green: #c6dc96;
+  --red: #ff949a;
+}
+:root[data-theme="phosphor"] {
+  color-scheme: dark;
+  --desk: #091009;
+  --screen: #101810;
+  --bar: #152015;
+  --panel: #1c291c;
+  --well: #243324;
+  --picked: #2d442c;
+  --rule: #374b35;
+  --edge: #536e50;
+  --ink: #e4f5d4;
+  --muted: #b4caa7;
+  --amber: #d9ff8f;
+  --cyan: #b1edac;
+  --blue: #c4dabb;
+  --violet: #d9d19c;
+  --green: #a6f693;
+  --red: #ffae91;
+}
+:root[data-theme="riso"] {
+  color-scheme: light;
+  --desk: #efe5cf;
+  --screen: #fbf5e7;
+  --bar: #f3ead7;
+  --panel: #f7efde;
+  --well: #ebdcc3;
+  --picked: #e3d4c3;
+  --rule: #cec1a7;
+  --edge: #9a8b70;
+  --ink: #22263d;
+  --muted: #514c50;
+  --amber: #9c301d;
+  --cyan: #165376;
+  --blue: #304b99;
+  --violet: #693687;
+  --green: #365d35;
+  --red: #9a2535;
+  --shadow: #4d3c202c;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { min-width: 0; margin: 0; overflow-x: clip; }
+body { background: var(--desk); color: var(--ink); font-family: var(--ui); }
+main { width: min(100% - 72px, 1180px); margin: clamp(28px, 7vh, 84px) auto var(--s6); }
+button, input { font: inherit; color: inherit; }
+button { padding: 0; border: 0; background: transparent; cursor: pointer; white-space: nowrap; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+button:disabled { opacity: .45; cursor: default; }
+button:not(:disabled):active { background: var(--picked); }
+h1, h2, p, pre { margin: 0; }
+kbd { font: inherit; }
+.masthead { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s3); margin-bottom: var(--s5); }
+.brand { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.brand img { width: 42px; height: 42px; flex: none; border-radius: 10px; }
+h1 { font-size: clamp(21px, 3vw, 30px); font-weight: 650; line-height: 1.1; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.caption { margin-top: var(--s1); color: var(--muted); font-size: 12px; letter-spacing: .045em; }
+.theme { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; margin: 0 0 16px; }
+.theme button { position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: flex-end; gap: 6px; height: 76px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; color: #f6f7fa; text-shadow: 0 1px 3px #111; background: #172228; text-align: left; font-size: 12px; }
+.theme button::before { content: ""; position: absolute; z-index: -1; inset: 0; background: linear-gradient(0deg, #0a101bdc, transparent 78%), var(--art) center / cover; }
+.theme button[aria-pressed="true"] { border-color: var(--amber); }
+.theme button[aria-pressed="true"]::after { content: "✓"; margin-left: auto; }
+.theme button:hover { border-color: var(--ink); }
+.theme button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.action:hover, .tab:hover, .tab-close:hover, .add:hover { background: var(--well); }
+.workspace { overflow: hidden; border: 1px solid var(--edge); border-radius: 14px; background: var(--screen); box-shadow: 0 24px 54px -26px var(--shadow), 0 2px 8px var(--shadow); }
+.toolbar { display: flex; align-items: center; min-height: 54px; gap: var(--s3); padding: 0 var(--s3); background: var(--bar); border-bottom: 1px solid var(--rule); }
+.tablist { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: none; gap: var(--s1); padding: var(--s1) 0; }
+.tab-item { position: relative; display: flex; flex: none; align-items: center; min-width: 112px; min-height: 36px; border: 1px solid transparent; border-radius: 7px; }
+.tab-item.active { background: var(--well); border-color: var(--rule); }
+.tab-item.active::after { position: absolute; content: ""; width: 30px; height: 2px; bottom: -1px; left: var(--s3); border-radius: 1px; background: var(--amber); pointer-events: none; }
+.tab { display: flex; gap: var(--s2); align-items: center; flex: 1; min-height: 34px; padding: 0 var(--s2) 0 var(--s3); border-radius: 6px; color: var(--muted); font: 12px var(--mono); }
+.tab[aria-selected="true"] { color: var(--ink); }
+.tab-symbol { color: var(--muted); }
+.active .tab-symbol { color: var(--cyan); }
+.tab-close, .add { min-width: 25px; min-height: 26px; border-radius: 5px; color: var(--muted); font-size: 17px; line-height: 1; }
+.tab-close { margin-right: var(--s1); }
+.add { min-width: 30px; min-height: 32px; flex: none; }
+.tools { display: flex; gap: var(--s1); margin-left: auto; flex: none; }
+.action { display: flex; align-items: center; gap: var(--s2); min-height: 32px; padding: 0 var(--s2); border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.action[aria-expanded="true"] { border-color: var(--rule); color: var(--ink); }
+.icon { display: inline-grid; place-items: center; width: 15px; height: 16px; color: var(--cyan); font: 14px/1 var(--mono); }
+.pane-icon { width: 13px; height: 11px; border: 1px solid var(--cyan); border-radius: 2px; }
+.pane-icon::after { content: ""; width: 1px; height: 100%; margin-left: 4px; background: var(--cyan); }
+.workarea { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: clamp(504px, 100svh - 226px, 572px); }
+.terminal { min-width: 0; padding: var(--s6); font: 13px/1.65 var(--mono); }
+.run { margin-bottom: var(--s4); }
+.context { display: flex; flex-wrap: wrap; gap: 0 var(--s2); align-items: center; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.path { color: var(--cyan); }
+.branch { color: var(--violet); }
+.command, .inputline { display: flex; gap: var(--s2); align-items: baseline; }
+.prompt { flex: none; color: var(--green); font-weight: 650; }
+.typed { font-weight: 600; overflow-wrap: anywhere; }
+.output { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: inherit; margin-left: 3px; margin-top: var(--s1); border-left: 1px solid var(--rule); padding-left: var(--s3); }
+.yellow { color: var(--amber); }
+.green { color: var(--green); }
+.red { color: var(--red); }
+.terminal form { margin: 0; }
+.entry { flex: 1; min-width: 0; position: relative; }
+.entry input { background: transparent; border: 0; border-radius: 2px; padding: 0; min-width: 0; width: 100%; caret-color: var(--amber); font-weight: 600; }
+.entry input:focus-visible { outline-offset: 2px; }
+.entry::after { content: ""; position: absolute; top: 4px; left: min(calc(var(--input-length, 0) * 1ch + 2px), 98%); width: .66em; height: 1.1em; background: var(--amber); pointer-events: none; }
+.entry:focus-within::after { display: none; }
+.history, .explain { width: min(100% - var(--s4), 566px); margin: var(--s2) 0 0 var(--s4); overflow: hidden; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel); box-shadow: 0 10px 22px -12px var(--shadow); }
+.flyout-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule); color: var(--muted); font: 11px var(--ui); }
+.flyout-head h2 { font-size: 12px; font-weight: 650; color: var(--ink); }
+.history-list { padding: var(--s1); }
+.match { width: 100%; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s2); align-items: center; min-height: 31px; padding: 0 var(--s2) 0 var(--s3); border-radius: 4px; text-align: left; }
+.match:hover { background: var(--well); }
+.match[data-current="true"] { background: var(--picked); }
+.match[data-current="true"]::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 0; width: 2px; border-radius: 1px; background: var(--amber); }
+.match code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: inherit; }
+.match mark { color: var(--amber); background: transparent; }
+.match small { font: 11px var(--ui); color: var(--muted); }
+.no-matches, .explanation { padding: var(--s2) var(--s3); color: var(--muted); }
+.explanation { font: 13px/1.7 var(--ui); overflow-wrap: anywhere; }
+.explanation strong { display: block; color: var(--ink); font: 12px/1.6 var(--mono); }
+.side { width: 268px; background: var(--bar); border-left: 1px solid var(--rule); }
+.side h2 { font-size: 14px; font-weight: 650; }
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); height: 56px; padding: 0 var(--s4); }
+.count { font: 11px var(--mono); color: var(--muted); margin-left: var(--s1); }
+.agent-list { margin: 0; padding: 0 var(--s4) var(--s4); list-style: none; }
+.agent { position: relative; padding: var(--s3); border: 1px solid var(--rule); border-radius: 7px; background: var(--panel); }
+.agent + .agent { margin-top: var(--s2); }
+.agent-top { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); }
+.agent strong { font-size: 13px; font-weight: 650; }
+.agent-state { color: var(--green); font: 11px var(--ui); white-space: nowrap; }
+.agent-state.waiting { color: var(--muted); }
+.agent-state::before { content: ""; display: inline-block; vertical-align: 1px; width: 5px; height: 5px; margin-right: var(--s1); border-radius: 50%; background: currentColor; }
+.agent-location { margin-top: var(--s1); color: var(--muted); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
+.agent-work { margin-top: var(--s2); color: var(--ink); font-size: 12px; }
+.status { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); min-height: 35px; padding: var(--s1) var(--s4); border-top: 1px solid var(--rule); background: var(--bar); color: var(--muted); font: 11px/1.4 var(--mono); }
+.status-context { display: flex; gap: var(--s3); align-items: center; min-width: 0; }
+.status-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-exit { color: var(--green); white-space: nowrap; }
+.status-exit[data-error="true"] { color: var(--red); }
+.status-shortcut { white-space: nowrap; }
+.foot { margin-top: var(--s3); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); color: var(--muted); font-size: 12px; }
+.foot { flex-wrap: wrap; }
+.foot a { color: var(--cyan); text-underline-offset: 3px; }
+.foot code { color: var(--ink); font: 12px var(--mono); }
+.samples { display: flex; align-items: center; gap: var(--s1); flex: none; }
+.samples span { width: 9px; height: 9px; border-radius: 2px; background: var(--sample); }
+@media (max-width: 820px) {
+  main { width: calc(100% - 32px); }
+  .side { width: 216px; }
+  .terminal { padding-inline: var(--s4); }
+  .status-shortcut { display: none; }
+}
+@media (max-width: 650px) {
+  .workarea { grid-template-columns: minmax(0, 1fr); min-height: auto; }
+  .terminal { min-height: 456px; }
+  .side { width: auto; border-left: 0; border-top: 1px solid var(--rule); }
+  .agent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+  .agent + .agent { margin-top: 0; }
+  .side-head { height: 44px; }
+}
+@media (max-width: 470px) {
+  main { width: calc(100% - 20px); }
+  .masthead { align-items: center; }
+  .brand { gap: var(--s2); }
+  .brand img { width: 32px; height: 32px; border-radius: 8px; }
+  .caption { font-size: 11px; letter-spacing: 0; }
+  .theme button { padding-inline: var(--s2); }
+
+  .toolbar { gap: var(--s1); padding: 0 var(--s2); }
+  .tab-item { min-width: auto; }
+  .tab { gap: var(--s1); padding-inline: var(--s2); }
+  .tab-symbol, .action .icon, .match-time { display: none; }
+  .terminal { padding-inline: var(--s3); font-size: 12px; }
+  .agent { padding: var(--s2); }
+  .agent-top { flex-wrap: wrap; gap: var(--s1); }
+  .foot { align-items: flex-start; }
+}
+main { margin-top: clamp(20px, 4vh, 48px); }
+body { background-image: radial-gradient(ellipse at 82% 0%, color-mix(in srgb, var(--cyan) 10%, transparent), transparent 45%); }
+.side { display: flex; flex-direction: column; }
+.side::after { content: ""; display: block; margin-top: auto; height: 180px; background: linear-gradient(to bottom,var(--bar),transparent 54%), var(--art) center / cover; }
+:root[data-theme="phosphor"] .workspace, :root[data-theme="phosphor"] .agent,
+:root[data-theme="phosphor"] .history, :root[data-theme="phosphor"] .tab-item { border-radius: 2px; }
+:root[data-theme="phosphor"] .entry::after { height: 2px; top: 1.3em; }
+:root[data-theme="riso"] .workspace { border: 2px solid var(--ink); box-shadow: 5px 5px 0 var(--edge); border-radius: 4px; }
+:root[data-theme="riso"] .history { border-radius: 2px; box-shadow: 3px 3px 0 var(--edge); }
+:root[data-theme="eclipse"] .active::after { width: 56%; background: linear-gradient(90deg,var(--amber),var(--red)); }
+@media(max-width:650px) { .theme { grid-template-columns: repeat(3,minmax(0,1fr)); } .theme button { height: 50px; } .side::after { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="masthead">
+    <div class="brand">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2Ij4KICA8dGl0bGU+VW5pZnlUZXJtPC90aXRsZT4KICA8cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgcng9IjU2IiBmaWxsPSIjMWIxZTJiIi8+CiAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIyOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgIDxwYXRoIGQ9Ik00MCw2MiBDNzYsNjIgOTgsOTIgMTQwLDEyOCIgc3Ryb2tlPSIjN2FhMmY3Ii8+CiAgICA8cGF0aCBkPSJNNDAsMTk0IEM3NiwxOTQgOTgsMTY0IDE0MCwxMjgiIHN0cm9rZT0iI2JiOWFmNyIvPgogICAgPHBhdGggZD0iTTQwLDEyOCBMMTQwLDEyOCIgc3Ryb2tlPSIjN2RjZmZmIi8+CiAgPC9nPgogIDxyZWN0IHg9IjE2MCIgeT0iOTYiIHdpZHRoPSI1OCIgaGVpZ2h0PSI2NCIgcng9IjE0IiBmaWxsPSIjZTBhZjY4Ii8+Cjwvc3ZnPg==" width="42" height="42" alt="">
+      <div>
+        <h1>UnifyTerm</h1>
+        <p class="caption">终端外观预览</p>
+      </div>
+    </div>
+  </header>
+  <div class="theme" role="group" aria-label="选择主题">
+    <button type="button" data-theme-choice="aurora" aria-label="极光，深色主题" aria-pressed="true">极光</button>
+    <button type="button" data-theme-choice="eclipse" aria-label="日蚀，深色主题" aria-pressed="false">日蚀</button>
+    <button type="button" data-theme-choice="phosphor" aria-label="磷光，深色主题" aria-pressed="false">磷光</button>
+    <button type="button" data-theme-choice="riso" aria-label="孔版，浅色主题" aria-pressed="false">孔版</button>
+    <button type="button" data-theme-choice="night" aria-label="夜航，深色主题" aria-pressed="false">夜航</button>
+    <button type="button" data-theme-choice="day" aria-label="冰川，浅色主题" aria-pressed="false">冰川</button>
+  </div>
+
+  <section class="workspace" aria-label="终端预览">
+    <div class="toolbar">
+      <div class="tablist" id="tablist" role="tablist" aria-label="会话"></div>
+      <button class="add" type="button" id="add" aria-label="新建标签" title="新建标签">+</button>
+      <div class="tools">
+        <button class="action" type="button" id="show-history" aria-controls="history" aria-expanded="true"><span class="icon" aria-hidden="true">↺</span>历史</button>
+        <button class="action" type="button" id="show-explain" aria-controls="explain" aria-expanded="false">解释</button>
+        <button class="action" type="button" id="show-agents" aria-controls="agents" aria-expanded="true"><span class="icon pane-icon" aria-hidden="true"></span>Agents</button>
+      </div>
+    </div>
+    <div class="workarea">
+      <section class="terminal" id="terminal" role="tabpanel">
+        <div id="transcript" role="log" aria-label="终端输出" aria-live="polite"></div>
+        <form id="prompt-form">
+          <div class="context"><span class="path" data-current-path></span><span aria-hidden="true">·</span><span class="branch">main</span></div>
+          <div class="inputline">
+            <label class="prompt" for="command" title="命令">❯</label>
+            <div class="entry"><input id="command" aria-label="模拟终端命令" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="240"></div>
+          </div>
+        </form>
+        <section class="history" id="history" aria-label="命令历史">
+          <header class="flyout-head"><h2>命令历史</h2><span><kbd>↑ ↓</kbd> 选择 · <kbd>Tab</kbd> 填入</span></header>
+          <div class="history-list" id="history-list"></div>
+        </section>
+        <section class="explain" id="explain" hidden>
+          <header class="flyout-head"><h2>命令解释</h2><span><kbd>Esc</kbd> 关闭</span></header>
+          <p class="explanation"><strong id="explain-command"></strong><span id="explain-text"></span></p>
+        </section>
+      </section>
+      <aside class="side" id="agents" aria-labelledby="agents-title">
+        <header class="side-head"><h2 id="agents-title">Agents <span class="count">2</span></h2><button class="tab-close" type="button" id="hide-agents" aria-label="关闭 Agents 侧栏">×</button></header>
+        <ul class="agent-list">
+          <li class="agent">
+            <div class="agent-top"><strong>Codex</strong><span class="agent-state">运行中</span></div>
+            <div class="agent-location">unifyterm:1.0</div>
+            <p class="agent-work">检查主题色对比度</p>
+          </li>
+          <li class="agent">
+            <div class="agent-top"><strong>Claude Code</strong><span class="agent-state waiting">等待输入</span></div>
+            <div class="agent-location">unifyterm:2.0</div>
+            <p class="agent-work">核对 macOS 标签栏布局</p>
+          </li>
+        </ul>
+      </aside>
+    </div>
+    <div class="status">
+      <div class="status-context"><span class="status-path" data-current-path></span><span class="status-exit" id="exit" role="status"></span></div>
+      <div class="status-shortcut"><kbd>↑ ↓</kbd> 选择 &nbsp; <kbd>Tab</kbd> 填入 &nbsp; <kbd>Enter</kbd> 执行</div>
+    </div>
+  </section>
+  <footer class="foot">
+    <p>交互演示 · 可输入 <code>help</code> 查看示例命令</p>
+    <a id="theme-file" href="themes/aurora.toml" download>下载极光配置 (.toml)</a>
+    <div class="samples" role="img" aria-label="主题色样：蓝、紫、青、琥珀、绿、红">
+      <span style="--sample: var(--blue)"></span><span style="--sample: var(--violet)"></span><span style="--sample: var(--cyan)"></span><span style="--sample: var(--amber)"></span><span style="--sample: var(--green)"></span><span style="--sample: var(--red)"></span>
+    </div>
+  </footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const input = $("command");
+const transcript = $("transcript");
+const historyList = $("history-list");
+const path = "~/work/unifyterm";
+const samples = [
+  { command: "git status --short --branch", count: 6, time: "2 分钟前", explanation: "以简短格式显示工作区变更，并在第一行列出当前分支及其上游。" },
+  { command: "git diff --stat", count: 4, time: "昨天", explanation: "按文件显示尚未暂存的改动行数。" },
+  { command: "git log -5 --oneline", count: 3, time: "昨天", explanation: "把最近五条提交各显示为一行摘要。" },
+  { command: "cargo test -p unifyterm theme::tests", count: 2, time: "昨天", explanation: "在 unifyterm 包中运行名称包含 theme::tests 的测试。" },
+];
+const statusOutput = [
+  ["## main...origin/main", ""],
+  [" M crates/unifyterm/src/theme.rs", "yellow"],
+  [" M crates/unifyterm/src/main.rs", "yellow"],
+  ["?? demo/appearance.html", "green"],
+];
+const testOutput = [
+  ["    Finished test profile in 0.48s", "green"],
+  ["     Running unittests src/main.rs", ""],
+  ["test result: ok. 4 passed; 0 failed", ""],
+];
+let nextId = 1;
+function newSession(name, runs = [], value = "", directory = path) {
+  return { id: nextId++, name, runs, input: value, path: directory, status: 0 };
+}
+const sessions = [
+  newSession("unifyterm", [{ command: samples[0].command, output: statusOutput }, { command: samples[3].command, output: testOutput }], "git"),
+  newSession("build", [{ command: "cargo test -p unifyterm", output: [["    Finished test profile", "green"], ["test result: ok", ""]] }], "", path + "/crates"),
+];
+let active = sessions[0];
+let selected = 0;
+let panel = "history";
+const recent = [...samples];
+
+function element(tag, className, content) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (content !== undefined) node.textContent = content;
+  return node;
+}
+
+function showTabs() {
+  $("tablist").replaceChildren(...sessions.map((session) => {
+    const current = session === active;
+    const item = element("div", current ? "tab-item active" : "tab-item");
+    item.setAttribute("role", "presentation");
+    const tab = element("button", "tab");
+    tab.type = "button";
+    tab.id = "session-" + session.id;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(current));
+    tab.setAttribute("aria-controls", "terminal");
+    tab.tabIndex = current ? 0 : -1;
+    const symbol = element("span", "tab-symbol", "›_");
+    symbol.setAttribute("aria-hidden", "true");
+    tab.append(symbol, document.createTextNode(session.name));
+    tab.addEventListener("click", () => activate(session, true));
+    tab.addEventListener("keydown", (event) => {
+      const index = sessions.indexOf(session);
+      const targets = {
+        ArrowLeft: sessions[(index + sessions.length - 1) % sessions.length],
+        ArrowRight: sessions[(index + 1) % sessions.length],
+        Home: sessions[0],
+        End: sessions.at(-1),
+      };
+      if (!targets[event.key]) return;
+      event.preventDefault();
+      activate(targets[event.key], true);
+    });
+    const close = element("button", "tab-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "关闭 " + session.name);
+    close.disabled = sessions.length === 1;
+    close.addEventListener("click", () => {
+      const index = sessions.indexOf(session);
+      sessions.splice(index, 1);
+      activate(current ? sessions[Math.min(index, sessions.length - 1)] : active, true);
+    });
+    item.append(tab, close);
+    return item;
+  }));
+  $("terminal").setAttribute("aria-labelledby", "session-" + active.id);
+}
+
+function showTranscript() {
+  transcript.replaceChildren(...active.runs.map(({ command, output }) => {
+    const run = element("div", "run");
+    const context = element("div", "context");
+    const dot = element("span", "", "·");
+    dot.setAttribute("aria-hidden", "true");
+    context.append(element("span", "path", active.path), dot, element("span", "branch", "main"));
+    const line = element("div", "command");
+    line.append(element("span", "prompt", "❯"), element("span", "typed", command));
+    run.append(context, line);
+    if (output.length) {
+      const lines = element("pre", "output");
+      output.forEach(([text, color], index) => {
+        if (index) lines.append("\n");
+        lines.append(element("span", color, text));
+      });
+      run.append(lines);
+    }
+    return run;
+  }));
+  document.querySelectorAll("[data-current-path]").forEach((node) => { node.textContent = active.path; });
+  $("exit").textContent = "exit " + active.status;
+  $("exit").dataset.error = String(active.status !== 0);
+}
+
+function matching() {
+  const typed = input.value.trim().toLowerCase();
+  return recent.filter((entry) => entry.command.toLowerCase().includes(typed)).slice(0, 4);
+}
+
+function choose(entry) {
+  input.value = entry.command;
+  active.input = input.value;
+  panel = null;
+  renderPrompt();
+  input.focus();
+}
+
+function showMatches() {
+  const rows = matching();
+  selected = Math.min(selected, Math.max(0, rows.length - 1));
+  if (!rows.length) {
+    historyList.replaceChildren(element("p", "no-matches", "没有匹配的历史命令"));
+    return;
+  }
+  historyList.replaceChildren(...rows.map((entry, index) => {
+    const row = element("button", "match");
+    row.type = "button";
+    row.dataset.current = String(index === selected);
+    const line = element("code");
+    const typed = input.value.trim();
+    const at = entry.command.toLowerCase().indexOf(typed.toLowerCase());
+    line.append(entry.command.slice(0, at), element("mark", "", entry.command.slice(at, at + typed.length)), entry.command.slice(at + typed.length));
+    const meta = element("small", "", "×" + entry.count);
+    meta.append(element("span", "match-time", " · " + entry.time));
+    row.append(line, meta);
+    row.addEventListener("click", () => choose(entry));
+    return row;
+  }));
+}
+
+function renderPrompt() {
+  input.parentElement.style.setProperty("--input-length", String(input.value.length));
+  $("history").hidden = panel !== "history";
+  $("explain").hidden = panel !== "explain";
+  $("show-history").setAttribute("aria-expanded", String(panel === "history"));
+  $("show-explain").setAttribute("aria-expanded", String(panel === "explain"));
+  if (panel === "history") showMatches();
+  if (panel === "explain") {
+    const command = input.value.trim() || active.runs.at(-1)?.command || "git status --short --branch";
+    const entry = samples.find((sample) => sample.command === command);
+    $("explain-command").textContent = command;
+    $("explain-text").textContent = entry?.explanation ?? "试试 git status --short --branch 或 cargo test -p unifyterm theme::tests 查看示例解释。";
+  }
+}
+
+function activate(session, focus = false) {
+  active = session;
+  input.value = session.input;
+  panel = null;
+  showTabs();
+  showTranscript();
+  renderPrompt();
+  if (focus) {
+    const tab = $("session-" + session.id);
+    tab.focus({ preventScroll: true });
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+function response(command) {
+  if (command === "help") return [["help · pwd · ls · clear · git status · git diff --stat · git log -5 --oneline · cargo test", ""]];
+  if (command === "pwd") return [[active.path, ""]];
+  if (command === "ls") return [["Cargo.toml  crates/  demo/  docs/  site/  tools/", ""]];
+  if (command === "git status" || command === samples[0].command) return statusOutput;
+  if (command === samples[1].command) return [[" crates/unifyterm/src/main.rs  | +++", ""], [" crates/unifyterm/src/theme.rs | ++", ""]];
+  if (command === samples[2].command) return [["c3ae41e docs: plan built-in and custom terminal themes", "yellow"]];
+  if (command === "cargo test" || command === samples[3].command) return testOutput;
+  active.status = 127;
+  return [["示例里没有这条命令。输入 help 查看可用命令。", "red"]];
+}
+
+function runCommand() {
+  const command = input.value.trim();
+  if (!command) return;
+  active.status = 0;
+  if (command === "clear") {
+    active.runs = [];
+  } else {
+    active.runs.push({ command, output: response(command) });
+    const previous = recent.findIndex((entry) => entry.command === command);
+    const count = previous < 0 ? 1 : recent.splice(previous, 1)[0].count + 1;
+    recent.unshift({ command, count, time: "刚刚" });
+  }
+  input.value = "";
+  active.input = "";
+  panel = null;
+  showTranscript();
+  renderPrompt();
+  input.scrollIntoView({ block: "nearest" });
+}
+
+input.addEventListener("input", () => {
+  active.input = input.value;
+  selected = 0;
+  panel = matching().length && input.value.trim() ? "history" : null;
+  renderPrompt();
+});
+input.addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  if (event.key === "Escape" && panel) {
+    event.preventDefault();
+    panel = null;
+    renderPrompt();
+  } else if (["ArrowUp", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    const rows = matching();
+    const delta = event.key === "ArrowUp" ? -1 : 1;
+    selected = panel === "history" && rows.length ? (selected + delta + rows.length) % rows.length : 0;
+    panel = "history";
+    renderPrompt();
+  } else if (panel === "history" && !event.shiftKey && ["Tab", "Enter"].includes(event.key)) {
+    const entry = matching()[selected];
+    if (!entry) return;
+    event.preventDefault();
+    choose(entry);
+  }
+});
+$("prompt-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  runCommand();
+});
+function togglePanel(name) {
+  panel = panel === name ? null : name;
+  selected = 0;
+  renderPrompt();
+  input.focus({ preventScroll: true });
+}
+$("show-history").addEventListener("click", () => togglePanel("history"));
+$("show-explain").addEventListener("click", () => togglePanel("explain"));
+
+function setAgents(shown) {
+  $("agents").hidden = !shown;
+  $("show-agents").setAttribute("aria-expanded", String(shown));
+}
+$("show-agents").addEventListener("click", () => setAgents($("agents").hidden));
+$("hide-agents").addEventListener("click", () => {
+  setAgents(false);
+  $("show-agents").focus();
+});
+$("add").addEventListener("click", () => {
+  const session = newSession("shell-" + nextId);
+  sessions.push(session);
+  activate(session, true);
+});
+// Each tile and its matching sidebar use the same small, offline drawing.
+function themeArtwork(name) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 480;
+  canvas.height = 248;
+  const g = canvas.getContext("2d");
+  if (!g) return "none";
+  const w = canvas.width;
+  const h = canvas.height;
+  function sky(top, bottom) {
+    const gradient = g.createLinearGradient(0, 0, 0, h);
+    gradient.addColorStop(0, top);
+    gradient.addColorStop(1, bottom);
+    g.fillStyle = gradient;
+    g.fillRect(0, 0, w, h);
+  }
+  function circle(x, y, r, color) {
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(x, y, r, 0, 2 * Math.PI);
+    g.fill();
+  }
+  function curve(height, stroke, fill) {
+    g.beginPath();
+    for (let x = 0; x <= w; x += 2) {
+      const y = height(x);
+      if (x === 0) g.moveTo(x,y); else g.lineTo(x,y);
+    }
+    if (fill) {
+      g.lineTo(w,h); g.lineTo(0,h); g.closePath();
+      g.fillStyle = fill; g.fill();
+    } else {
+      g.strokeStyle = stroke; g.stroke();
+    }
+  }
+  if (name === "aurora") {
+    sky("#031627", "#20354b");
+    const colors = ["116,255,193", "71,222,233", "168,131,254"];
+    for (let band = 0; band < colors.length; band++) {
+      for (let x = 0; x < w; x += 2) {
+        const edge = 102 + 33 * Math.sin(x / 87 + band * .7) + 20 * Math.cos(x / 45) + band * 16;
+        const length = 68 + 23 * Math.sin(x / 51 + band) + 6 * Math.sin(x * .52);
+        const ray = g.createLinearGradient(0,edge-length,0,edge+8);
+        ray.addColorStop(0,"transparent");
+        ray.addColorStop(.88,"rgba("+colors[band]+",.52)");
+        ray.addColorStop(1,"transparent");
+        g.fillStyle = ray;
+        g.fillRect(x,edge-length,2,length+8);
+      }
+    }
+    curve(x => 211 + 10*Math.sin(x/29) - 16*Math.cos(x/75), null, "#0c242f");
+  } else if (name === "eclipse") {
+    sky("#21101a","#45212c");
+    const corona = g.createRadialGradient(289,117,46,289,117,151);
+    for (const [at,color] of [[0,"#ffe8af"],[.08,"#ffad62"],[.23,"#db6635"],[.65,"#75303a"],[1,"transparent"]]) corona.addColorStop(at,color);
+    g.fillStyle = corona; g.fillRect(0,0,w,h);
+    circle(285,115,51,"#29141c");
+    circle(317,155,4,"#fff1bf");
+  } else if (name === "phosphor") {
+    sky("#101d12","#182719");
+    g.strokeStyle = "#314430";
+    g.beginPath();
+    for (let x=0; x<w; x+=24) { g.moveTo(x,0); g.lineTo(x,h); }
+    for (let y=0; y<h; y+=24) { g.moveTo(0,y); g.lineTo(w,y); }
+    g.stroke();
+    g.lineWidth = 2; g.shadowColor = "#b7ff82"; g.shadowBlur = 7;
+    curve(x => 124 + 58*Math.sin(x/28)*Math.cos(x/82) + 10*Math.cos(x/7), "#caff91");
+  } else if (name === "riso") {
+    sky("#f9e8bf","#ead6af");
+    circle(313,110,67,"#ed6245");
+    g.lineWidth=2;
+    for (let i=0;i<36;i++) curve(x => 105+i*5+20*Math.sin(x/40+i*.065)+30*Math.cos(x/97),"#354477");
+  } else if (name === "night") {
+    sky("#101c38","#423d61");
+    for (let i=0;i<85;i++) circle((i*89)%w,(i*i*11)%h,.55 + i%3*.3,"#c4cce6");
+    circle(312,89,27,"#f5d594");
+    circle(303,81,26,"#222840");
+  } else {
+    sky("#bedbea","#f0f4eb");
+    curve(x => 105 + Math.abs(x-298)*.42 + 14*Math.cos(x/27),null,"#86acbf");
+    curve(x => 158 + 19*Math.sin(x/44) - 22*Math.cos(x/86),null,"#517d96");
+    curve(x => 200 + 13*Math.cos(x/61),null,"#315a74");
+  }
+  return "url(" + canvas.toDataURL() + ")";
+}
+
+const choices = [...document.querySelectorAll("[data-theme-choice]")];
+function selectTheme(choice) {
+  document.documentElement.dataset.theme = choice.dataset.themeChoice;
+  const file = $("theme-file");
+  file.href = "themes/" + choice.dataset.themeChoice + ".toml";
+  file.textContent = "下载" + choice.textContent + "配置 (.toml)";
+  document.documentElement.style.setProperty("--art", choice.style.getPropertyValue("--art"));
+  choices.forEach(button => button.setAttribute("aria-pressed", String(button === choice)));
+}
+for (const choice of choices) {
+  choice.style.setProperty("--art", themeArtwork(choice.dataset.themeChoice));
+  choice.addEventListener("click", () => selectTheme(choice));
+}
+selectTheme(choices[0]);
+
+input.value = active.input;
+showTabs();
+showTranscript();
+renderPrompt();
+</script>
+</body>
+</html>
