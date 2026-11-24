@@ -210,7 +210,13 @@ impl Screen {
         if key.kind == Kind::Switch {
             return self.set(key, if now == "true" { "false" } else { "true" });
         }
-        let Some(Choices { items, pick }) = (self.choices)(key) else {
+        // The themes are those beside this settings file: what there is to choose depends on the file.
+        let choices = if key.name == super::choices::THEME {
+            Some(super::choices::themes(self.file.path()))
+        } else {
+            (self.choices)(key)
+        };
+        let Some(Choices { items, pick }) = choices else {
             self.mode = Mode::Edit(now);
             return Next::Stay;
         };
@@ -901,11 +907,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   5 of 35");
+        assert_eq!(lines[1], "/color   12 of 49");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 35");
+        assert_eq!(lines[1], "/colorzzz   0 of 49");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }

@@ -8,6 +8,10 @@ use crate::{boxdraw, graphics};
 
 /// How far a dim color is moved toward its background.
 const DIM_AMOUNT: f32 = 0.4;
+/// Under this contrast (WCAG's ratio, 1 to 21) text is lost on what is
+/// behind it. The light themes' white on their background is 1.1 to 1.3;
+/// their dimmest color that is meant to be read is over 4.
+const LEAST_SEEN: f64 = 2.0;
 
 /// A background behind `cells` cells of one line.
 #[derive(Clone, PartialEq, Debug)]
@@ -143,11 +147,26 @@ fn resolve(color: Color, theme: &Theme) -> Rgb {
     }
 }
 
+/// Whether `color` is white or bright white of the 16 colors.
+const fn is_white(color: Color) -> bool {
+    matches!(color, Color::Indexed(7 | 15))
+}
+
 /// A cell's text color and background as painted.
 fn colors(cell: &Cell, theme: &Theme) -> (Rgb, Rgb) {
     let (mut fg, mut bg) = (resolve(cell.fg, theme), resolve(cell.bg, theme));
     if cell.has(attr::INVERSE) {
         std::mem::swap(&mut fg, &mut bg);
+    }
+    // Programs that take the screen for a dark one write plain words in white (PowerShell does,
+    // for what is typed). A light theme's white is as light as its background, and cannot be made
+    // dark: white on a color must stay light. So white on the theme's own background (or, inverse,
+    // that background's color on white), where the two cannot be told apart, and only there, is
+    // drawn in the theme's own text color. A dark theme's white shows on its background: nothing
+    // changes there, and a cell with any other color behind it is left as the program asked.
+    if is_white(cell.fg) && matches!(cell.bg, Color::Background) && fg.contrast(bg) < LEAST_SEEN {
+        let (plain, behind) = (theme.foreground, theme.background);
+        fg = if plain.contrast(bg) >= behind.contrast(bg) { plain } else { behind };
     }
     if cell.has(attr::DIM) {
         fg = fg.toward(bg, DIM_AMOUNT);
@@ -363,6 +382,48 @@ mod tests {
         assert_eq!(frame.fills[0].color, theme.foreground);
         assert_eq!(frame.runs[0].color, theme.background);
         assert_eq!(frame.runs[1].color, theme.foreground.toward(theme.background, DIM_AMOUNT));
+    }
+
+    #[test]
+    fn white_that_is_lost_on_what_is_behind_it_is_drawn_in_the_themes_text_color() {
+        // The light theme "day": its white and bright white are as light as its background.
+        let mut light = Theme::default();
+        (light.foreground, light.background) = (Rgb(0x14, 0x25, 0x3a), Rgb(0xf4, 0xf9, 0xfe));
+        (light.ansi[4], light.ansi[7], light.ansi[15]) =
+            (Rgb(0, 0x4d, 0x9f), Rgb(0xd9, 0xe3, 0xec), Rgb(0xf4, 0xf9, 0xfe));
+        let drawn = |bytes: &str, theme: &Theme| {
+            let mut session = quiet(20, 3);
+            session.feed(b"\x1b[H\x1b[2J");
+            session.feed(bytes.as_bytes());
+            let frame = layout(&session.snapshot(), theme, Focus::Focused);
+            frame.runs.iter().map(|run| (run.text.clone(), run.color)).collect::<Vec<_>>()
+        };
+        // White and bright white on the background; white on blue; blue; white behind the background's color.
+        let bytes = "\x1b[37ma\x1b[97mb\x1b[37;44mc\x1b[0;34md\x1b[0;7;37me";
+        assert_eq!(
+            drawn(bytes, &light),
+            [
+                ("ab".to_owned(), light.foreground),
+                ("c".to_owned(), light.ansi[7]),
+                ("d".to_owned(), light.ansi[4]),
+                ("e".to_owned(), light.foreground),
+            ],
+            "white lost on the light background is the text's color; white on blue stays white"
+        );
+        let dark = Theme::default();
+        assert_eq!(
+            drawn(bytes, &dark),
+            [
+                ("a".to_owned(), dark.ansi[7]),
+                ("b".to_owned(), dark.ansi[15]),
+                ("c".to_owned(), dark.ansi[7]),
+                ("d".to_owned(), dark.ansi[4]),
+                ("e".to_owned(), dark.background),
+            ],
+            "on a dark theme white can be seen: nothing changes"
+        );
+        // Black on a dark background is not white: left as programs have always found it.
+        assert_eq!(drawn("\x1b[30mx", &dark), [("x".to_owned(), dark.ansi[0])]);
     }
 
     #[test]

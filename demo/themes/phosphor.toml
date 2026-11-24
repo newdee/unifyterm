@@ -5,6 +5,19 @@ foreground = "#e4f5d4"
 background = "#101810"
 cursor = "#d9ff8f"
 selection = "#2d442c"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#152015"
+panel = "#1c291c"
+well = "#243324"
+rule = "#374b35"
+edge = "#536e50"
+muted = "#b4caa7"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "phosphor.png"
+# The preview page draws this theme with corners that are nearly square.
+rounding = 2
+corners = "small"
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white
   "#091009", "#ffae91", "#a6f693", "#e2df8e", "#c4dabb", "#d9d19c", "#b1edac", "#b4caa7",

@@ -198,7 +198,10 @@ fn parse(key: &Key, input: &str) -> Result<Option<Value>> {
         }
         Kind::Number { least, most } => {
             let number: f64 = text.parse().map_err(|_| anyhow!("{name} is a number, not \"{text}\""))?;
-            if !(f64::from(least)..=f64::from(most)).contains(&number) {
+            // Compared as the settings keep it, an f32: a limit like 0.1 is not the same number as an
+            // f64, and "0.1" typed would be under it.
+            let kept: f32 = text.parse().map_err(|_| anyhow!("{name} is a number, not \"{text}\""))?;
+            if !(least..=most).contains(&kept) {
                 bail!("{name} is {number}: it must be from {least} to {most}");
             }
             Value::from(number)
@@ -294,7 +297,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (29, 6), "29 with a default written, 6 that are not set");
+        assert_eq!((written.len(), unset_by_default), (30, 19), "30 with a default written, 19 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -308,7 +311,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (14, 3, 2, 16)
+            (28, 3, 2, 16)
         );
     }
 
@@ -331,6 +334,16 @@ mod tests {
             ("agents.command", r#"["keepane", "-L", "a, b"]"#, r#"["keepane", "-L", "a, b"]"#),
             ("theme.background", "#000000", "#000000"),
             ("shell.program", "nu", "nu"),
+            ("theme.name", "day", "day"),
+            ("theme.bar", "#e8eff6", "#e8eff6"),
+            ("window.tab_bar", "auto-hide", "auto-hide"),
+            ("theme.opacity", "0.85", "0.85"),
+            ("theme.opacity", "0.1", "0.1"),
+            ("theme.opacity", "1", "1.0"),
+            ("theme.blur", "on", "true"),
+            ("theme.picture", "mine.png", "mine.png"),
+            ("theme.rounding", "0", "0.0"),
+            ("theme.corners", "square", "square"),
         ] {
             file.set(named(name), typed).unwrap();
             assert_eq!(file.value(named(name)).as_deref(), Some(kept), "{name}");
@@ -353,6 +366,12 @@ mod tests {
             ("terminal.scrollback", "-1", "whole number"),
             ("ai.provider", "gpt", "one of none, anthropic, openai, openai-compatible, ollama"),
             ("theme.cursor", "red", "not a color"),
+            ("theme.edge", "12", "not a color"),
+            ("theme.name", "My Theme", "small letters, digits and -"),
+            ("window.tab_bar", "sometimes", "one of always, auto-hide"),
+            ("theme.opacity", "0", "from 0.1 to 1"),
+            ("theme.rounding", "40", "from 0 to 18"),
+            ("theme.corners", "pointed", "one of round, small, square"),
             ("theme.ansi", "#000000, #111111", "has 2 colors"),
             ("font.family", " ", "font.family is empty"),
             // Right for its kind, wrong for the settings as a whole: a provider needs a model.

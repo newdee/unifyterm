@@ -16,6 +16,7 @@ mod edit;
 mod keys;
 pub mod providers;
 pub mod shell;
+pub mod themes;
 
 pub use edit::{File, default_of};
 pub use keys::{Applies, KEYS, Key, Kind, key};
@@ -24,6 +25,10 @@ const FONT_SIZES: std::ops::RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: std::ops::RangeInclusive<f32> = 1.0..=2.0;
 const MAX_SCROLLBACK: usize = 1_000_000;
 const MAX_PADDING: f32 = 64.0;
+/// Below this the text has nothing behind it to be read against.
+const OPACITIES: std::ops::RangeInclusive<f32> = 0.1..=1.0;
+/// A tab is 36 pixels high: past this its corners are half circles and more makes no difference.
+const MAX_ROUNDING: f32 = 18.0;
 /// `theme.ansi` is this many colors: the eight, then the bright eight.
 pub const ANSI_COLORS: usize = 16;
 /// The variable the terminal gives its shells: the settings file this window
@@ -114,12 +119,25 @@ impl Default for TerminalConfig {
 }
 
 /// The window itself.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct WindowConfig {
     /// The system's title bar above the tabs. Without it (the default on
     /// Windows and macOS) the row of tabs is the title bar.
     pub system_title_bar: bool,
+    pub tab_bar: TabBar,
+}
+
+/// When the row of tabs shows.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TabBar {
+    #[default]
+    Always,
+    /// Out of the way until the pointer is at the window's top edge, or a tab
+    /// is opened, closed or gone to. It then lies over the text: the
+    /// terminal keeps its size.
+    AutoHide,
 }
 
 /// UnifyTerm's own commands (`cat`, `ls`, `grep`, `jq`, ...): the same ones
@@ -279,16 +297,176 @@ impl Default for UpdatesConfig {
     }
 }
 
-/// Colors as `#rrggbb`. Any left out keep the built-in theme's value.
+/// How the window looks: a theme's name, colors as `#rrggbb`, and what is
+/// not a color: how much shows through, whether that is blurred, a picture.
+/// What is left out is the named theme's; with no theme named, the built-in
+/// one's.
+///
+/// A theme file (see [`themes`]) is this same table without `name`: a theme
+/// can give all of it, and the settings file's own keys go over the theme's.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
+    /// The theme: one UnifyTerm brings, or a file in the `themes` folder beside the settings file.
+    pub name: Option<String>,
     pub foreground: Option<String>,
     pub background: Option<String>,
     pub cursor: Option<String>,
     pub selection: Option<String>,
+    /// Behind the row of tabs and the sidebar.
+    pub bar: Option<String>,
+    /// Behind a list or a box that lies over the text, and a card.
+    pub panel: Option<String>,
+    /// Behind the tab in use, and what the pointer is over.
+    pub well: Option<String>,
+    /// A line between two parts.
+    pub rule: Option<String>,
+    /// The line around a list or a box.
+    pub edge: Option<String>,
+    /// Words that matter less.
+    pub muted: Option<String>,
+    /// The small signs: the one in the tab in use.
+    pub symbol: Option<String>,
     /// The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight.
     pub ansi: Option<Vec<String>>,
+    /// How much of what is behind the window the color behind the text,
+    /// the row of tabs and the sidebar hide: 1 is all of it. Text, lists and
+    /// boxes are never seen through.
+    pub opacity: Option<f32>,
+    /// What shows through is blurred, as through frosted glass, where the system can do it.
+    pub blur: Option<bool>,
+    /// A picture's file, shown at the foot of the sidebar: beside the file
+    /// that names it, or one of UnifyTerm's own by its name. Empty: none.
+    pub picture: Option<String>,
+    /// How round the corners of the tabs, the cards, the lists and the boxes
+    /// are, in pixels: 0 is square.
+    pub rounding: Option<f32>,
+    /// The window's own corners, where the system lets a program choose (Windows 11).
+    pub corners: Option<Corners>,
+}
+
+/// The window's own corners.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Corners {
+    Round,
+    /// Round, with a smaller radius.
+    Small,
+    Square,
+}
+
+/// The look the settings ask for, put together (see [`Config::look`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Look {
+    /// The theme's values with the settings' own over them.
+    pub colors: ThemeConfig,
+    /// The picture, where it was found to be.
+    pub picture: Option<themes::Picture>,
+}
+
+impl ThemeConfig {
+    /// Every key the table has, as the file writes it. A theme file's key
+    /// that is not one of these is passed over (see [`themes::read`]).
+    pub const KEYS: [&'static str; 18] = [
+        "name",
+        "foreground",
+        "background",
+        "cursor",
+        "selection",
+        "bar",
+        "panel",
+        "well",
+        "rule",
+        "edge",
+        "muted",
+        "symbol",
+        "ansi",
+        "opacity",
+        "blur",
+        "picture",
+        "rounding",
+        "corners",
+    ];
+
+    /// The single colors by their names in the file, in the file's order.
+    fn single(&self) -> [(&'static str, &Option<String>); 11] {
+        [
+            ("foreground", &self.foreground),
+            ("background", &self.background),
+            ("cursor", &self.cursor),
+            ("selection", &self.selection),
+            ("bar", &self.bar),
+            ("panel", &self.panel),
+            ("well", &self.well),
+            ("rule", &self.rule),
+            ("edge", &self.edge),
+            ("muted", &self.muted),
+            ("symbol", &self.symbol),
+        ]
+    }
+
+    /// Every color given is one, `ansi` has all 16, and the name is one a theme may have.
+    fn check(&self) -> Result<()> {
+        let color = |key: &str, text: &str| {
+            parse_color(text)
+                .map(|_| ())
+                .with_context(|| format!("theme.{key} is \"{text}\": not a color like #1a2b3c"))
+        };
+        if let Some(name) = &self.name
+            && !themes::is_name(name)
+        {
+            bail!("theme.name is \"{name}\": a theme's name is small letters, digits and -");
+        }
+        for (key, text) in self.single() {
+            if let Some(text) = text {
+                color(key, text)?;
+            }
+        }
+        if let Some(ansi) = &self.ansi {
+            if ansi.len() != ANSI_COLORS {
+                bail!("theme.ansi has {} colors: it must have {ANSI_COLORS}", ansi.len());
+            }
+            for text in ansi {
+                color("ansi", text)?;
+            }
+        }
+        if let Some(opacity) = self.opacity
+            && !OPACITIES.contains(&opacity)
+        {
+            bail!("theme.opacity is {opacity}: it must be from {} to {}", OPACITIES.start(), OPACITIES.end());
+        }
+        if let Some(rounding) = self.rounding
+            && !(0.0..=MAX_ROUNDING).contains(&rounding)
+        {
+            bail!("theme.rounding is {rounding}: it must be from 0 to {MAX_ROUNDING}");
+        }
+        Ok(())
+    }
+
+    /// These colors, with `under`'s where these leave one out.
+    #[must_use]
+    pub fn over(self, under: Self) -> Self {
+        Self {
+            name: self.name.or(under.name),
+            foreground: self.foreground.or(under.foreground),
+            background: self.background.or(under.background),
+            cursor: self.cursor.or(under.cursor),
+            selection: self.selection.or(under.selection),
+            bar: self.bar.or(under.bar),
+            panel: self.panel.or(under.panel),
+            well: self.well.or(under.well),
+            rule: self.rule.or(under.rule),
+            edge: self.edge.or(under.edge),
+            muted: self.muted.or(under.muted),
+            symbol: self.symbol.or(under.symbol),
+            ansi: self.ansi.or(under.ansi),
+            opacity: self.opacity.or(under.opacity),
+            blur: self.blur.or(under.blur),
+            picture: self.picture.or(under.picture),
+            rounding: self.rounding.or(under.rounding),
+            corners: self.corners.or(under.corners),
+        }
+    }
 }
 
 impl Config {
@@ -326,6 +504,7 @@ impl Config {
         if !(0.0..=MAX_PADDING).contains(&config.terminal.padding) {
             bail!("terminal.padding is {}: it must be from 0 to {MAX_PADDING}", config.terminal.padding);
         }
+
         if !CANDIDATE_LIMITS.contains(&config.history.limit) {
             let (low, high) = (CANDIDATE_LIMITS.start(), CANDIDATE_LIMITS.end());
             bail!("history.limit is {}: it must be from {low} to {high}", config.history.limit);
@@ -340,8 +519,40 @@ impl Config {
             }
         }
         config.check_model()?;
-        config.check_colors()?;
+        config.theme.check()?;
         Ok(config)
+    }
+
+    /// The look in use: the named theme's, with what the settings give
+    /// themselves over it. `themes` is the folder of the user's own themes
+    /// (`themes` beside the settings file). No theme named: what the settings
+    /// give alone (the built-in theme is under it).
+    ///
+    /// A picture is looked for beside the file that names it: the settings
+    /// file for the settings' own, the theme's file for the theme's.
+    pub fn look(&self, themes: Option<&Path>) -> Result<Look> {
+        let (under, theme_folder) = match &self.theme.name {
+            Some(name) => {
+                let (under, source) = themes::found(name, themes)?;
+                let folder = match source {
+                    themes::Source::File(file) => file.parent().map(Path::to_path_buf),
+                    themes::Source::BuiltIn => None,
+                };
+                (Some(under), folder)
+            }
+            None => (None, None),
+        };
+        let theirs = under.as_ref().and_then(|under| under.picture.as_deref());
+        let picture = match (self.theme.picture.as_deref(), theirs) {
+            (Some(own), _) => themes::picture(own, themes.and_then(Path::parent)),
+            (None, Some(theirs)) => themes::picture(theirs, theme_folder.as_deref()),
+            (None, None) => None,
+        };
+        let colors = match under {
+            Some(under) => self.theme.clone().over(under),
+            None => self.theme.clone(),
+        };
+        Ok(Look { colors, picture })
     }
 
     /// What the provider named needs is there: a model, an address, a key's variable, a program.
@@ -366,35 +577,6 @@ impl Config {
             }
             _ => Ok(()),
         }
-    }
-
-    /// Every color the file gives is one, and `theme.ansi` has all 16.
-    fn check_colors(&self) -> Result<()> {
-        let color = |key: &str, text: &str| {
-            parse_color(text)
-                .map(|_| ())
-                .with_context(|| format!("theme.{key} is \"{text}\": not a color like #1a2b3c"))
-        };
-        let named = [
-            ("foreground", &self.theme.foreground),
-            ("background", &self.theme.background),
-            ("cursor", &self.theme.cursor),
-            ("selection", &self.theme.selection),
-        ];
-        for (key, text) in named {
-            if let Some(text) = text {
-                color(key, text)?;
-            }
-        }
-        if let Some(ansi) = &self.theme.ansi {
-            if ansi.len() != ANSI_COLORS {
-                bail!("theme.ansi has {} colors: it must have {ANSI_COLORS}", ansi.len());
-            }
-            for text in ansi {
-                color("ansi", text)?;
-            }
-        }
-        Ok(())
     }
 }
 #[cfg(test)]

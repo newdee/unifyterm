@@ -6,11 +6,13 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod agents;
+mod art;
 mod boxdraw;
 mod candidates;
 mod config;
 #[cfg(windows)]
 mod console_focus;
+mod corners;
 mod frame;
 mod graphics;
 mod helper;
@@ -30,23 +32,48 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, Entity, KeyBinding, MouseButton, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowControlArea, WindowOptions, actions, div, point, prelude::*, px, rgb,
-    size,
+    App, Application, Bounds, ClipboardItem, Context, Entity, FontWeight, Hsla, KeyBinding, MouseButton,
+    MouseMoveEvent, Pixels, Point, SharedString, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowControlArea, WindowOptions, actions, div, point, prelude::*, px, rgb, size,
 };
 
 use config::Config;
 use shell::{Commands, Hooks};
 use terminal::{Settings, TerminalEvent, TerminalView};
 
-actions!(unifyterm, [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen]);
+actions!(
+    unifyterm,
+    [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen, ToggleTabBar]
+);
 
 const APP_NAME: &str = "UnifyTerm";
 const WINDOW_SIZE: (f32, f32) = (960., 620.);
-const TAB_BAR_HEIGHT: f32 = 34.;
+/// The row of tabs, and a tab in it: as the preview page (demo/appearance.html)
+/// draws them, but for the row's height, which is 54 there. The row is the
+/// window's title bar too, and that much would be taken from the text.
+const TAB_BAR_HEIGHT: f32 = 46.;
+const TAB_HEIGHT: f32 = 36.;
+const TAB_LEAST_WIDTH: f32 = 112.;
+/// The short line under the tab in use: how wide, how thick.
+const TAB_MARK: (f32, f32) = (30., 2.);
+/// The sign before a tab's name.
+const TAB_SIGN: &str = "›_";
+/// A tab's close button and the new-tab button: each one's width and height.
+const TAB_CLOSE: (f32, f32) = (25., 26.);
+const TAB_ADD: (f32, f32) = (30., 32.);
+/// With `window.tab_bar = "auto-hide"`: the row comes when the pointer has
+/// been this near the window's top edge for this long. Windows keeps the top
+/// 4 pixels of a window that is not maximized for sizing it, and tells the
+/// window nothing of the pointer there: the edge is wider than that.
+const BAR_EDGE: f32 = 10.;
+const BAR_DWELL: Duration = Duration::from_millis(150);
+/// It goes when the pointer is this far below it.
+const BAR_LEAVE: f32 = 12.;
+/// How long it shows after a tab was opened, closed or gone to.
+const BAR_PEEK: Duration = Duration::from_millis(1500);
 /// Room at the left of the tabs for macOS's three window buttons, and where they sit.
 const TRAFFIC_LIGHTS_WIDTH: f32 = 76.;
-const TRAFFIC_LIGHTS_AT: (f32, f32) = (13., 11.);
+const TRAFFIC_LIGHTS_AT: (f32, f32) = (13., 17.);
 /// One of the window buttons UnifyTerm draws on Windows (minimize, maximize, close).
 const WINDOW_BUTTON_WIDTH: f32 = 46.;
 /// The face Windows keeps its window buttons' glyphs in (10 and 11 both have it).
@@ -54,8 +81,15 @@ const WINDOW_GLYPHS: &str = "Segoe MDL2 Assets";
 /// The close button under the pointer: Windows' own red, with white on it.
 const CLOSE_RED: u32 = 0x00c4_2b1c;
 const CLOSE_WHITE: u32 = 0x00ff_ffff;
-/// The agents' sidebar, in pixels.
-const SIDEBAR_WIDTH: f32 = 300.;
+/// The agents' sidebar, in pixels: its width, and its heading's height.
+const SIDEBAR_WIDTH: f32 = 268.;
+const SIDEBAR_HEAD: f32 = 56.;
+/// The theme's picture at the sidebar's foot: its height, and how far down
+/// it the sidebar's own color fades out over it (as on the preview page).
+const SIDEBAR_PICTURE: f32 = 180.;
+const SIDEBAR_PICTURE_FADE: f32 = 0.54;
+/// A window lower than this has no room for the picture beside the agents' cards.
+const SIDEBAR_PICTURE_FROM: f32 = 480.;
 /// How often the settings file is looked at for a change.
 const SETTINGS_LOOK: Duration = Duration::from_millis(500);
 /// The longest title a tab shows, in characters.
@@ -249,12 +283,88 @@ struct Workspace {
     directory: PathBuf,
     /// The settings file, when `--config` named it: the tabs' shells are told (see [`Workspace::start`]).
     named_settings: Option<PathBuf>,
+    /// The folder of the user's own themes: `themes` beside the settings file.
+    themes: Option<PathBuf>,
     title_bar: TitleBar,
     /// Help with commands: the local fix always, a model's help when the settings name one.
     helper: Arc<helper::Helper>,
     sidebar: Sidebar,
     /// A newer UnifyTerm, named in the row of tabs (`updates.check`).
     newer: Option<update::Newer>,
+    bar: Bar,
+    /// What the system was last told of the window: that what is behind it shows through, or not.
+    behind: Behind,
+    /// Where the look's picture is, and the picture: at the foot of the sidebar.
+    picture_at: Option<config::Picture>,
+    picture: Option<Arc<gpui::Image>>,
+    pictures: art::Shown,
+    corners_told: CornersTold,
+}
+
+/// What the system was last told of the window's corners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CornersTold {
+    /// Nothing yet: the window has just opened.
+    NotYet,
+    /// These (`None`: its own choice).
+    These(Option<unifyterm_config::Corners>),
+}
+
+/// The row of tabs while it keeps out of the way (`window.tab_bar = "auto-hide"`).
+#[derive(Default)]
+struct Bar {
+    /// It lies over the text now.
+    shown: bool,
+    /// The pointer came to the top edge, and the wait before the row comes has begun.
+    coming: bool,
+    /// Shown for a tab that changed: it stays at least until then.
+    kept_until: Option<std::time::Instant>,
+    /// Counts the times it was shown for a tab: a wait begun for an earlier time hides nothing.
+    peeks: u64,
+    /// What the key asked of this window (Ctrl-Shift-B): it goes over the
+    /// settings' `window.tab_bar` until that setting is changed.
+    asked: Option<config::TabBar>,
+}
+
+/// Whether what is behind the window shows through it, and how.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Behind {
+    Hidden,
+    Seen,
+    /// Seen as through frosted glass.
+    Blurred,
+}
+
+impl Behind {
+    /// What the look asks for: seen through with `theme.opacity` under 1,
+    /// blurred with `theme.blur` too. With nothing seen through there is
+    /// nothing to blur.
+    fn of(theme: &theme::Theme) -> Self {
+        match (theme.opacity < 1.0, theme.blur) {
+            (false, _) => Self::Hidden,
+            (true, false) => Self::Seen,
+            (true, true) => Self::Blurred,
+        }
+    }
+
+    /// What GPUI is asked for.
+    const fn appearance(self) -> WindowBackgroundAppearance {
+        match self {
+            Self::Hidden => WindowBackgroundAppearance::Opaque,
+            Self::Seen => WindowBackgroundAppearance::Transparent,
+            Self::Blurred => WindowBackgroundAppearance::Blurred,
+        }
+    }
+}
+
+/// A color as GPUI takes it.
+fn solid(color: theme::Rgb) -> Hsla {
+    rgb(color.hex()).into()
+}
+
+/// A color that lets `1 - opacity` of what is behind the window through.
+fn seen_through(color: theme::Rgb, opacity: f32) -> Hsla {
+    Hsla { a: opacity, ..solid(color) }
 }
 
 /// The agents' sidebar.
@@ -272,6 +382,8 @@ struct Sidebar {
 /// What the window starts with.
 struct Start {
     settings: Arc<Settings>,
+    /// Where the look's picture is, when it has one.
+    picture: Option<config::Picture>,
     commands: Option<Commands>,
     recorder: Option<recorder::Recorder>,
     hooks: Option<Hooks>,
@@ -288,10 +400,16 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, commands, recorder, hooks, directory, file, helper, command, notices } = start;
+        let Start { settings, picture, commands, recorder, hooks, directory, file, helper, command, notices } = start;
         let sidebar = Sidebar::default();
         let title_bar = TitleBar::choose(&settings.config.window);
         let named_settings = file.as_ref().filter(|file| file.asked == Asked::WithConfig).map(|file| file.path.clone());
+        let themes = file.as_ref().map(|file| unifyterm_config::themes::directory(&file.path));
+        let theme_named = settings.config.theme.name.clone();
+        // The window was opened with what the settings asked for then (see `main`).
+        let behind = Behind::of(&settings.theme);
+        let mut pictures = art::Shown::default();
+        let shown = pictures.of(picture.as_ref());
         let mut workspace = Self {
             tabs: Vec::new(),
             active: 0,
@@ -301,13 +419,20 @@ impl Workspace {
             hooks,
             directory,
             named_settings,
+            themes,
             title_bar,
             helper,
             sidebar,
             newer: None,
+            bar: Bar::default(),
+            behind,
+            picture_at: picture,
+            picture: shown,
+            pictures,
+            corners_told: CornersTold::NotYet,
         };
         if let Some(file) = file {
-            Self::follow_settings(file.path, cx);
+            Self::follow_settings(file.path, theme_named, cx);
         }
         workspace.open(command, window, cx);
         if workspace.settings.config.agents.sidebar {
@@ -392,26 +517,41 @@ impl Workspace {
     /// window opened (UnifyTerm's commands, the history, the model, the
     /// title bar) stays until UnifyTerm starts again. A file that is wrong
     /// changes nothing: the settings in use stay, and the log says why.
-    fn follow_settings(path: PathBuf, cx: &mut Context<'_, Self>) {
+    ///
+    /// The file of the theme in use, when it is one of the user's own
+    /// (`theme_named` is the theme as the window opens), is followed the
+    /// same way: who writes a theme sees each change as it is saved.
+    fn follow_settings(path: PathBuf, theme_named: Option<String>, cx: &mut Context<'_, Self>) {
+        use unifyterm_config::themes;
+        type Stamp = Option<(std::time::SystemTime, u64)>;
         cx.spawn(async move |this, cx| {
-            let young = |stamp: Option<(std::time::SystemTime, u64)>| {
-                stamp.is_some_and(|(written, _)| unifyterm_programs::stamp_is_young(written))
+            let folder = themes::directory(&path);
+            let file_of = |name: Option<&str>| name.map(|name| themes::file_of(name, &folder));
+            let stamps = |theme: Option<&std::path::Path>| -> [Stamp; 2] { [stamp(&path), theme.and_then(stamp)] };
+            let young = |stamps: &[Stamp; 2]| {
+                stamps.iter().flatten().any(|(written, _)| unifyterm_programs::stamp_is_young(*written))
             };
-            let mut seen = stamp(&path);
+            let mut theme = file_of(theme_named.as_deref());
+            let mut seen = stamps(theme.as_deref());
             // Read while its time was young: a change of the same size in the same step of the
             // file system's clock would not show, so the file is read once more when it is older.
-            let mut unsettled = young(seen);
+            let mut unsettled = young(&seen);
             loop {
                 cx.background_executor().timer(SETTINGS_LOOK).await;
-                let now = stamp(&path);
-                // Read now: the stamp changed, or the time that was young is young no longer.
-                let read_now = now != seen || (unsettled && !young(now));
+                let now = stamps(theme.as_deref());
+                // Read now: a stamp changed, or the time that was young is young no longer.
+                let read_now = now != seen || (unsettled && !young(&now));
                 if !read_now {
                     continue;
                 }
-                seen = now;
-                unsettled = young(now);
                 let read = Config::load(&path);
+                // The settings may name another theme now: its file is the one to follow. Its stamp
+                // is taken before the window reads it, so a change after this look is seen by the next.
+                if let Ok(config) = &read {
+                    theme = file_of(config.theme.name.as_deref());
+                }
+                seen = [now[0], theme.as_deref().and_then(stamp)];
+                unsettled = young(&seen);
                 let alive = this.update(cx, |this, cx| match read {
                     Ok(config) => this.use_settings(config, cx),
                     Err(error) => log::warn!("settings: the changed file is not used: {error:#}"),
@@ -425,11 +565,28 @@ impl Workspace {
     }
 
     /// Puts settings that were read again to use (see [`Workspace::follow_settings`]).
+    ///
+    /// A theme that is not there, or whose file is wrong, changes no color:
+    /// the colors in use stay, and the log says why.
     fn use_settings(&mut self, config: Config, cx: &mut Context<'_, Self>) {
-        if config == self.settings.config {
+        let (theme, picture_at) = config::theme(&config, self.themes.as_deref()).unwrap_or_else(|error| {
+            log::warn!("theme: the colors in use stay: {error:#}");
+            (self.settings.theme.clone(), self.picture_at.clone())
+        });
+        let picture = self.pictures.of(picture_at.as_ref());
+        let same_picture = match (&picture, &self.picture) {
+            (Some(new), Some(old)) => Arc::ptr_eq(new, old),
+            (None, None) => true,
+            _ => false,
+        };
+        if config == self.settings.config && theme == self.settings.theme && same_picture {
             return;
         }
-        let theme = config::theme(&config);
+        (self.picture_at, self.picture) = (picture_at, picture);
+        // The setting changed: it is what holds again, not what the key asked before.
+        if config.window.tab_bar != self.settings.config.window.tab_bar {
+            self.bar.asked = None;
+        }
         self.settings = Arc::new(Settings { config, theme });
         for tab in &self.tabs {
             let settings = Arc::clone(&self.settings);
@@ -503,7 +660,98 @@ impl Workspace {
         self.active = index;
         window.focus(&tab.view.read(cx).focus);
         window.set_window_title(&self.title(index, cx));
+        self.show_bar_a_moment(window, cx);
         cx.notify();
+    }
+
+    /// Whether the row of tabs keeps out of the way now: the settings ask
+    /// for it, and the window has nothing in that row that must stay.
+    ///
+    /// On macOS, when the row is the title bar, the system draws the
+    /// window's three buttons in it and they cannot be taken away: the row
+    /// stays, but in full screen, where the system hides them itself.
+    fn bar_keeps_away(&self, window: &Window) -> bool {
+        let wanted = self.bar_mode() == config::TabBar::AutoHide;
+        let buttons_stay = cfg!(target_os = "macos") && self.title_bar == TitleBar::Tabs && !window.is_fullscreen();
+        wanted && !buttons_stay
+    }
+
+    /// When the row of tabs shows, in this window: what its key last asked,
+    /// else what the settings say.
+    fn bar_mode(&self) -> config::TabBar {
+        self.bar.asked.unwrap_or(self.settings.config.window.tab_bar)
+    }
+
+    /// The key for the row of tabs (Ctrl-Shift-B): a row that is always
+    /// there keeps out of the way from now on, and one that keeps out of the
+    /// way is always there. For this window, until the setting is changed.
+    fn toggle_tab_bar(&mut self, cx: &mut Context<'_, Self>) {
+        self.bar.asked = Some(match self.bar_mode() {
+            config::TabBar::Always => config::TabBar::AutoHide,
+            config::TabBar::AutoHide => config::TabBar::Always,
+        });
+        // Out of the way at once: the key said so, and no pointer is at the top edge.
+        self.bar.shown = false;
+        self.bar.kept_until = None;
+        cx.notify();
+    }
+
+    /// A tab was opened, closed or gone to: a row that keeps out of the way
+    /// shows which tab is the one in use now, for a moment.
+    fn show_bar_a_moment(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if !self.bar_keeps_away(window) {
+            return;
+        }
+        self.bar.shown = true;
+        self.bar.kept_until = Some(std::time::Instant::now() + BAR_PEEK);
+        self.bar.peeks += 1;
+        let peek = self.bar.peeks;
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(BAR_PEEK).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                // The pointer on the row keeps it: it goes when the pointer leaves (see `pointer_moved`).
+                let on_the_row = window.mouse_position().y <= px(TAB_BAR_HEIGHT + BAR_LEAVE);
+                if this.bar.peeks == peek && !on_the_row {
+                    this.bar.shown = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The pointer moved, to `at` in the window: a row of tabs that keeps
+    /// out of the way comes when the pointer rests at the window's top
+    /// edge, and goes when the pointer is well below it.
+    fn pointer_moved(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if !self.bar_keeps_away(window) {
+            return;
+        }
+        if !self.bar.shown {
+            if at.y > px(BAR_EDGE) || self.bar.coming {
+                return;
+            }
+            // A pointer on its way out of the window crosses the edge too: only one that stays there calls the row.
+            self.bar.coming = true;
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(BAR_DWELL).await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.bar.coming = false;
+                    if window.mouse_position().y <= px(BAR_EDGE) {
+                        this.bar.shown = true;
+                        this.bar.kept_until = None;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            return;
+        }
+        let kept = self.bar.kept_until.is_some_and(|until| std::time::Instant::now() < until);
+        if at.y > px(TAB_BAR_HEIGHT + BAR_LEAVE) && !kept {
+            self.bar.shown = false;
+            cx.notify();
+        }
     }
 
     /// Closes a tab; with the last one, the window and the app.
@@ -618,53 +866,222 @@ impl Workspace {
     }
 
     /// The sidebar: a card for each agent, or a line saying why there are none.
-    fn sidebar(&self, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn sidebar(&self, window: &Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = &self.settings.theme;
-        let (background, foreground) = (theme.background, theme.foreground);
-        let dim = foreground.toward(background, 0.45);
-        let card_color = background.toward(foreground, 0.06);
+        let (ink, muted, rule, well) =
+            (solid(theme.foreground), solid(theme.muted()), solid(theme.rule()), solid(theme.well()));
+        let mono = SharedString::from(self.settings.config.font.family.clone());
         let listed = match &self.sidebar.agents {
             Some(agents::Agents::Listed(agents)) => agents.clone(),
             _ => Vec::new(),
         };
         let notice =
             self.sidebar.agents.as_ref().map_or_else(|| agents::Agents::Asking.notice(), agents::Agents::notice);
-        let count = if listed.is_empty() { String::new() } else { format!(" ({})", listed.len()) };
+        let count = if listed.is_empty() { String::new() } else { listed.len().to_string() };
         let cards = listed.into_iter().enumerate().map(|(index, agent)| {
             let (title, place, figures) = (agent.title(), agent.place(), agent.figures());
             div()
                 .id(("agent", index))
-                .p_2()
-                .rounded_md()
-                .bg(rgb(card_color.hex()))
-                .hover(|card| card.bg(rgb(background.toward(foreground, 0.12).hex())))
+                .p_3()
+                .rounded(px(theme.rounding))
+                .border_1()
+                .border_color(rule)
+                .bg(solid(theme.panel()))
+                .hover(move |card| card.bg(well))
                 .cursor_pointer()
                 .flex()
                 .flex_col()
                 .gap_1()
                 .on_click(cx.listener(move |this, _, _, cx| this.go_to(&agent, cx)))
-                .child(div().text_color(rgb(foreground.hex())).child(SharedString::from(title)))
-                .child(div().text_color(rgb(dim.hex())).child(SharedString::from(place)))
-                .child(div().text_color(rgb(dim.hex())).text_size(px(12.)).child(SharedString::from(figures)))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(SharedString::from(title)))
+                .child(
+                    div()
+                        .font_family(mono.clone())
+                        .text_size(px(11.))
+                        .text_color(muted)
+                        .child(SharedString::from(place)),
+                )
+                .child(div().text_size(px(12.)).child(SharedString::from(figures)))
         });
+        let close = sign_button("hide-agents", TAB_CLOSE, "×", theme)
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_agents(cx)));
+        let head = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_between()
+            .h(px(SIDEBAR_HEAD))
+            .px_4()
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap_2()
+                    .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child("Agents"))
+                    .child(
+                        div()
+                            .font_family(mono.clone())
+                            .text_size(px(11.))
+                            .text_color(muted)
+                            .child(SharedString::from(count)),
+                    ),
+            )
+            .child(close);
         div()
-            .id("agents")
             .w(px(SIDEBAR_WIDTH))
             .flex_none()
             .h_full()
-            .overflow_y_scroll()
-            .p_2()
             .flex()
             .flex_col()
-            .gap_2()
-            .bg(rgb(background.toward(theme::Rgb(0, 0, 0), 0.2).hex()))
-            .text_color(rgb(foreground.hex()))
-            .child(div().child(SharedString::from(format!("Agents{count}"))))
-            .children(notice.map(|notice| div().text_color(rgb(dim.hex())).child(SharedString::from(notice))))
-            .children(cards)
-            .children(
-                self.sidebar.note.clone().map(|note| div().text_color(rgb(dim.hex())).child(SharedString::from(note))),
+            .bg(seen_through(theme.bar(), theme.opacity))
+            .border_l_1()
+            .border_color(rule)
+            .text_color(ink)
+            .child(head)
+            .child(
+                div()
+                    .id("agents")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_4()
+                    .pb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .children(notice.map(|notice| div().text_color(muted).child(SharedString::from(notice))))
+                    .children(cards)
+                    .children(
+                        self.sidebar.note.clone().map(|note| div().text_color(muted).child(SharedString::from(note))),
+                    ),
             )
+            .children(self.sidebar_picture(window))
+    }
+
+    /// The look's picture, at the sidebar's foot: the sidebar's own color
+    /// lies over its upper part and fades out. `None` for a look with no
+    /// picture, and in a window too low for it.
+    ///
+    /// The picture fills the strip from side to side and is cut at the
+    /// strip's edges: one wider than the strip is tall for it goes past both
+    /// sides, and must not be drawn there, over the text beside the sidebar.
+    fn sidebar_picture(&self, window: &Window) -> Option<gpui::Div> {
+        let picture = self.picture.clone()?;
+        if window.viewport_size().height < px(SIDEBAR_PICTURE_FROM) {
+            return None;
+        }
+        let bar = solid(self.settings.theme.bar());
+        let fade = gpui::linear_gradient(
+            180.,
+            gpui::linear_color_stop(bar, 0.),
+            gpui::linear_color_stop(Hsla { a: 0., ..bar }, SIDEBAR_PICTURE_FADE),
+        );
+        Some(
+            div()
+                .relative()
+                .flex_none()
+                .w_full()
+                .h(px(SIDEBAR_PICTURE))
+                .overflow_hidden()
+                .child(gpui::img(picture).absolute().size_full().object_fit(gpui::ObjectFit::Cover))
+                .child(div().absolute().size_full().bg(fade)),
+        )
+    }
+
+    /// One tab of the row: its sign, its name, its close button; the one in
+    /// use has the well's color behind it and a short line under it.
+    fn tab(&self, index: usize, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
+        let theme = &self.settings.theme;
+        let (ink, muted, well) = (solid(theme.foreground), solid(theme.muted()), solid(theme.well()));
+        let active = index == self.active;
+        let close =
+            sign_button(("close", index), TAB_CLOSE, "×", theme).on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.close(index, window, cx);
+            }));
+        // Inside the tab's lower edge: one pixel lower, the tab's own line is drawn over half of it.
+        let mark = div()
+            .absolute()
+            .left_3()
+            .bottom(px(0.))
+            .w(px(TAB_MARK.0))
+            .h(px(TAB_MARK.1))
+            .rounded(px(1.))
+            .bg(solid(theme.accent()));
+        div()
+            .id(("tab", index))
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .h(px(TAB_HEIGHT))
+            .min_w(px(TAB_LEAST_WIDTH))
+            .pl_3()
+            .pr_1()
+            .rounded(px(theme.rounding))
+            .border_1()
+            .border_color(if active { solid(theme.rule()) } else { gpui::transparent_black() })
+            .font_family(SharedString::from(self.settings.config.font.family.clone()))
+            .text_size(px(12.))
+            .text_color(if active { ink } else { muted })
+            .when(active, |tab| tab.bg(well))
+            .when(!active, |tab| tab.hover(move |tab| tab.bg(well)))
+            .on_click(cx.listener(move |this, _, window, cx| this.activate(index, window, cx)))
+            .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.close(index, window, cx)))
+            .child(div().text_color(if active { solid(theme.symbol()) } else { muted }).child(TAB_SIGN))
+            .child(div().flex_1().child(SharedString::from(tab_title(&self.title(index, cx)))))
+            .child(close)
+            .when(active, |tab| tab.child(mark))
+    }
+
+    /// The row of tabs: the tabs, the new-tab button, the part that moves
+    /// the window, the notice of a newer version, the window's buttons.
+    fn tab_bar(&self, place: BarPlace, window: &Window, cx: &mut Context<'_, Self>) -> gpui::Div {
+        let theme = &self.settings.theme;
+        let ink = solid(theme.foreground);
+        let tabs: Vec<_> = (0..self.tabs.len()).map(|index| self.tab(index, cx)).collect();
+        let add = sign_button("new-tab", TAB_ADD, "+", theme)
+            .on_click(cx.listener(|this, _, window, cx| this.open(None, window, cx)));
+        let newer = self.newer.as_ref().map(|newer| {
+            div()
+                .id("update")
+                .flex_none()
+                .h_full()
+                .px_3()
+                .flex()
+                .items_center()
+                .text_size(px(12.))
+                .text_color(solid(theme.ansi[3]))
+                .hover(move |notice| notice.text_color(ink))
+                .on_click(cx.listener(|this, _, _, cx| this.open_update(cx)))
+                .child(SharedString::from(newer.text()))
+        });
+        let own_bar = self.title_bar == TitleBar::Tabs;
+        // Full screen has no title bar: the tabs do not move the window then.
+        let handle = window_handle(if window.is_fullscreen() { TitleBar::System } else { self.title_bar });
+        // Full screen has no frame to minimize or restore (macOS draws its own buttons there).
+        let buttons =
+            (own_bar && cfg!(target_os = "windows") && !window.is_fullscreen()).then(|| window_buttons(window, theme));
+        // macOS draws its three buttons at the row's left; elsewhere the tabs begin a little in from the edge.
+        let lead = if own_bar && cfg!(target_os = "macos") { TRAFFIC_LIGHTS_WIDTH } else { 12. };
+        // Seen through like the text's background when it is part of the window; whole when it lies over the text.
+        let lies_over = place == BarPlace::OverTheText;
+        let behind = if lies_over { 1.0 } else { theme.opacity };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(px(TAB_BAR_HEIGHT))
+            .bg(seen_through(theme.bar(), behind))
+            .border_b_1()
+            .border_color(solid(theme.rule()))
+            .when(lies_over, |bar| bar.absolute().top_0().left_0().right_0().occlude().shadow_md())
+            .child(div().flex_none().w(px(lead)))
+            .child(div().flex().flex_none().items_center().gap_1().children(tabs).child(add))
+            .child(handle)
+            .children(newer)
+            .children(buttons)
     }
 
     /// Goes to the tab beside the active one, around the ends.
@@ -676,6 +1093,41 @@ impl Workspace {
         };
         self.activate(next, window, cx);
     }
+}
+
+/// Where the row of tabs is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BarPlace {
+    /// Above the text, as a part of the window.
+    InItsRow,
+    /// Over the text, when it keeps out of the way and shows for a while: it
+    /// takes the pointer from what is under it.
+    OverTheText,
+}
+
+/// A small button that is one sign (a tab's or the sidebar's ×, the + of a
+/// new tab): `size` is its width and height. What a click does is added by
+/// who makes it.
+fn sign_button(
+    id: impl Into<gpui::ElementId>,
+    size: (f32, f32),
+    sign: &'static str,
+    theme: &theme::Theme,
+) -> gpui::Stateful<gpui::Div> {
+    let (ink, well) = (solid(theme.foreground), solid(theme.well()));
+    div()
+        .id(id)
+        .w(px(size.0))
+        .h(px(size.1))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(theme.button_rounding()))
+        .text_size(px(17.))
+        .text_color(solid(theme.muted()))
+        .hover(move |button| button.bg(well).text_color(ink))
+        .child(sign)
 }
 
 /// Which neighbor of the active tab to go to.
@@ -735,9 +1187,7 @@ fn window_handle(title_bar: TitleBar) -> gpui::Stateful<gpui::Div> {
 /// the tabs are the title bar. Windows itself acts on a click: each button
 /// only says which one it is.
 fn window_buttons(window: &Window, theme: &theme::Theme) -> gpui::Div {
-    let (background, foreground) = (theme.background, theme.foreground);
-    let dim = foreground.toward(background, 0.5);
-    let lit = foreground.toward(background, 0.85);
+    let (foreground, dim, lit) = (theme.foreground, theme.muted(), theme.well());
     let button = |name: &'static str, glyph: &'static str, area: WindowControlArea| {
         div()
             .id(name)
@@ -769,75 +1219,26 @@ fn window_buttons(window: &Window, theme: &theme::Theme) -> gpui::Div {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let theme = &self.settings.theme;
-        let (background, foreground) = (theme.background, theme.foreground);
-        let bar = background.toward(theme::Rgb(0, 0, 0), 0.35);
-        let dim = foreground.toward(background, 0.5);
-        let tabs = (0..self.tabs.len()).map(|index| {
-            let active = index == self.active;
-            div()
-                .id(("tab", index))
-                .h_full()
-                .px_3()
-                .flex()
-                .items_center()
-                .gap_2()
-                .text_color(rgb(if active { foreground.hex() } else { dim.hex() }))
-                .when(active, |tab| tab.bg(rgb(background.hex())))
-                .on_click(cx.listener(move |this, _, window, cx| this.activate(index, window, cx)))
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _, window, cx| this.close(index, window, cx)),
-                )
-                .child(SharedString::from(tab_title(&self.title(index, cx))))
-                .child(
-                    div()
-                        .id(("close", index))
-                        .text_color(rgb(dim.hex()))
-                        .hover(|close| close.text_color(rgb(foreground.hex())))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.close(index, window, cx);
-                        }))
-                        .child("×"),
-                )
-        });
-        let add = div()
-            .id("new-tab")
-            .h_full()
-            .px_3()
-            .flex()
-            .items_center()
-            .text_color(rgb(dim.hex()))
-            .hover(|add| add.text_color(rgb(foreground.hex())))
-            .on_click(cx.listener(|this, _, window, cx| this.open(None, window, cx)))
-            .child("+");
-        let newer = self.newer.as_ref().map(|newer| {
-            div()
-                .id("update")
-                .flex_none()
-                .h_full()
-                .px_3()
-                .flex()
-                .items_center()
-                .text_size(px(12.))
-                .text_color(rgb(theme.ansi[3].hex()))
-                .hover(|notice| notice.text_color(rgb(foreground.hex())))
-                .on_click(cx.listener(|this, _, _, cx| this.open_update(cx)))
-                .child(SharedString::from(newer.text()))
-        });
-        let own_bar = self.title_bar == TitleBar::Tabs;
-        // Full screen has no title bar: the tabs do not move the window then.
-        let handle = window_handle(if window.is_fullscreen() { TitleBar::System } else { self.title_bar });
-        // Full screen has no frame to minimize or restore (macOS draws its own buttons there).
-        let buttons =
-            (own_bar && cfg!(target_os = "windows") && !window.is_fullscreen()).then(|| window_buttons(window, theme));
-        let lights = (own_bar && cfg!(target_os = "macos")).then(|| div().flex_none().w(px(TRAFFIC_LIGHTS_WIDTH)));
+        // The system is told when the settings begin or stop asking for a window that is seen through.
+        let behind = Behind::of(&self.settings.theme);
+        if behind != self.behind {
+            window.set_background_appearance(behind.appearance());
+            self.behind = behind;
+        }
+        // And of the window's corners, when the look names them (or stops naming them).
+        let corners = self.settings.theme.corners;
+        if self.corners_told != CornersTold::These(corners) {
+            corners::set(window, corners);
+            self.corners_told = CornersTold::These(corners);
+        }
+        // A row that keeps out of the way lies over the text when it shows: the text keeps its place and size.
+        let keeps_away = self.bar_keeps_away(window);
+        let in_its_place = (!keeps_away).then(|| self.tab_bar(BarPlace::InItsRow, window, cx));
+        let over_the_text = (keeps_away && self.bar.shown).then(|| self.tab_bar(BarPlace::OverTheText, window, cx));
         div()
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(bar.hex()))
             .text_size(px(13.))
             .on_action(cx.listener(|this, _: &NewTab, window, cx| this.open(None, window, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)))
@@ -845,18 +1246,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &PreviousTab, window, cx| this.step(Step::Previous, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_agents(cx)))
             .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .h(px(TAB_BAR_HEIGHT))
-                    .children(lights)
-                    .children(tabs)
-                    .child(add)
-                    .child(handle)
-                    .children(newer)
-                    .children(buttons),
-            )
+            .on_action(cx.listener(|this, _: &ToggleTabBar, _, cx| this.toggle_tab_bar(cx)))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                this.pointer_moved(event.position, window, cx);
+            }))
+            .children(in_its_place)
             .child(
                 div()
                     .flex_1()
@@ -865,8 +1259,9 @@ impl Render for Workspace {
                     .children(
                         self.tabs.get(self.active).map(|tab| div().flex_1().min_w_0().h_full().child(tab.view.clone())),
                     )
-                    .when(self.sidebar.shown, |area| area.child(self.sidebar(cx))),
+                    .when(self.sidebar.shown, |area| area.child(self.sidebar(window, cx))),
             )
+            .children(over_the_text)
     }
 }
 
@@ -882,6 +1277,7 @@ fn key_bindings() -> Vec<KeyBinding> {
         ("cmd-c", 4),
         ("cmd-v", 5),
         ("cmd-shift-a", 6),
+        ("cmd-shift-b", 8),
         ("cmd-enter", 7),
         ("ctrl-cmd-f", 7),
     ];
@@ -893,6 +1289,7 @@ fn key_bindings() -> Vec<KeyBinding> {
         ("ctrl-shift-v", 5),
         ("shift-insert", 5),
         ("ctrl-shift-a", 6),
+        ("ctrl-shift-b", 8),
         ("f11", 7),
         ("alt-enter", 7),
     ];
@@ -907,7 +1304,8 @@ fn key_bindings() -> Vec<KeyBinding> {
             4 => KeyBinding::new(key, Copy, None),
             5 => KeyBinding::new(key, Paste, None),
             6 => KeyBinding::new(key, ToggleAgents, None),
-            _ => KeyBinding::new(key, ToggleFullScreen, None),
+            7 => KeyBinding::new(key, ToggleFullScreen, None),
+            _ => KeyBinding::new(key, ToggleTabBar, None),
         })
         .collect()
 }
@@ -992,7 +1390,11 @@ fn main() {
         Some(Ok(config)) => (config, Vec::new()),
         None => (Config::default(), Vec::new()),
     };
-    let theme = config::theme(&config);
+    let themes = file.as_ref().map(|file| unifyterm_config::themes::directory(&file.path));
+    let (theme, picture) = config::theme(&config, themes.as_deref()).unwrap_or_else(|error| {
+        notices.push(format!("theme not used: {error:#}"));
+        (config::own_colors(&config), None)
+    });
     let (commands, told) = Commands::prepare(&config.commands);
     notices.extend(told);
     // The history and the hooks that feed it go together: one without the other is no use.
@@ -1013,13 +1415,15 @@ fn main() {
     notices.extend(told);
     let settings = Arc::new(Settings { config, theme });
     let helper = Arc::new(helper);
-    let start = Start { settings, commands, recorder, hooks, directory, file, helper, command: args.command, notices };
+    let start =
+        Start { settings, picture, commands, recorder, hooks, directory, file, helper, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings());
         let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
         let own_bar = TitleBar::choose(&start.settings.config.window) == TitleBar::Tabs;
         let options = WindowOptions {
+            window_background: Behind::of(&start.settings.theme).appearance(),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
                 title: Some(APP_NAME.into()),

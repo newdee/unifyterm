@@ -82,6 +82,7 @@ On macOS the window's own keys use Cmd, as the second column shows; the keys at 
 | Ctrl-Shift-C | Cmd-C | Copy the selection |
 | Ctrl-Shift-V, Shift-Insert | Cmd-V | Paste |
 | Ctrl-Shift-A | Cmd-Shift-A | Show or hide the agents' sidebar |
+| Ctrl-Shift-B | Cmd-Shift-B | The row of tabs out of the way (`window.tab_bar = "auto-hide"`), or always there again: for this window, until the setting is changed |
 | F11, Alt-Enter | Cmd-Enter, Ctrl-Cmd-F | Full screen, over the taskbar; again to leave it. A program in the terminal no longer gets Alt-Enter |
 | Ctrl-Shift-E | Ctrl-Shift-E | Explain the command on the line |
 | Ctrl-N, Down | Ctrl-N, Down | The next command in the list while typing |
@@ -98,7 +99,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 
 `ut setting`, in a tab, shows every setting and changes it from the keyboard. ↑↓ move; Enter changes the one the cursor is on: a switch turns, and a font, a shell, the fallback fonts, the commands to leave to the system and the model's provider open a list to pick from (type to narrow it; Space marks several, in order). ←→ make a number smaller or larger, `e` types any value (a font the list lacks), `d` puts the default back, `u` takes the last change back, `/` narrows the settings, `q` leaves. A value UnifyTerm would refuse is not written, and the line says why. The comments in your file stay. For a script: `ut setting list`, `ut setting get font.size`, `ut setting set font.size 16`, `ut setting reset font.size`, `ut setting path`.
 
-UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the colors, the padding and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.*`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
+UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the theme and everything in `[theme]`, the padding, `window.tab_bar` and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.system_title_bar`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
 
 | Key | Default | What it is |
 |---|---|---|
@@ -112,11 +113,26 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `terminal.scrollback` | `10000` | Lines kept for each tab, at most 1000000 |
 | `terminal.padding` | `6` | Pixels between the window's edge and the text, 0 to 64 |
 | `window.system_title_bar` | `false` | The system's title bar above the tabs. Without it the row of tabs is the title bar: drag its empty part to move the window. On Linux the system's bar is always there |
-| `theme.foreground` | built-in | `#rrggbb` |
-| `theme.background` | built-in | `#rrggbb` |
-| `theme.cursor` | built-in | `#rrggbb` |
-| `theme.selection` | built-in | `#rrggbb` |
-| `theme.ansi` | built-in | The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight |
+| `window.tab_bar` | `"always"` | `"always"`: the row of tabs is always there. `"auto-hide"`: it keeps out of the way until the pointer rests at the window's top edge, or a tab is opened, closed or gone to; it then lies over the text, and the terminal keeps its size. Ctrl-Shift-B changes it for the window it is pressed in |
+
+| `theme.name` | | The theme: one of UnifyTerm's or one of your own (below). Not set: `tokyo-night` |
+| `theme.foreground` | the theme's | The color of text, `#rrggbb` |
+| `theme.background` | the theme's | The color behind it |
+| `theme.cursor` | the theme's | The cursor's color. It also marks the tab in use and the chosen row of a list |
+| `theme.selection` | the theme's | The color behind selected text |
+| `theme.bar` | the theme's | The color behind the row of tabs and the sidebar |
+| `theme.panel` | the theme's | The color behind a list or a box over the text, and behind an agent's card |
+| `theme.well` | the theme's | The color behind the tab in use, and behind what the pointer is over |
+| `theme.rule` | the theme's | The color of a line between two parts |
+| `theme.edge` | the theme's | The color of the line around a list or a box |
+| `theme.muted` | the theme's | The color of words that matter less |
+| `theme.symbol` | the theme's | The color of the small signs, as the one in the tab in use |
+| `theme.ansi` | the theme's | The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight |
+| `theme.opacity` | the theme's, else `1` | How much the window hides what is behind it, 0.1 to 1. The color behind the text, the row of tabs and the sidebar are seen through; text, lists and boxes are not |
+| `theme.blur` | the theme's, else `false` | What shows through the window is blurred, as through frosted glass. It needs `opacity` under 1 |
+| `theme.picture` | the theme's | A picture's file, shown at the foot of the sidebar: beside the file that names it, or one of UnifyTerm's own (`aurora.png`). `""`: none |
+| `theme.rounding` | the theme's, else `7` | How round the corners of the tabs, the cards, the lists and the boxes are, in pixels, 0 to 18. 0 is square |
+| `theme.corners` | the theme's | The window's own corners: `"round"`, `"small"` or `"square"`. Windows 11 only; not set, they are as the system makes them |
 | `commands.builtin` | `true` | Put UnifyTerm's commands before the system's in each shell's `PATH` |
 | `commands.system` | `[]` | Commands that stay the system's although `builtin` is on, as `["find", "sort"]` |
 | `history.enabled` | `true` | Keep the commands shells run. Off: no shell hook, no history file |
@@ -137,6 +153,12 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `agents.command` | `["keepane", "list-agents", "-J"]` | The program that prints the agents as JSON |
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 | `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
+
+**Themes.** A theme is a set of colors under a name. UnifyTerm has seven: `tokyo-night` (in use until you choose another), `aurora`, `eclipse`, `phosphor` and `night`, which are dark, and `riso` and `day`, which are light. `ut theme` lists them with a sample of each one's colors; `ut theme NAME` uses one. Every open window changes at once, and the next time UnifyTerm opens it has that theme: the name is the setting `theme.name`. `demo/appearance.html` shows six of them in a browser, and the window's colors are the ones on that page.
+
+A theme of your own is a file `NAME.toml` in the `themes` folder beside the settings file (`ut theme directory` prints it), with a table `[theme]` and the keys of the table above, all but `name`. It must give `foreground`, `background` and `ansi`. It may give `cursor`, `selection` and the colors around the text (`bar`, `panel`, `well`, `rule`, `edge`, `muted`, `symbol`): one it leaves out is worked out from the foreground and the background. It may also give what is not a color: `opacity`, `blur`, `rounding`, `corners`, and `picture`, a picture's file beside the theme's own (PNG, JPEG, WebP, GIF, BMP, SVG or TIFF, at most 16 MB) that is shown at the foot of the sidebar. UnifyTerm's own six pictures are found by their names from any folder, so a copy of a built-in theme keeps its picture. A key this version does not know is passed over, and `ut theme check` names it: a theme written for a later UnifyTerm still works in this one. `ut theme new NAME` begins one as a copy of the theme in use, and `ut theme show NAME` prints any theme's file. A window that uses your theme follows its file as you save it. A name is small letters, digits and `-`; your file with a built-in theme's name is used in that theme's place.
+
+A theme that is not there, or whose file is wrong, is never put to use: `ut theme NAME` says what is wrong and writes nothing, and a window keeps the colors it has. What the settings file gives itself in `[theme]` stays over any theme: `theme.background = "#000000"`, or `theme.opacity = 0.85` for every theme you use. On a light theme, white text on the theme's own background is drawn in the theme's text color: programs that take the screen for a dark one write in white (PowerShell does, for what you type), and a light theme's white is as light as its background.
 
 Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, what you write after `#`, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first. With a sentence (`#`) the command lists go along too (below): one line for each program that has one, and the commands of the programs the sentence or your last commands name.
 
@@ -210,6 +232,12 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut program show NAME [WORD...]` | A program's commands, or one command with its options and arguments |
 | `ut program remove NAME` | Forget a program's list |
 | `ut program directory` | Print the folder the lists are kept in |
+| `ut theme` | The themes there are, with a sample of each one's colors; `*` marks the one in use |
+| `ut theme NAME` | Use the theme NAME: it is read first, and one that is wrong is not written |
+| `ut theme show NAME` | Print a theme's file |
+| `ut theme new NAME [--from NAME]` | Begin a theme of your own: a copy of the theme in use, or of the one named |
+| `ut theme check FILE` | Check a theme file only: for who writes one |
+| `ut theme directory` | Print the folder your own themes are in |
 
 ## For agents
 
@@ -222,6 +250,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | What | Windows | macOS | Linux |
 |---|---|---|---|
 | Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
+| Your own themes | `%APPDATA%\unifyterm\themes` | `~/Library/Application Support/unifyterm/themes` | `~/.config/unifyterm/themes` |
 | History, log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
 The history is one SQLite file, `history.db`; a copy works on every system. `update.json` beside it keeps what GitHub last said about the latest version (`updates.check`): once a day the window asks `api.github.com` for it, telling it only `unifyterm/VERSION`.
@@ -239,6 +268,11 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - Where the model is: Claude Code and Codex were tried with their real answers (a command with a fitting program for 30 of 30 sentences with Claude Code, 10 of 10 with Codex). The services (`openai`, `ollama`, `lm-studio`, `vllm`) are written to their documents and tried against a stand-in on this machine, not yet against the real thing; `pi` is written to its documents. No model is right every time: read a command before you run it.
 - A correction from an agent's command line comes 10 to 40 seconds after the command that was not found, and each one starts the agent once: `ai.fix = false` turns that off.
 - Command lists: a list tells the commands a program has, not what is on this machine now, so there are no session names, branch names or file names in what is offered. OpenCLI is a draft (version 0.1); UnifyTerm reads the root shape of 2026-04 and the one before it. The lists tried: git, curl, ffmpeg and dotnet from the OpenCLI project's examples, and small ones written for the tests.
+- `window.tab_bar = "auto-hide"`: while the row is out of the way, the window's buttons and the part that moves the window are out of the way with it; the pointer at the top edge brings them back. On macOS, with the tabs as the title bar, the row stays but in full screen: the system draws its three buttons in it and they cannot be taken away.
+- `theme.opacity`, `theme.blur` and `theme.corners` were measured on Windows 11, on the screen itself (behind a half-opaque window, an even mix of the two colors; stripes behind it blurred; the window's corner cut by 1, 2 or 3 pixels). Opacity and blur have not been looked at on macOS or Linux: on Linux they need a compositor, and X11 has no blur. `theme.corners` does nothing but on Windows 11.
+- The picture at the foot of the sidebar is read again when the settings or the theme's file change, not when only the picture's own file is written anew. It is not shown in a window less than 480 pixels high.
+- The row of tabs, the lists, the boxes and the sidebar were redrawn in 0.5.0 and looked at on Windows only: macOS and Linux build them and run the tests.
+- The white-text rule for light themes covers white and bright white on the theme's background. A program that writes another color the theme has made light is left as it wrote it.
 - The builds are not signed.
 
 ## License

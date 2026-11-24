@@ -76,7 +76,7 @@ $kept = Join-Path ([IO.Path]::GetTempPath()) "unifyterm-round-verify-$Profile.tx
 $live | Set-Content -Path $kept -Encoding utf8
 $livePass = @($live | Where-Object { $_ -match '^PASS' }).Count
 $liveFail = @($live | Where-Object { $_ -match '^FAIL' })
-$sections = 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents'
+$sections = 'input', 'settings', 'themes', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents'
 $missing = @($sections | Where-Object { $live -notcontains "--- $_ ---" })
 $finished = ($live | Where-Object { $_.Trim() } | Select-Object -Last 1) -eq '0 failed'
 Report 'tools/verify.ps1' ($liveFail.Count -eq 0 -and $livePass -gt 0 -and $finished -and $missing.Count -eq 0) "$livePass passed, $($liveFail.Count) failed; ran to its end: $finished; sections missing: $($missing.Count) $($missing -join ' ') (all of it: $kept)"

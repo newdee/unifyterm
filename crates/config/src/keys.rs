@@ -85,6 +85,7 @@ impl Key {
         match (self.section(), self.field()) {
             ("font" | "theme", _)
             | ("terminal", "padding")
+            | ("window", "tab_bar")
             | ("history", "candidates" | "limit")
             | ("agents", "focus") => Applies::AtOnce,
             ("shell", _) | ("terminal", "scrollback") => Applies::NextTab,
@@ -105,7 +106,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 }
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 35] = [
+pub const KEYS: [Key; 49] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -132,14 +133,52 @@ pub const KEYS: [Key; 35] = [
         Kind::Switch,
         "The system's title bar above the tabs. Without it the row of tabs is the title bar. On Linux it is always there.",
     ),
+    setting(
+        "window.tab_bar",
+        Kind::OneOf(&["always", "auto-hide"]),
+        "The row of tabs: always there, or out of the way until the pointer is at the window's top edge.",
+    ),
+    setting(
+        "theme.name",
+        Kind::OptionalText,
+        "The theme: one of UnifyTerm's, or a file in the themes folder (ut theme). Not set: tokyo-night.",
+    ),
     setting("theme.foreground", Kind::Color, "The color of text."),
     setting("theme.background", Kind::Color, "The color behind it."),
     setting("theme.cursor", Kind::Color, "The cursor's color."),
     setting("theme.selection", Kind::Color, "The color behind selected text."),
+    setting("theme.bar", Kind::Color, "The color behind the row of tabs and the sidebar."),
+    setting("theme.panel", Kind::Color, "The color behind a list or a box over the text, and behind a card."),
+    setting("theme.well", Kind::Color, "The color behind the tab in use, and behind what the pointer is over."),
+    setting("theme.rule", Kind::Color, "The color of a line between two parts."),
+    setting("theme.edge", Kind::Color, "The color of the line around a list or a box."),
+    setting("theme.muted", Kind::Color, "The color of words that matter less."),
+    setting("theme.symbol", Kind::Color, "The color of the small signs, as the one in the tab in use."),
     setting(
         "theme.ansi",
         Kind::Colors,
         "The 16 colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight.",
+    ),
+    setting(
+        "theme.opacity",
+        Kind::Number { least: 0.1, most: 1.0 },
+        "How much the window hides what is behind it: 1 hides all. Text, lists and boxes are never seen through.",
+    ),
+    setting("theme.blur", Kind::Switch, "What shows through the window is blurred, as through frosted glass."),
+    setting(
+        "theme.picture",
+        Kind::OptionalText,
+        "A picture's file, shown at the foot of the sidebar: beside this file, or one of UnifyTerm's own (aurora.png).",
+    ),
+    setting(
+        "theme.rounding",
+        Kind::Number { least: 0.0, most: 18.0 },
+        "How round the corners of the tabs, the cards, the lists and the boxes are, in pixels: 0 is square.",
+    ),
+    setting(
+        "theme.corners",
+        Kind::OneOf(&["round", "small", "square"]),
+        "The window's own corners: round, round with a smaller radius, or square. Windows 11 only.",
     ),
     setting("commands.builtin", Kind::Switch, "Put UnifyTerm's commands before the system's in each shell's PATH."),
     setting("commands.system", Kind::Words, "Commands that stay the system's although builtin is on: find, sort."),

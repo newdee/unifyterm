@@ -12,6 +12,7 @@
 #   {DELETE} {PGUP} {PGDN} {F1}..{F12}      a key
 #   {WAIT:500}                               pause, in milliseconds
 #   {CLICK:x,y} {RCLICK:x,y} {DCLICK:x,y}    a click at a point of the window's content
+#   {MOVE:x,y}                               the pointer to a point, with no button
 #   {DRAG:x1,y1,x2,y2}                       press, move, release with the left button
 #   {WHEEL:x,y,notches}                      the wheel; positive is up
 #   {SIZE:w,h}                               resize the window
@@ -154,6 +155,7 @@ foreach ($part in [regex]::Split($Type, '(\{[A-Z0-9]+(?::[^}]*)?\})')) {
             'WAIT'   { Start-Sleep -Milliseconds ([int]$arg) }
             'SHOT'   { Save-Shot $h (Join-Path (Split-Path $Out) "$arg.png") }
             'MEM'    { $p.Refresh(); [IO.File]::WriteAllText((Join-Path (Split-Path $Out) "$arg.mem"), [string]$p.WorkingSet64) }
+            'MOVE'   { [Win]::Move($h, $n[0], $n[1], $false) }
             'CLICK'  { [Win]::Move($h, $n[0], $n[1], $false); [Win]::Left($h, $n[0], $n[1], $true); [Win]::Left($h, $n[0], $n[1], $false) }
             'DCLICK' { 1..2 | ForEach-Object { [Win]::Left($h, $n[0], $n[1], $true); [Win]::Left($h, $n[0], $n[1], $false) } }
             'RCLICK' { [Win]::Move($h, $n[0], $n[1], $false); [Win]::Right($h, $n[0], $n[1], $true); [Win]::Right($h, $n[0], $n[1], $false) }

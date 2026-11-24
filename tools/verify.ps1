@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|programs|graphics|agents] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|themes|edges|commands|history|ai|programs|graphics|agents] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'themes', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\unifyterm.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -119,7 +119,7 @@ function Count([string]$text, [string]$needle) { ([regex]::Matches($text, [regex
 function Leftovers { @(Get-Process unifyterm, OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Split-Path $Exe)) }).Count }
 
 # The first text row of the window, in window pixels (title bar and tab bar above it).
-$Row = @{ Y = 66; H = 22 }
+$Row = @{ Y = 78; H = 22 }
 
 if ($Section -in 'all', 'input') {
     "--- input ---"
@@ -146,7 +146,7 @@ if ($Section -in 'all', 'input') {
         $try = 0
         do {
             $try++
-            $t = Run 'select' "cls; echo select-me-please{ENTER}{WAIT:600}{DRAG:7,50,134,50}{WAIT:300}{RCLICK:300,300}{WAIT:300}"
+            $t = Run 'select' "cls; echo select-me-please{ENTER}{WAIT:600}{DRAG:7,62,134,62}{WAIT:300}{RCLICK:300,300}{WAIT:300}"
             $copied = Get-Clipboard -Raw
         } while ($copied -ne 'select-me-please' -and $try -lt 3)
         Report 'drag selects, right click copies' ($copied -eq 'select-me-please') "the clipboard holds '$copied' (try $try)"
@@ -237,6 +237,226 @@ if ($Section -in 'all', 'settings') {
     Report 'a refused value is not written, and the file keeps its comment' ($flat -match 'font\.size is 500: it must be from 6 to 72' -and $file -match '(?m)^# kept' -and $file -match 'size = 24\.0' -and $file -notmatch '500') "said why: $($flat -match 'it must be from 6 to 72'); comment kept: $($file -match '(?m)^# kept'); size in the file: $([regex]::Match($file, 'size = [\d.]+').Value)"
 }
 
+if ($Section -in 'all', 'themes') {
+    "--- themes ---"
+    # The preview page's colors (demo/appearance.html) as #rrggbb, theme by theme: behind the row of
+    # tabs (--bar), behind the tab in use (--well), the mark under it (--amber), behind the text
+    # (--screen). The page gives night and day in oklch: converted once, they are these.
+    $page = [ordered]@{
+        aurora   = @{ bar = '#10252d'; well = '#203c47'; accent = '#a6ffce'; screen = '#0c1c24' }
+        eclipse  = @{ bar = '#2b1a21'; well = '#432b32'; accent = '#ffc178'; screen = '#21151b' }
+        phosphor = @{ bar = '#152015'; well = '#243324'; accent = '#d9ff8f'; screen = '#101810' }
+        riso     = @{ bar = '#f3ead7'; well = '#ebdcc3'; accent = '#9c301d'; screen = '#fbf5e7' }
+        night    = @{ bar = '#121b26'; well = '#1c2938'; accent = '#f0be6e'; screen = '#0e1620' }
+        day      = @{ bar = '#e8eff6'; well = '#dbe6f3'; accent = '#774000'; screen = '#f4f9fe' }
+    }
+    # The four the page writes as #rrggbb are read from the page here, so the table cannot drift from it.
+    $html = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\demo\appearance.html'))
+    $drift = foreach ($name in 'aurora', 'eclipse', 'phosphor', 'riso') {
+        $at = $html.IndexOf(":root[data-theme=`"$name`"]"); $block = $html.Substring($at, $html.IndexOf('}', $at) - $at)
+        foreach ($pair in @{ bar = 'bar'; well = 'well'; accent = 'amber'; screen = 'screen' }.GetEnumerator()) {
+            if ($block -notmatch "--$($pair.Value): $([regex]::Escape($page[$name][$pair.Key]));") { "$name.$($pair.Value)" }
+        }
+    }
+    Report 'the colors checked are the preview page''s' (@($drift).Count -eq 0) "of 16 colors of 4 themes, not as the page has them: $(@($drift).Count) $($drift -join ' ')"
+    function SameColor([string]$a, [string]$b) {
+        $x = [Convert]::ToInt32($a.TrimStart('#'), 16); $y = [Convert]::ToInt32($b.TrimStart('#'), 16)
+        (0, 8, 16 | ForEach-Object { [Math]::Abs((($x -shr $_) -band 255) - (($y -shr $_) -band 255)) } | Measure-Object -Maximum).Maximum -le $ChannelTolerance
+    }
+    # In a picture of the window: an empty part of the row of tabs, above where the first row of
+    # text is when the row of tabs is away; a point of the first tab over its name; a point of the
+    # text's background. (The row of tabs is rows 31 to 76 of the picture, the first tab 36 to 71.)
+    $InBar = 500, 34; $InTab = 95, 42; $InText = 500, 400
+    $quiet = "[updates]`ncheck = false"
+    foreach ($name in $page.Keys) {
+        Run "theme-$name" '{WAIT:500}' "[theme]`nname = `"$name`"`n$quiet" | Out-Null
+        $seen = [ordered]@{ bar = (PixelAt "theme-$name" @InBar); well = (PixelAt "theme-$name" @InTab); screen = (PixelAt "theme-$name" @InText) }
+        $mark = CountColor "theme-$name" $page[$name].accent 30 60 40 12
+        $ok = @($seen.Keys | Where-Object { -not (SameColor $seen[$_] $page[$name][$_]) }).Count -eq 0 -and $mark -ge 40
+        Report "${name}: the window has the page's colors" $ok "bar $($seen.bar) (page $($page[$name].bar)), tab in use $($seen.well) ($($page[$name].well)), text's background $($seen.screen) ($($page[$name].screen)), mark: $mark pixels of $($page[$name].accent)"
+    }
+    # The default theme gives no colors for what is around the text: they are worked out.
+    Run 'theme-default' '{WAIT:500}' $quiet | Out-Null
+    Report 'no theme named: Tokyo Night, its bar worked out' ((SameColor (PixelAt 'theme-default' @InText) '#16161e') -and (SameColor (PixelAt 'theme-default' @InBar) '#1c1c26')) "text's background $(PixelAt 'theme-default' @InText) (#16161e), bar $(PixelAt 'theme-default' @InBar) (#1c1c26)"
+
+    # ut theme NAME, in a tab: the window changes at once, the settings file has the name, and a
+    # theme that is not there changes neither.
+    $t = Run 'theme-switch' "ut theme aurora{ENTER}{WAIT:2500}{SHOT:theme-switched}ut theme nosuch{ENTER}{WAIT:1500}" "# kept`n$quiet" -after 1.5
+    $file = Get-Content (Join-Path $work 'theme-switch.toml') -Raw
+    Report 'ut theme NAME changes the open window at once' ((SameColor (PixelAt 'theme-switched' @InText) $page.aurora.screen) -and (SameColor (PixelAt 'theme-switched' @InBar) $page.aurora.bar)) "after 'ut theme aurora': text's background $(PixelAt 'theme-switched' @InText), bar $(PixelAt 'theme-switched' @InBar)"
+    Report 'the name is kept in the settings file' ($file -match '(?m)^name = "aurora"' -and $file -match '(?m)^# kept') "in the file: $([regex]::Match($file, '(?m)^name = .*').Value.Trim()); its comment kept: $($file -match '(?m)^# kept')"
+    Report 'a theme that is not there changes nothing' (($t -replace "`n", ' ') -match 'no theme is called nosuch' -and $file -notmatch 'nosuch' -and (SameColor (PixelAt 'theme-switch' @InText) $page.aurora.screen)) "said so: $(($t -replace "`n", ' ') -match 'no theme is called nosuch'); the window after it: $(PixelAt 'theme-switch' @InText)"
+    # Opened again with the file as it was left: the same theme.
+    Run 'theme-again' '{WAIT:500}' $file | Out-Null
+    Report 'opened again, the window has the theme chosen before' (SameColor (PixelAt 'theme-again' @InText) $page.aurora.screen) "text's background $(PixelAt 'theme-again' @InText) (aurora's is $($page.aurora.screen))"
+
+    # A theme of one's own: begun from another, chosen, and its file changed while the window is open.
+    Remove-Item (Join-Path $work 'themes') -Recurse -Force -ErrorAction SilentlyContinue
+    $mine = (Join-Path $work 'themes\mine.toml') -replace '\\', '/'
+    Run 'theme-own' "ut theme new mine --from night{ENTER}{WAIT:1200}ut theme mine{ENTER}{WAIT:2500}{SHOT:theme-own-chosen}(Get-Content -Raw '$mine').Replace('#0e1620', '#405060') | Set-Content '$mine'{ENTER}{WAIT:4000}" $quiet -after 1.5 | Out-Null
+    Report 'a theme of one''s own is begun, chosen, and followed as its file changes' ((Test-Path $mine) -and (SameColor (PixelAt 'theme-own-chosen' @InText) $page.night.screen) -and (SameColor (PixelAt 'theme-own' @InText) '#405060')) "the file is there: $(Test-Path $mine); chosen: $(PixelAt 'theme-own-chosen' @InText) (night's $($page.night.screen)); after the file's background became #405060: $(PixelAt 'theme-own' @InText)"
+
+    # A light theme: white text on the theme's background is drawn in the theme's text color.
+    Run 'theme-white' "Write-Host `"``e[37m████████████████████ ``e[97m████████████████████``e[0m`"{ENTER}{WAIT:900}" "[theme]`nname = `"day`"`n$quiet" | Out-Null
+    # Under the command's own row: the command may take two rows, and PowerShell leaves one empty.
+    $inked = CountColor 'theme-white' '#14253a' 0 ($Row.Y + $Row.H) 500 (4 * $Row.H)
+    Report 'a light theme: white words can be read' ($inked -ge 4000) "$inked pixels of the theme's text color (#14253a) in the rows where 40 full blocks were printed in white and bright white (a block is about 8 by 19 pixels)"
+
+    # The picture a theme names: at the foot of the sidebar, cut at the sidebar's sides, and nowhere
+    # else. In a picture of the window the sidebar is columns 700 to 967 and the strip rows 471 to
+    # 650; the sidebar's own color fades out over the strip's upper half, so the lower part is read.
+    $side = "[agents]`nsidebar = true`ncommand = ['unifyterm-no-such-program']`n$quiet"
+    $strip = 710, 580, 248, 65; $beside = 560, 471, 138, 175
+    function Unlike([string]$name, [string]$hex, [int[]]$at) { $at[2] * $at[3] - (CountColor $name $hex @at) }
+    Run 'picture-aurora' '{WAIT:800}' "[theme]`nname = `"aurora`"`n$side" | Out-Null
+    $inStrip = Unlike 'picture-aurora' $page.aurora.bar $strip; $left = Unlike 'picture-aurora' $page.aurora.screen $beside
+    Report 'a theme''s picture is at the foot of the sidebar, and only there' ($inStrip -ge 10000 -and $left -eq 0) "of $($strip[2] * $strip[3]) pixels of the strip, not the sidebar's own color: $inStrip; of $($beside[2] * $beside[3]) pixels of the text area beside it, not the text's background: $left"
+    Run 'picture-none' '{WAIT:800}' $side | Out-Null
+    $plainStrip = Unlike 'picture-none' '#1c1c26' $strip
+    Run 'picture-off' '{WAIT:800}' "[theme]`nname = `"aurora`"`npicture = `"`"`n$side" | Out-Null
+    $offStrip = Unlike 'picture-off' $page.aurora.bar $strip
+    Report 'no picture: a theme without one, and one turned off in the settings' ($plainStrip -eq 0 -and $offStrip -eq 0) "pixels of the strip that are not the sidebar's own color: the default theme $plainStrip (a pixel of it: $(PixelAt 'picture-none' 800 600)); aurora with picture = `"`" $offStrip"
+    # A theme of one's own names a picture of its own, beside its file: one flat color, made here.
+    New-Item -ItemType Directory -Force (Join-Path $work 'themes') | Out-Null
+    $flat = [System.Drawing.Bitmap]::new(64, 64); $fg = [System.Drawing.Graphics]::FromImage($flat); $fg.Clear([System.Drawing.Color]::FromArgb(255, 255, 0, 255)); $fg.Dispose()
+    $flat.Save((Join-Path $work 'themes\flat.png'), [System.Drawing.Imaging.ImageFormat]::Png); $flat.Dispose()
+    $nightFile = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\demo\themes\night.toml')).Replace('picture = "night.png"', 'picture = "flat.png"')
+    [IO.File]::WriteAllText((Join-Path $work 'themes\pictured.toml'), $nightFile)
+    Run 'picture-own' '{WAIT:800}' "[theme]`nname = `"pictured`"`n$side" | Out-Null
+    $ownStrip = CountColor 'picture-own' '#ff00ff' @strip
+    Report 'a theme of one''s own shows the picture its file names' ($ownStrip -ge 15000) "pixels of the picture's color (#ff00ff) in the strip: $ownStrip of $($strip[2] * $strip[3])"
+
+    # theme.rounding: the first tab's own corner (its outline is columns 20 on, rows 36 to 71 of the
+    # picture). Round, the corner's pixel is the row's color; square, it is the tab's line.
+    Run 'round-7' '{WAIT:500}' "[theme]`nname = `"night`"`n$quiet" | Out-Null
+    Run 'round-0' '{WAIT:500}' "[theme]`nname = `"night`"`nrounding = 0`n$quiet" | Out-Null
+    Report 'theme.rounding makes the tabs'' corners round or square' ((SameColor (PixelAt 'round-7' 20 36) $page.night.bar) -and (SameColor (PixelAt 'round-0' 20 36) '#2b3644')) "the tab's corner pixel: $(PixelAt 'round-7' 20 36) as the theme has it (the row's color is $($page.night.bar)); $(PixelAt 'round-0' 20 36) with rounding = 0 (the tab's line is #2b3644)"
+
+    # Ctrl-Shift-B: the row keeps out of the way, and is there again, for this window.
+    Run 'bar-key' '{WAIT:500}{KEY:CTRL+SHIFT+B}{WAIT:700}{SHOT:bar-key-away}{KEY:CTRL+SHIFT+B}{WAIT:700}' "[theme]`nname = `"night`"`n$quiet" | Out-Null
+    $keyed = @('bar-key-away', 'bar-key' | ForEach-Object { if (SameColor (PixelAt $_ @InBar) $page.night.bar) { 'there' } elseif (SameColor (PixelAt $_ @InBar) $page.night.screen) { 'away' } else { PixelAt $_ @InBar } })
+    Report 'Ctrl-Shift-B puts the row of tabs away, and back' (($keyed -join ' ') -eq 'away there') "after the key, and after it again: $($keyed -join ', ')"
+
+    # window.tab_bar = "auto-hide": the row is out of the way; it comes when the pointer rests at
+    # the top edge and when a tab opens, goes when the pointer leaves or after a moment, and
+    # does not come for a pointer that only crosses the edge. The terminal keeps its rows.
+    $t = Run 'bar' "echo `"h1=`$([Console]::WindowHeight)`"{ENTER}{WAIT:2500}{SHOT:bar-1}{MOVE:300,6}{WAIT:700}{SHOT:bar-2}echo `"h2=`$([Console]::WindowHeight)`"{ENTER}{WAIT:600}{MOVE:300,200}{WAIT:500}{SHOT:bar-3}{KEY:CTRL+SHIFT+T}{WAIT:700}{SHOT:bar-4}{WAIT:2200}{SHOT:bar-5}{MOVE:300,6}{MOVE:300,300}{WAIT:700}" "[theme]`nname = `"night`"`n[window]`ntab_bar = `"auto-hide`"`n$quiet"
+    $steps = @('bar-1', 'bar-2', 'bar-3', 'bar-4', 'bar-5', 'bar' | ForEach-Object { if (SameColor (PixelAt $_ @InBar) $page.night.bar) { 'shown' } elseif (SameColor (PixelAt $_ @InBar) $page.night.screen) { 'away' } else { PixelAt $_ @InBar } })
+    Report 'auto-hide: the row comes and goes' (($steps -join ' ') -eq 'away shown away shown away away') "at rest, pointer at the top edge, pointer away, a new tab, 2 s later, pointer across the edge: $($steps -join ', ')"
+    $flat = $t -replace "`n", ' '
+    $h1 = [regex]::Match($flat, '(?<!")h1=(\d+)').Groups[1].Value; $h2 = [regex]::Match($flat, '(?<!")h2=(\d+)').Groups[1].Value
+    Report 'auto-hide: the terminal keeps its rows when the row shows' ($h1 -ne '' -and $h1 -eq $h2) "rows with the row away: $h1; with it over the text: $h2"
+
+    # theme.opacity: read from the screen itself. A window with a red background, a window with a
+    # blue one right over it: whole, the blue one hides the red; at 0.5 the screen shows an even mix.
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class Screen2 {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, uint attr, out RECT r, int size);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+}
+'@
+    [Screen2]::SetProcessDPIAware() | Out-Null
+    function SeenThrough([double]$opacity) {
+        $plain = "$quiet`n[history]`nenabled = false`n[commands]`nbuiltin = false"
+        Set-Content (Join-Path $work 'under.toml') "[theme]`nbackground = `"#ff0000`"`n$plain" -Encoding utf8
+        Set-Content (Join-Path $work 'over.toml') "[theme]`nbackground = `"#0000ff`"`nopacity = $opacity`n$plain" -Encoding utf8
+        $opened = @()
+        try {
+            foreach ($which in 'under', 'over') {
+                $p = Start-Process -FilePath $Exe -ArgumentList "--config `"$(Join-Path $work "$which.toml")`" -e cmd /k cls" -PassThru
+                $deadline = (Get-Date).AddSeconds(15)
+                while ($p.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200; $p.Refresh() }
+                Start-Sleep -Seconds 2
+                # Topmost, at one place and size.
+                [Screen2]::SetWindowPos($p.MainWindowHandle, [IntPtr](-1), 200, 200, 900, 600, 0x0040) | Out-Null
+                $opened += $p
+            }
+            # The red one right behind the blue one, whatever came to the front since: no move, no size, no activation.
+            [Screen2]::SetWindowPos($opened[0].MainWindowHandle, $opened[1].MainWindowHandle, 0, 0, 0, 0, 0x0013) | Out-Null
+            Start-Sleep -Seconds 2
+            $r = [Screen2+RECT]::new(); [Screen2]::GetWindowRect($opened[1].MainWindowHandle, [ref]$r) | Out-Null
+            $shot = [System.Drawing.Bitmap]::new(1, 1); $g = [System.Drawing.Graphics]::FromImage($shot)
+            # A point of the text area, well below the rows of tabs and what cmd printed.
+            $g.CopyFromScreen([int](($r.L + $r.R) / 2), [int]($r.T + ($r.B - $r.T) * 0.7), 0, 0, $shot.Size); $g.Dispose()
+            $c = $shot.GetPixel(0, 0); $shot.Dispose()
+            '#{0:x2}{1:x2}{2:x2}' -f $c.R, $c.G, $c.B
+        } finally { $opened | ForEach-Object { if (-not $_.HasExited) { $_.Kill() } }; Start-Sleep -Milliseconds 300 }
+    }
+    # theme.blur: stripes of red and white behind a half-opaque blue window. Sharp, a line of the
+    # screen has the two mixes and no other color; blurred, it has many.
+    function ThroughStripes([string]$blur) {
+        $plain = "$quiet`n[history]`nenabled = false`n[commands]`nbuiltin = false"
+        Set-Content (Join-Path $work 'under.toml') $plain -Encoding utf8
+        Set-Content (Join-Path $work 'over.toml') "[theme]`nbackground = `"#0000ff`"`nopacity = 0.5`nblur = $blur`n$plain" -Encoding utf8
+        $stripes = Join-Path $work 'stripes.ps1'
+        Set-Content $stripes "`$e = [char]27`n`$line = (`"`$e[48;2;255;0;0m    `$e[48;2;255;255;255m    `" * 40) + `"`$e[0m`"`n1..60 | ForEach-Object { [Console]::Out.WriteLine(`$line) }`nStart-Sleep -Seconds 60" -Encoding utf8
+        $opened = @()
+        try {
+            foreach ($which in @{ file = 'under'; run = "-e pwsh -NoProfile -File `"$stripes`"" }, @{ file = 'over'; run = '-e cmd /k cls' }) {
+                $p = Start-Process -FilePath $Exe -ArgumentList "--config `"$(Join-Path $work "$($which.file).toml")`" $($which.run)" -PassThru
+                $deadline = (Get-Date).AddSeconds(15)
+                while ($p.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200; $p.Refresh() }
+                Start-Sleep -Seconds 3
+                [Screen2]::SetWindowPos($p.MainWindowHandle, [IntPtr](-1), 200, 200, 900, 600, 0x0040) | Out-Null
+                $opened += $p
+            }
+            [Screen2]::SetWindowPos($opened[0].MainWindowHandle, $opened[1].MainWindowHandle, 0, 0, 0, 0, 0x0013) | Out-Null
+            Start-Sleep -Seconds 2
+            $r = [Screen2+RECT]::new(); [Screen2]::GetWindowRect($opened[1].MainWindowHandle, [ref]$r) | Out-Null
+            $shot = [System.Drawing.Bitmap]::new(300, 1); $g = [System.Drawing.Graphics]::FromImage($shot)
+            $g.CopyFromScreen($r.L + 250, [int]($r.T + ($r.B - $r.T) * 0.7), 0, 0, $shot.Size); $g.Dispose()
+            $seen = @{}
+            for ($x = 0; $x -lt 300; $x++) { $c = $shot.GetPixel($x, 0); $seen['#{0:x2}{1:x2}{2:x2}' -f $c.R, $c.G, $c.B] = 1 }
+            $shot.Dispose()
+            $seen.Count
+        } finally { $opened | ForEach-Object { if (-not $_.HasExited) { $_.Kill() } }; Start-Sleep -Milliseconds 300 }
+    }
+    $sharp = ThroughStripes 'false'; $blurred = ThroughStripes 'true'
+    Report 'theme.blur: what shows through is blurred' ($sharp -le 4 -and $blurred -ge 8) "colors on a line of 300 pixels of the screen, stripes behind: $sharp without blur (the two mixes), $blurred with it"
+    # theme.corners: the window's own corners, read from the screen (Windows 11 cuts them). A red
+    # window behind, larger all round; the window in front has a blue row of tabs. Down the
+    # diagonal from the corner of its outline, the pixels before its own blue: one (the system's
+    # line) for a square corner, more where the corner is cut round.
+    function CornerCut([string]$corners) {
+        $plain = "$quiet`n[history]`nenabled = false`n[commands]`nbuiltin = false"
+        Set-Content (Join-Path $work 'under.toml') "[theme]`nbackground = `"#ff0000`"`nbar = `"#ff0000`"`n$plain" -Encoding utf8
+        Set-Content (Join-Path $work 'over.toml') "[theme]`nbackground = `"#0000ff`"`nbar = `"#0000ff`"`nrule = `"#0000ff`"`ncorners = `"$corners`"`n$plain" -Encoding utf8
+        $opened = @()
+        try {
+            foreach ($which in @{ file = 'under'; grow = 60 }, @{ file = 'over'; grow = 0 }) {
+                $p = Start-Process -FilePath $Exe -ArgumentList "--config `"$(Join-Path $work "$($which.file).toml")`" -e cmd /k cls" -PassThru
+                $deadline = (Get-Date).AddSeconds(15)
+                while ($p.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200; $p.Refresh() }
+                Start-Sleep -Seconds 3
+                [Screen2]::SetWindowPos($p.MainWindowHandle, [IntPtr](-1), 300 - $which.grow, 300 - $which.grow, 800 + 2 * $which.grow, 500 + 2 * $which.grow, 0x0040) | Out-Null
+                $opened += $p
+            }
+            [Screen2]::SetWindowPos($opened[0].MainWindowHandle, $opened[1].MainWindowHandle, 0, 0, 0, 0, 0x0013) | Out-Null
+            Start-Sleep -Seconds 2
+            # The outline the system draws, without the unseen border for sizing (DWMWA_EXTENDED_FRAME_BOUNDS).
+            $r = [Screen2+RECT]::new(); [Screen2]::DwmGetWindowAttribute($opened[1].MainWindowHandle, 9, [ref]$r, 16) | Out-Null
+            $shot = [System.Drawing.Bitmap]::new(12, 12); $g = [System.Drawing.Graphics]::FromImage($shot)
+            $g.CopyFromScreen($r.L, $r.T, 0, 0, $shot.Size); $g.Dispose()
+            $cut = 0; for ($d = 0; $d -lt 12; $d++) { $c = $shot.GetPixel($d, $d); if (-not ($c.B -gt 200 -and $c.R -lt 60)) { $cut++ } else { break } }
+            $shot.Dispose()
+            $cut
+        } finally { $opened | ForEach-Object { if (-not $_.HasExited) { $_.Kill() } }; Start-Sleep -Milliseconds 300 }
+    }
+    if ([Environment]::OSVersion.Version.Build -ge 22000) {
+        $square = CornerCut 'square'; $small = CornerCut 'small'; $round = CornerCut 'round'
+        Report 'theme.corners: the window''s own corners are square, small or round' ($square -le 1 -and $small -gt $square -and $round -gt $small) "pixels cut off down the corner's diagonal, read from the screen: square $square, small $small, round $round"
+    } else {
+        "SKIP  theme.corners: this Windows (build $([Environment]::OSVersion.Version.Build)) does not let a program choose its window's corners"
+    }
+    $whole = SeenThrough 1; $half = SeenThrough 0.5
+    $mixed = $half -match '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -and [Math]::Abs([Convert]::ToInt32($Matches[1], 16) - 0x80) -le 8 -and [Convert]::ToInt32($Matches[2], 16) -le 8 -and [Math]::Abs([Convert]::ToInt32($Matches[3], 16) - 0x80) -le 8
+    Report 'theme.opacity: what is behind shows through, by that much' ($whole -eq '#0000ff' -and $mixed) "on the screen, a blue window over a red one: opacity 1 gives $whole (#0000ff), 0.5 gives $half (an even mix is #80007f)"
+}
 if ($Section -in 'all', 'edges') {
     "--- edges ---"
     $t = Run 'badkey' "echo still-works{ENTER}" "[font]`nsise = 12" -keep
@@ -836,9 +1056,11 @@ if ($Section -in 'all', 'graphics') {
         $video = Join-Path $work 'video.mp4'
         ffmpeg -v error -y -f lavfi -i "color=c=$($quarters.red.TrimStart('#')):s=64x64:d=2:r=10" -f lavfi -i "color=c=$($quarters.blue.TrimStart('#')):s=64x64:d=2:r=10" -filter_complex '[0][1]concat=n=2:v=1[v]' -map '[v]' -pix_fmt yuv420p $video
         # yuv420p keeps a color within a few steps of 255: 6 here.
-        function Near([string]$name, [string]$hex) { $p = PixelAt $name 40 120; $a = [Convert]::ToInt32($p.TrimStart('#'), 16); $b = [Convert]::ToInt32($hex.TrimStart('#'), 16); (0, 8, 16 | ForEach-Object { [Math]::Abs((($a -shr $_) -band 255) - (($b -shr $_) -band 255)) } | Measure-Object -Maximum).Maximum -le 6 }
+        # A point inside the picture: the command takes two rows of the window, the picture begins under them.
+        $InVideo = $Row.Y + 2 * $Row.H + 20
+        function Near([string]$name, [string]$hex) { $p = PixelAt $name 40 $InVideo; $a = [Convert]::ToInt32($p.TrimStart('#'), 16); $b = [Convert]::ToInt32($hex.TrimStart('#'), 16); (0, 8, 16 | ForEach-Object { [Math]::Abs((($a -shr $_) -band 255) - (($b -shr $_) -band 255)) } | Measure-Object -Maximum).Maximum -le 6 }
         Run 'video' "ut view '$video' --width 8{ENTER}{WAIT:1000}{SHOT:video-1s}{WAIT:2000}{SHOT:video-3s}{WAIT:2500}" | Out-Null
-        Report 'a video plays in the window, at its own pace' ((Near 'video-1s' $quarters.red) -and (Near 'video-3s' $quarters.blue)) "at 1 s: $(PixelAt 'video-1s' 40 120) (red $($quarters.red)); at 3 s: $(PixelAt 'video-3s' 40 120) (blue $($quarters.blue))"
+        Report 'a video plays in the window, at its own pace' ((Near 'video-1s' $quarters.red) -and (Near 'video-3s' $quarters.blue)) "at 1 s: $(PixelAt 'video-1s' 40 $InVideo) (red $($quarters.red)); at 3 s: $(PixelAt 'video-3s' 40 $InVideo) (blue $($quarters.blue))"
         $long = Join-Path $work 'video-long.mp4'
         ffmpeg -v error -y -f lavfi -i 'testsrc=s=64x64:d=10:r=10' -pix_fmt yuv420p $long
         $t = Run 'video-q' "ut view '$long' --width 8{ENTER}{WAIT:1500}q{WAIT:900}echo stopped-early{ENTER}{WAIT:700}"
@@ -883,7 +1105,8 @@ if ($Section -in 'all', 'agents') {
     function Cards([string]$name) {
         $i = [System.Drawing.Bitmap]::FromFile((Join-Path $work "$name.png"))
         try {
-            $right = $i.Width - 8; $x = $right - 300 + 12; $back = $i.GetPixel($right - 300 + 4, $i.Height - 30)
+            # The sidebar is 268 px wide; its cards begin 16 px in. Down a column 4 px inside a card: no text there.
+            $right = $i.Width - 8; $x = $right - 268 + 16 + 4; $back = $i.GetPixel($right - 268 + 4, $i.Height - 30)
             $runs = 0; $run = 0
             for ($y = 95; $y -lt $i.Height - 10; $y++) {
                 $p = $i.GetPixel($x, $y)
@@ -905,14 +1128,14 @@ if ($Section -in 'all', 'agents') {
     # A click on the first card runs agents.focus with its pane; when that fails, the place is copied.
     $went = Join-Path $work 'went'
     New-Item -ItemType Directory -Force $went | Out-Null
-    $t = Run 'agents-go' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}echo typed-after-click{ENTER}{WAIT:600}" "[agents]`nsidebar = true`n$list`nfocus = ['$utExe', 'touch', '$went\{pane}']"
+    $t = Run 'agents-go' "{WAIT:1500}{CLICK:800,140}{WAIT:1500}echo typed-after-click{ENTER}{WAIT:600}" "[agents]`nsidebar = true`n$list`nfocus = ['$utExe', 'touch', '$went\{pane}']"
     $made = @(Get-ChildItem $went -Name)
     Report 'a click on a card runs agents.focus with its pane' ($made.Count -eq 1 -and $made[0] -eq '%12') "made: $($made -join ', ') (the first card's pane is %12)"
     Report 'after a click on a card, the keys still go to the terminal' ((Count $t 'typed-after-click') -ge 2) "'typed-after-click' on the screen: $(Count $t 'typed-after-click') (the line and its output)"
     $saved = Get-Clipboard -Raw
     try {
         Set-Clipboard 'nothing yet'
-        Run 'agents-copy' "{WAIT:1500}{CLICK:760,120}{WAIT:1500}" "[agents]`nsidebar = true`n$list`nfocus = ['unifyterm-no-such-program', '{pane}']" | Out-Null
+        Run 'agents-copy' "{WAIT:1500}{CLICK:800,140}{WAIT:1500}" "[agents]`nsidebar = true`n$list`nfocus = ['unifyterm-no-such-program', '{pane}']" | Out-Null
         $copied = Get-Clipboard -Raw
         Report 'when going there fails, the place is copied' ($copied -eq 'work:1.0' -and (Logged) -match 'going to %12') "clipboard: '$copied'; logged: $((Logged) -match 'going to %12')"
     } finally { if ($null -ne $saved) { Set-Clipboard -Value $saved } }

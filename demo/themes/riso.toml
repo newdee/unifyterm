@@ -5,6 +5,18 @@ foreground = "#22263d"
 background = "#fbf5e7"
 cursor = "#9c301d"
 selection = "#e3d4c3"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#f3ead7"
+panel = "#f7efde"
+well = "#ebdcc3"
+rule = "#cec1a7"
+edge = "#9a8b70"
+muted = "#514c50"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "riso.png"
+# The preview page draws this theme's window with smaller corners.
+corners = "small"
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white
   "#22263d", "#9a2535", "#365d35", "#795010", "#304b99", "#693687", "#165376", "#efe5cf",

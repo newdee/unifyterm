@@ -61,6 +61,12 @@ const LINES_PER_NOTCH: usize = 3;
 /// How far inside a cell a point at the screen's far edge is taken to be,
 /// so that it counts as the last cell and not one past it.
 const INSIDE_LAST_CELL: f32 = 0.01;
+/// The list of commands and the boxes, which lie over the text: how far
+/// their text is in from their sides, and how far the mark of the row in use
+/// is from that row's top and bottom. As the preview page draws them
+/// (demo/appearance.html).
+const OVER_TEXT_INSET: f32 = 12.0;
+const CHOSEN_MARK_INSET: f32 = 4.0;
 
 pub(crate) struct TerminalView {
     session: Session,
@@ -1174,7 +1180,8 @@ impl Render for TerminalView {
         div()
             .track_focus(&self.focus)
             .size_full()
-            .bg(rgb(self.settings.theme.background.hex()))
+            // With `theme.opacity` under 1, what is behind the window shows through this color alone.
+            .bg(gpui::Hsla { a: self.settings.theme.opacity, ..hsla(self.settings.theme.background) })
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_key_down(cx.listener(Self::key_down))
@@ -1339,29 +1346,46 @@ impl TerminalView {
         let widest = lines.iter().map(|(text, _)| width_of(text)).max().unwrap_or(0) + 2;
         let width = widest.min(usize::from(columns).saturating_sub(2)).max(20);
         let at = self.origin - self.view_origin + point(self.cell.width, self.cell.height * factor(first));
-        let dim = theme.foreground.toward(theme.background, 0.45);
-        Some(
-            div()
-                .absolute()
-                .left(at.x)
-                .top(at.y)
-                .w(self.cell.width * factor(width))
-                .bg(hsla(theme.background.toward(theme.foreground, 0.08)))
-                .border_1()
-                .border_color(hsla(theme.indexed(12)))
-                .font_family(SharedString::from(self.settings.config.font.family.clone()))
-                .text_size(self.font_size())
-                .line_height(self.cell.height)
-                .children(lines.into_iter().map(|(text, heading)| {
-                    let color = if heading { theme.foreground } else { dim };
-                    div()
-                        .px(px(6.))
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .text_color(hsla(color))
-                        .child(SharedString::from(text))
-                })),
-        )
+        Some(self.over_the_text(at, self.cell.width * factor(width) + px(2. * OVER_TEXT_INSET)).children(
+            lines.into_iter().map(|(text, heading)| {
+                div()
+                    .px(px(OVER_TEXT_INSET))
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_color(hsla(if heading { theme.foreground } else { theme.muted() }))
+                    .when(heading, |line| line.font_weight(FontWeight::SEMIBOLD))
+                    .child(SharedString::from(text))
+            }),
+        ))
+    }
+
+    /// What lies over the text (the list of commands, a box): a panel with
+    /// a line around it and a shadow under it, at `at` in the view, `width`
+    /// wide, with the terminal's letters in the terminal's line height.
+    ///
+    /// It stays inside the text's own width: one that would go past the last
+    /// column begins further left.
+    fn over_the_text(&self, at: Point<Pixels>, width: Pixels) -> gpui::Div {
+        let theme = &self.settings.theme;
+        let first_column = (self.origin - self.view_origin).x;
+        let past_last_column = first_column + self.cell.width * factor(usize::from(self.session.size().0));
+        let width = if width > past_last_column - first_column { past_last_column - first_column } else { width };
+        let left = if at.x + width > past_last_column { past_last_column - width } else { at.x };
+        let left = if left < first_column { first_column } else { left };
+        div()
+            .absolute()
+            .left(left)
+            .top(at.y)
+            .w(width)
+            .bg(hsla(theme.panel()))
+            .border_1()
+            .border_color(hsla(theme.edge()))
+            .rounded(px(theme.panel_rounding()))
+            .overflow_hidden()
+            .shadow_lg()
+            .font_family(SharedString::from(self.settings.config.font.family.clone()))
+            .text_size(self.font_size())
+            .line_height(self.cell.height)
     }
 
     /// The list of commands from the history and of words from the command
@@ -1372,7 +1396,8 @@ impl TerminalView {
         let input = self.session.input()?;
         let theme = &self.settings.theme;
         let (columns, lines) = self.session.size();
-        let count = rows.len();
+        // The rows, and the heading above them.
+        let count = rows.len() + 1;
         let below = input.cursor.0 + 1;
         let first_line = if below + count <= usize::from(lines) { below } else { input.cursor.0.saturating_sub(count) };
         let now = unifyterm_history::now_ms();
@@ -1393,40 +1418,57 @@ impl TerminalView {
         let text_origin = self.origin - self.view_origin;
         let at =
             text_origin + point(self.cell.width * factor(input.start_column), self.cell.height * factor(first_line));
-        let dim = theme.foreground.toward(theme.background, 0.45);
-        let accent = theme.indexed(12);
-        let list = div()
-            .absolute()
-            .left(at.x)
-            .top(at.y)
-            .w(self.cell.width * factor(width))
-            .bg(hsla(theme.background.toward(theme.foreground, 0.08)))
-            .border_1()
-            .border_color(hsla(dim))
-            .font_family(SharedString::from(self.settings.config.font.family.clone()))
-            .text_size(self.font_size())
-            .line_height(self.cell.height)
+        let (muted, accent) = (hsla(theme.muted()), hsla(theme.accent()));
+        // What the rows are: commands that ran, or (with none of those) a program's own words.
+        let heading =
+            if matches!(rows.first(), Some(candidates::Row::Ran(_))) { "Command history" } else { "Commands" };
+        let head = div()
+            .flex()
+            .flex_row()
+            .justify_between()
+            .px(px(OVER_TEXT_INSET))
+            .whitespace_nowrap()
+            .overflow_hidden()
+            .border_b_1()
+            .border_color(hsla(theme.rule()))
+            .text_color(muted)
+            .child(div().text_color(hsla(theme.foreground)).font_weight(FontWeight::SEMIBOLD).child(heading))
+            .child(div().pl(px(OVER_TEXT_INSET)).child("↑ ↓ choose · Tab fill"));
+        let list = self
+            .over_the_text(at, self.cell.width * factor(width) + px(2. * OVER_TEXT_INSET))
+            .child(head)
             .children(rows.iter().enumerate().map(|(index, row)| {
                 let (before, matched, after) = split_match(row.text(), typed);
                 let info = beside(row);
-                let line = div()
+                let current = chosen == Some(index);
+                // The row in use has the selection's color behind it and a short line at its left.
+                let mark = div()
+                    .absolute()
+                    .left_0()
+                    .top(px(CHOSEN_MARK_INSET))
+                    .bottom(px(CHOSEN_MARK_INSET))
+                    .w(px(2.))
+                    .rounded(px(1.))
+                    .bg(accent);
+                div()
+                    .relative()
                     .flex()
                     .flex_row()
                     .justify_between()
-                    .px(px(6.))
+                    .px(px(OVER_TEXT_INSET))
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .text_color(hsla(theme.foreground))
+                    .when(current, |line| line.bg(hsla(theme.selection)).child(mark))
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .child(SharedString::from(before.to_owned()))
-                            .child(div().text_color(hsla(accent)).child(SharedString::from(matched.to_owned())))
+                            .child(div().text_color(accent).child(SharedString::from(matched.to_owned())))
                             .child(SharedString::from(after.to_owned())),
                     )
-                    .child(div().pl(px(12.)).text_color(hsla(dim)).child(SharedString::from(info)));
-                if chosen == Some(index) { line.bg(hsla(theme.selection)) } else { line }
+                    .child(div().pl(px(OVER_TEXT_INSET)).text_color(muted).child(SharedString::from(info)))
             }));
         Some(list)
     }

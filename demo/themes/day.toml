@@ -5,6 +5,16 @@ foreground = "#14253a"
 background = "#f4f9fe"
 cursor = "#774000"
 selection = "#c8ddf5"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#e8eff6"
+panel = "#ebf3fb"
+well = "#dbe6f3"
+rule = "#c7d2df"
+edge = "#a4b3c3"
+muted = "#41546b"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "day.png"
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white
   "#14253a", "#9e2a34", "#155c36", "#774000", "#004d9f", "#59418f", "#005469", "#d9e3ec",

@@ -54,6 +54,23 @@ pub(crate) fn for_key(key: &Key) -> Option<Choices> {
     Some(Choices { items, pick })
 }
 
+/// The setting whose choices are the themes (see [`themes`]).
+pub(crate) const THEME: &str = "theme.name";
+
+/// The themes to choose from for the settings file `settings`: "not set"
+/// (the default theme), the ones UnifyTerm brings, and the user's own in
+/// the `themes` folder beside that file.
+pub(crate) fn themes(settings: &std::path::Path) -> Choices {
+    use unifyterm_config::themes::{self, Source};
+    let mut items = vec![Choice { value: String::new(), shown: "(default)".into(), note: themes::DEFAULT.into() }];
+    items.extend(themes::list(Some(&themes::directory(settings))).into_iter().map(|theme| Choice {
+        shown: theme.name.clone(),
+        value: theme.name,
+        note: if theme.source == Source::BuiltIn { "built in".into() } else { "yours".into() },
+    }));
+    Choices { items, pick: Pick::One }
+}
+
 /// The font families this system has, those whose letters are all one
 /// width first (a terminal's font is one of them), each once.
 fn fonts() -> Vec<Choice> {
@@ -120,6 +137,23 @@ mod tests {
         for typed in ["font.size", "ai.model", "theme.background", "agents.command"] {
             assert!(for_key(key(typed).unwrap()).is_none(), "{typed} is typed");
         }
+    }
+
+    #[test]
+    fn the_themes_to_choose_are_the_built_in_ones_and_the_users_own() {
+        let folder = tempfile::tempdir().unwrap();
+        let settings = folder.path().join("config.toml");
+        let listed = |settings: &std::path::Path| -> Vec<(String, String)> {
+            themes(settings).items.into_iter().map(|choice| (choice.value, choice.note)).collect()
+        };
+        let built_in = listed(&settings);
+        assert_eq!(built_in[0], (String::new(), "tokyo-night".to_owned()), "not set: the default one");
+        assert_eq!(built_in[1], ("tokyo-night".to_owned(), "built in".to_owned()));
+        assert_eq!(built_in.len(), unifyterm_config::themes::BUILT_IN.len() + 1);
+        std::fs::create_dir_all(folder.path().join("themes")).unwrap();
+        std::fs::write(folder.path().join("themes").join("paper.toml"), "").unwrap();
+        assert_eq!(listed(&settings).last(), Some(&("paper".to_owned(), "yours".to_owned())));
+        assert!(for_key(key(THEME).unwrap()).is_none(), "the screen asks with the file: not from the key alone");
     }
 
     #[test]
