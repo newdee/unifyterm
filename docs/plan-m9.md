@@ -167,4 +167,4 @@ keepane 需要一个打印 OpenCLI 文档的命令。它现有的表（`COMMANDS
 5. 验收三轮，记入 `docs/verification-log.md`。
 6. 在群聊里把格式和命令告诉 keepane 一侧。
 
-发版另行决定。
+随 0.4.0 发版（2026-11-24）。
