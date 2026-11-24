@@ -13,7 +13,8 @@
 #                    the meaning that JSON file gives the part, as {"tar": "..."})
 #   command, note    for a sentence: "echo asked-by-model"; a sentence with "delete" in it gets
 #                    "rm -rf zz-not-there", with "two lines" a command of two lines, with
-#                    "nothing" an empty command
+#                    "nothing" an empty command, with "short form" "git status --short", with
+#                    "frob" "git status --frobnicate" (an option git does not have)
 # The key `bad-key` gets 401, as a wrong key would.
 # -Takes: which `response_format` the chat-completions shape accepts. `object` refuses
 # json_schema with 400, as a service that knows only JSON mode does; `none` refuses both.
@@ -65,7 +66,7 @@ while ($listener.IsListening) {
         @{ parts = @($command -split ' ' | Where-Object { $_ } | ForEach-Object { $n++; @{ text = $_; meaning = $(if ($known.ContainsKey($_)) { $known[$_] } else { "part $n" }) } }) }
     } elseif ($system.Contains('"note"')) {
         $words = [regex]::Match($user, '(?m)^Request: (.*)$').Groups[1].Value
-        $command = if ($words -match 'delete') { 'rm -rf zz-not-there' } elseif ($words -match 'two lines') { "echo one`necho two" } elseif ($words -match 'nothing') { '' } else { 'echo asked-by-model' }
+        $command = if ($words -match 'delete') { 'rm -rf zz-not-there' } elseif ($words -match 'two lines') { "echo one`necho two" } elseif ($words -match 'nothing') { '' } elseif ($words -match 'frob') { 'git status --frobnicate' } elseif ($words -match 'short form') { 'git status --short' } else { 'echo asked-by-model' }
         @{ command = $command; note = 'the fake model always says this' }
     } else {
         @{ command = 'echo fixed-by-model'; reason = 'the fake model always says this' }

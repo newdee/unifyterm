@@ -1,7 +1,9 @@
-//! The list of commands from the history shown under the input line while
-//! the user types: which input it is for, which row is chosen, what the
-//! keys do. Drawing it is `terminal.rs`'s; asking the history is the
-//! recorder's. This part has no window, so tests drive it.
+//! The list shown under the input line while the user types: commands from
+//! the history, and after them the words a program's own command list has
+//! for the word being typed. Which input it is for, which row is chosen,
+//! what the keys do. Drawing it is `terminal.rs`'s; asking the history is
+//! the recorder's, the command lists are the helper's. This part has no
+//! window, so tests drive it.
 //!
 //! | key            | with the list showing                                   |
 //! |----------------|---------------------------------------------------------|
@@ -12,6 +14,26 @@
 //! | Esc            | close the list until the input changes                  |
 
 use unifyterm_history::Candidate;
+use unifyterm_programs::Offer;
+
+/// A row of the list.
+#[derive(Debug, Clone)]
+pub(crate) enum Row {
+    /// A command run before, from the history.
+    Ran(Candidate),
+    /// The line with a word of its program's command list in place.
+    Listed(Offer),
+}
+
+impl Row {
+    /// The line the row puts on the input line.
+    pub(crate) fn text(&self) -> &str {
+        match self {
+            Self::Ran(candidate) => &candidate.text,
+            Self::Listed(offer) => &offer.line,
+        }
+    }
+}
 
 /// A key the list may take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +62,7 @@ pub(crate) enum Outcome {
 pub(crate) struct Candidates {
     /// The input the rows are for.
     shown_for: Option<String>,
-    rows: Vec<Candidate>,
+    rows: Vec<Row>,
     chosen: Option<usize>,
     /// The input the list was closed for, or filled with: no list until it changes.
     quiet_for: Option<String>,
@@ -69,20 +91,28 @@ impl Candidates {
         Some((self.asked, text.to_owned()))
     }
 
-    /// The history's answer to question `number`. An answer to an older one is dropped.
-    pub(crate) fn answer(&mut self, number: u64, rows: Vec<Candidate>) {
+    /// The answer to question `number`: the history's commands, then the command lists'
+    /// words. An answer to an older question is dropped.
+    pub(crate) fn answer(&mut self, number: u64, ran: Vec<Candidate>, listed: Vec<Offer>) {
         if number != self.asked {
             return;
         }
         let input = self.asked_for.clone().unwrap_or_default();
         // The input itself is no suggestion.
-        self.rows = rows.into_iter().filter(|row| row.text != input).collect();
+        let mut rows: Vec<Row> = ran.into_iter().filter(|row| row.text != input).map(Row::Ran).collect();
+        for offer in listed {
+            // A line the history already gave is shown once, with what the history knows of it.
+            if offer.line != input && rows.iter().all(|row| row.text() != offer.line) {
+                rows.push(Row::Listed(offer));
+            }
+        }
+        self.rows = rows;
         self.shown_for = Some(input);
         self.chosen = None;
     }
 
     /// The rows to draw and the chosen one; `None` when the list is closed.
-    pub(crate) fn visible(&self) -> Option<(&[Candidate], Option<usize>, &str)> {
+    pub(crate) fn visible(&self) -> Option<(&[Row], Option<usize>, &str)> {
         let input = self.shown_for.as_deref()?;
         (!self.rows.is_empty() && self.quiet_for.is_none()).then_some((self.rows.as_slice(), self.chosen, input))
     }
@@ -96,7 +126,7 @@ impl Candidates {
             (Key::Previous, None) => self.chosen = Some(count - 1),
             (Key::Previous, Some(at)) => self.chosen = Some((at + count - 1) % count),
             (Key::Take | Key::Enter, Some(at)) => {
-                let text = rows[at].text.clone();
+                let text = rows[at].text().to_owned();
                 self.quiet_for = Some(text.clone());
                 self.chosen = None;
                 return Outcome::Fill(text);
@@ -139,7 +169,7 @@ mod tests {
     }
 
     fn shown(list: &Candidates) -> Vec<String> {
-        list.visible().map(|(rows, _, _)| rows.iter().map(|row| row.text.clone()).collect()).unwrap_or_default()
+        list.visible().map(|(rows, _, _)| rows.iter().map(|row| row.text().to_owned()).collect()).unwrap_or_default()
     }
 
     #[test]
@@ -151,9 +181,9 @@ mod tests {
         assert_eq!(list.question(Some("gi")), None, "the same input: asked already");
         let (second, text) = list.question(Some("git")).unwrap();
         assert_eq!(text, "git");
-        list.answer(first, rows(&["gist"]));
+        list.answer(first, rows(&["gist"]), Vec::new());
         assert!(list.visible().is_none(), "an answer to an older question is dropped");
-        list.answer(second, rows(&["git status", "git", "git push"]));
+        list.answer(second, rows(&["git status", "git", "git push"]), Vec::new());
         assert_eq!(shown(&list), ["git status", "git push"], "the input itself is not offered");
         assert_eq!(list.visible().unwrap().2, "git");
         list.question(None);
@@ -164,7 +194,7 @@ mod tests {
     fn keys_choose_around_the_ends_and_fill_without_running() {
         let mut list = Candidates::default();
         let (number, _) = list.question(Some("git")).unwrap();
-        list.answer(number, rows(&["git status", "git push", "git log"]));
+        list.answer(number, rows(&["git status", "git push", "git log"]), Vec::new());
         assert_eq!(list.key(Key::Enter), Outcome::Passed, "nothing chosen: Enter is the shell's");
         assert_eq!(list.key(Key::Take), Outcome::Passed, "and Tab too");
         assert_eq!(list.key(Key::Previous), Outcome::Taken);
@@ -182,21 +212,48 @@ mod tests {
     fn escape_closes_until_the_input_changes() {
         let mut list = Candidates::default();
         let (number, _) = list.question(Some("ca")).unwrap();
-        list.answer(number, rows(&["cargo test", "cat x"]));
+        list.answer(number, rows(&["cargo test", "cat x"]), Vec::new());
         assert_eq!(list.key(Key::Close), Outcome::Taken);
         assert!(list.visible().is_none());
         assert_eq!(list.question(Some("ca")), None, "the same input: still closed");
         assert_eq!(list.key(Key::Next), Outcome::Passed, "closed: keys are the shell's");
         let (number, _) = list.question(Some("car")).unwrap();
-        list.answer(number, rows(&["cargo test"]));
+        list.answer(number, rows(&["cargo test"]), Vec::new());
         assert_eq!(shown(&list), ["cargo test"]);
+    }
+
+    #[test]
+    fn the_command_lists_words_come_after_the_history_s_commands() {
+        let offer = |line: &str, note: &str| Offer { line: line.into(), note: note.into() };
+        let mut list = Candidates::default();
+        let (number, _) = list.question(Some("panes sp")).unwrap();
+        let listed =
+            vec![offer("panes split-window", "Split a pane"), offer("panes sp", "the input"), offer("panes spawn", "")];
+        list.answer(number, rows(&["panes split-window", "panes split-window -h"]), listed);
+        assert_eq!(
+            shown(&list),
+            ["panes split-window", "panes split-window -h", "panes spawn"],
+            "the history's first; a line it gave is not shown again; the input is not offered"
+        );
+        let (rows, _, _) = list.visible().unwrap();
+        assert!(matches!(&rows[0], Row::Ran(_)) && matches!(&rows[2], Row::Listed(offer) if offer.note.is_empty()));
+        list.key(Key::Previous);
+        assert_eq!(
+            list.key(Key::Take),
+            Outcome::Fill("panes spawn".into()),
+            "a listed word fills the line like any row"
+        );
+
+        let (number, _) = list.question(Some("panes k")).unwrap();
+        list.answer(number, Vec::new(), vec![offer("panes kill-pane", "Close a pane")]);
+        assert_eq!(shown(&list), ["panes kill-pane"], "with nothing in the history, the lists' words alone");
     }
 
     #[test]
     fn an_empty_answer_shows_nothing() {
         let mut list = Candidates::default();
         let (number, _) = list.question(Some("zz")).unwrap();
-        list.answer(number, Vec::new());
+        list.answer(number, Vec::new(), Vec::new());
         assert!(list.visible().is_none());
         assert_eq!(list.key(Key::Next), Outcome::Passed);
     }

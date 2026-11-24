@@ -24,7 +24,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 pub use command::Command;
-pub use local::{distance, local_fix};
+pub use local::local_fix;
 pub use provider::{Anthropic, OpenAiCompatible, Provider, Tokens};
 pub use reads::only_reads;
 
@@ -262,6 +262,8 @@ pub struct Ask<'a> {
     pub system: &'a str,
     /// Programs that are there besides the system's own (UnifyTerm's commands), by name.
     pub programs: &'a [String],
+    /// What programs say of their own commands, as text (the command lists); empty when none does.
+    pub described: &'a str,
     /// The last commands, newest first.
     pub recent: &'a [String],
 }
@@ -281,6 +283,8 @@ pub fn ask(provider: &dyn Provider, ask: &Ask<'_>) -> Result<Option<Asked>, Erro
     } else {
         format!("\nThese programs are there too, whatever the system: {}", ask.programs.join(" "))
     };
+    let described =
+        if ask.described.trim().is_empty() { String::new() } else { format!("\n{}", ask.described.trim_end()) };
     let request = Request {
         system: format!(
             "You write one command line for a terminal user who says in words what it is to do. The shell is {} \
@@ -291,7 +295,7 @@ pub fn ask(provider: &dyn Provider, ask: &Ask<'_>) -> Result<Option<Asked>, Erro
             ask.shell, ask.system
         ),
         user: format!(
-            "Directory: {}{programs}\nRecent commands, newest first:\n{}\nRequest: {}",
+            "Directory: {}{programs}{described}\nRecent commands, newest first:\n{}\nRequest: {}",
             clean(ask.cwd),
             recent.join("\n"),
             clean(ask.words)
@@ -422,7 +426,7 @@ mod tests {
     }
 
     fn asking<'a>(words: &'a str, recent: &'a [String], programs: &'a [String]) -> Ask<'a> {
-        Ask { words, cwd: "C:/work", shell: PWSH, system: "Windows", programs, recent }
+        Ask { words, cwd: "C:/work", shell: PWSH, system: "Windows", programs, described: "", recent }
     }
 
     #[test]
@@ -448,6 +452,15 @@ mod tests {
         let alone = Fixed::new(vec![Ok(r#"{"command": "ls", "note": ""}"#.into())]);
         ask(&alone, &asking("x", &[], &[])).unwrap();
         assert!(!alone.sent().contains("too, whatever"), "no other programs: nothing is said of them");
+        assert!(alone.sent().contains("Directory: C:/work\nRecent commands"), "nor of what programs describe");
+        let described = Fixed::new(vec![Ok(r#"{"command": "panes kill-pane", "note": ""}"#.into())]);
+        let lists = "Programs on this machine that describe their own commands:\n- panes 1.2.0: Panes.\n";
+        ask(&described, &Ask { described: lists, ..asking("close the pane", &[], &[]) }).unwrap();
+        assert!(
+            described.sent().contains("Directory: C:/work\nPrograms on this machine that describe their own commands:\n- panes 1.2.0: Panes.\nRecent commands"),
+            "what programs say of their commands goes along: {}",
+            described.sent()
+        );
         let none = Fixed::new(vec![Ok(r#"{"command": "  ", "note": "that is not a command's work"}"#.into())]);
         assert_eq!(ask(&none, &asking("write me a poem", &recent, &[])).unwrap(), None);
         let comment = Fixed::new(vec![Ok(r##"{"command": "# no command does that", "note": ""}"##.into())]);

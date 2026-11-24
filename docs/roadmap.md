@@ -18,7 +18,7 @@
 ## 下一步（2026-11-23 定）
 
 1. **M8：用一句话写命令；更多的模型来源。** 已做完，随 0.3.0 发布（2026-11-24）。设计和实现时改动的决定在 `docs/plan-m8.md`。行首 `#` 加一句话，回车后换成命令；来源增加 OpenAI、Ollama、LM Studio、vLLM 的预设，和本机的 agent 命令行（Claude Code、Codex、pi、任意命令）。不带模型，不下载模型。还没有用真实的 Ollama、LM Studio、vLLM、OpenAI 试过。
-2. **命令清单协议**（用户在做宣传视频期间提出，还没有设计）：程序（先是 keepane）声明自己有哪些命令和参数，UnifyTerm 收集起来，用在打字时的提示、打错时的纠正和解释里。M8 的模型也能用这份清单，少编不存在的参数。
+2. **M9：命令清单协议。** UnifyTerm 一侧已做完（2026-11-24），在 `main` 上，还没有发版。设计和实现时改动的决定在 `docs/plan-m9.md`。程序用 OpenCLI 0.1（JSON）说明自己的命令、选项和参数；`ut program add` 存进数据目录的 `programs/`；窗口用它做四件事：输入行下面的列表、失败后的纠正、不用模型的解释（Ctrl-Shift-E）、给模型看并核对模型的回答。用 git、curl、ffmpeg、dotnet 的真实清单试过。keepane 一侧（打印自己的清单）已在群聊 `#unifyterm-keepane` 里提出，还没有做。
 
 ## 自己的 shell：另起一个项目 UnifyShell
 

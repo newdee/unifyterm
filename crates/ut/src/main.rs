@@ -15,6 +15,7 @@ mod jq;
 mod links;
 mod mcp;
 mod md;
+mod program;
 mod setting;
 mod shell;
 mod slash;
@@ -275,6 +276,7 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut md [FILE]                      markdown as styled text ('ut md --help')
        ut setting                        UnifyTerm's settings, to see and change ('ut setting --help')
        ut shell enable|disable|status    these commands in every shell, not only in UnifyTerm's tabs
+       ut program [add FILE]             the programs whose commands UnifyTerm knows ('ut program --help')
        ut mcp                            an MCP server for agents: the history, these commands' help
        ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/unifyterm/SKILL.md
        ut --version
@@ -370,6 +372,7 @@ fn ut(args: &[OsString]) -> i32 {
         Some("md") => md::main(&args[1..]),
         Some("setting" | "settings") => setting::main(&args[1..]),
         Some("shell") => shell::main(&args[1..]),
+        Some("program" | "programs") => program::main(&args[1..]),
         Some("mcp") => {
             let names = commands().into_iter().map(|(name, _)| name.to_owned()).collect();
             mcp::main(&args[1..], names, help)

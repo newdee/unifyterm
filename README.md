@@ -138,7 +138,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 | `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
 
-Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, what you write after `#`, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first.
+Nothing is sent to a model until `ai.provider` names one **and** you agree in the window (once). What is sent, as the window says when it asks: the command line you type, what you write after `#`, the directory (your home as `~`), your last five commands, and for a command that was not found the last 40 lines it printed. Anything that looks like a password, token or key is replaced first. With a sentence (`#`) the command lists go along too (below): one line for each program that has one, and the commands of the programs the sentence or your last commands name.
 
 **Where the model is** (`ai.provider`):
 
@@ -160,6 +160,15 @@ UnifyTerm brings no model and downloads none. A service is asked for JSON that f
 An agent's command line is started once for each question, with its tools off (Claude Code `--tools ""`, Codex `--sandbox read-only`, pi `--no-tools`), no session kept, in an empty directory of its own under UnifyTerm's data: it can answer, and nothing else. It takes 10 to 40 seconds and counts against your plan with that agent, so it gives corrections, explanations and commands for sentences, but no grey suggestions. It gets 90 seconds; then it is stopped. A program of your own (`command`) gets the question on its standard input, or in place of `{prompt}` in an argument, and prints the answer; what it may do is its own business. Cursor's command line is not among these: its documentation says that print mode writes files whatever the flags, so it cannot be made to only answer.
 
 **A command for a sentence.** With a model set, type `#` and what you want at the prompt, then Enter: `# the five largest files here`. UnifyTerm asks the model and puts its command on the input line in place of the sentence. It is not run: read it, change it, press Enter. Ctrl-Shift-E explains it. With `ai.ask_enter = "auto"` a command that only reads is run at once; "only reads" means every program on the line is one of a short list (`ls`, `cat`, `grep`, `find` without `-delete` or `-exec`, `git status`, PowerShell's `Get-…` and the like) and the line writes nothing (`>`), runs nothing inside itself (`$(…)`, `{…}`) and nothing in the background. Anything else waits for your Enter, and so does every command in cmd.exe. With no model set, or `ai.ask = false`, such a line goes to the shell as before, which takes it as a comment.
+
+**Command lists.** A program can say what its commands, options and arguments are, in a file in the [OpenCLI](https://opencli.org) format (JSON). `ut program add FILE` keeps such a file (`PROGRAM ... | ut program add -` reads it from the program itself). An open window reads it as you type on (it looks at the folder at most every two seconds): no restart. UnifyTerm runs no program to get one, and nothing in a list is ever run. With a program's list, and with no model:
+
+- The list under the input line also has the program's own words for the word you are typing, after the commands from the history, at most 6: its commands (`git st` gives `stash` and `status` among them), its options once you type `-`, and the values an option or an argument takes when the list names them. Beside each is the first sentence of what the list says of it. `history.candidates = false` turns the whole list off.
+- When a command of the program fails and one of its words is no command or `--option` the list has, but is one or two keystrokes from one that is, the corrected line is offered (`git comit -m x` gives `git commit -m x`). Enter puts it on the input line, not run. `ai.fix = false` turns it off.
+- Ctrl-Shift-E tells what each word of the line is, from the list, at once; nothing is sent. This is for a line that is one command (no pipe, redirection or variable); any other line goes to the model as before, with what the list says of the command used.
+- A command the model wrote for a sentence is checked against the list: when it uses a command or `--option` the list does not have, the box says so, and the command is not run even with `ai.ask_enter = "auto"`.
+
+A list is as good as the program made it. A word the list does not have may still be right (a git alias, a plug-in); it is named, never refused. Names in a list that hold a blank or a character a shell reads are left out when the file is read. The OpenCLI project has lists for git, curl, ffmpeg and dotnet among its [examples](https://github.com/spectreconsole/open-cli/tree/main/examples).
 
 A tab starts in your home directory, however UnifyTerm was started: from the Dock, the Start menu, a launcher or another shell. `unifyterm --cwd DIRECTORY` starts the tabs in another one (`unifyterm --cwd .` for the directory you are in).
 
@@ -195,6 +204,12 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut mcp` | An MCP server on standard input and output (below) |
 | `ut skill [--install DIR]` | The agents' skill file, printed or written to `DIR/unifyterm/SKILL.md` |
 | `ut shell enable\|disable\|status` | These commands in every shell, not only in UnifyTerm's tabs (above) |
+| `ut program` | The programs whose command lists UnifyTerm has: name, version, how many commands and options |
+| `ut program add FILE\|-` | Check a command list and keep it (`-` reads standard input) |
+| `ut program check FILE\|-` | Check it only: for who writes one |
+| `ut program show NAME [WORD...]` | A program's commands, or one command with its options and arguments |
+| `ut program remove NAME` | Forget a program's list |
+| `ut program directory` | Print the folder the lists are kept in |
 
 ## For agents
 
@@ -207,7 +222,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | What | Windows | macOS | Linux |
 |---|---|---|---|
 | Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
-| History, log, links | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
+| History, log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
 The history is one SQLite file, `history.db`; a copy works on every system. `update.json` beside it keeps what GitHub last said about the latest version (`updates.check`): once a day the window asks `api.github.com` for it, telling it only `unifyterm/VERSION`.
 
@@ -223,6 +238,7 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - On Windows the command links are hard links to `ut.exe`: after an update they lead to the old one until UnifyTerm opens a window or `ut shell enable` runs again.
 - Where the model is: Claude Code and Codex were tried with their real answers (a command with a fitting program for 30 of 30 sentences with Claude Code, 10 of 10 with Codex). The services (`openai`, `ollama`, `lm-studio`, `vllm`) are written to their documents and tried against a stand-in on this machine, not yet against the real thing; `pi` is written to its documents. No model is right every time: read a command before you run it.
 - A correction from an agent's command line comes 10 to 40 seconds after the command that was not found, and each one starts the agent once: `ai.fix = false` turns that off.
+- Command lists: a list tells the commands a program has, not what is on this machine now, so there are no session names, branch names or file names in what is offered. OpenCLI is a draft (version 0.1); UnifyTerm reads the root shape of 2026-04 and the one before it. The lists tried: git, curl, ffmpeg and dotnet from the OpenCLI project's examples, and small ones written for the tests.
 - The builds are not signed.
 
 ## License

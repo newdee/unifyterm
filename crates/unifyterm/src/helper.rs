@@ -14,6 +14,7 @@ use unifyterm_assist::{
     Anthropic, Ask, Asked, Command, Context, Error, Failure, Fix, OpenAiCompatible, Part, Provider, Tokens,
 };
 use unifyterm_config::providers::Reach;
+use unifyterm_programs::{Explained, Offer, Programs};
 
 use crate::config::{AiConfig, AskEnter, Provider as ProviderSetting};
 
@@ -39,7 +40,13 @@ pub(crate) enum Feature {
 
 /// What may be sent, as the window asks the user.
 pub(crate) const WHAT_IS_SENT: &str = "The command line you type (secrets replaced), what you write after # at the \
-prompt, the directory, your last five commands, and for a command that was not found, the last 40 lines it printed.";
+prompt, the directory, your last five commands, and for a command that was not found, the last 40 lines it printed. \
+With #, also what programs say of their own commands (ut program).";
+/// How many words of the command lists are offered under the input line at a time.
+const OFFERED: usize = 6;
+/// The most text of the command lists sent along with a sentence, and with a command to explain, in bytes.
+const DESCRIBED_WITH_A_SENTENCE: usize = 16 * 1024;
+const DESCRIBED_WITH_A_COMMAND: usize = 8 * 1024;
 /// The directory, in UnifyTerm's data, where an agent's command line runs: nothing is in it.
 const AGENT_DIRECTORY: &str = "agent-cwd";
 
@@ -66,6 +73,8 @@ pub(crate) struct Helper {
     ut: Option<(PathBuf, Vec<String>)>,
     /// The programs the shells can find, by name: what a misspelt name is compared with.
     known: Arc<OnceLock<Vec<String>>>,
+    /// The command lists: what programs say of their own commands (`ut program`).
+    programs: Programs,
 }
 
 impl std::fmt::Debug for Helper {
@@ -191,6 +200,9 @@ impl Helper {
             consent: Mutex::new(if given { Consent::Given } else { Consent::Unasked }),
             ut,
             known,
+            programs: unifyterm_history::data_directory()
+                .map(|data| Programs::in_directory(unifyterm_programs::directory_in(&data)))
+                .unwrap_or_default(),
         };
         (helper, told)
     }
@@ -252,6 +264,41 @@ impl Helper {
             recent.iter().filter_map(|command| command.split_whitespace().next().map(str::to_owned)).collect();
         known.extend(self.known.get().cloned().unwrap_or_default());
         unifyterm_assist::local_fix(command, &known)
+    }
+
+    /// These command lists in place of the data directory's.
+    #[cfg(test)]
+    pub(crate) fn with_programs(mut self, programs: Programs) -> Self {
+        self.programs = programs;
+        self
+    }
+
+    /// The words the command lists have for the word being typed at the end of `line`: none
+    /// when the line's program has no list.
+    pub(crate) fn offers_for(&self, line: &str) -> Vec<Offer> {
+        unifyterm_programs::complete(&self.programs.now(), line, OFFERED)
+    }
+
+    /// For a command that failed: the word its program's list does not have, replaced by
+    /// the one near it. Needs no model.
+    pub(crate) fn list_fix(&self, command: &str, exit: Option<i32>) -> Option<Fix> {
+        if !self.settings.fix || exit.is_none_or(|exit| exit == 0) {
+            return None;
+        }
+        let problem = unifyterm_programs::problem(&self.programs.now(), command)?;
+        Some(Fix { command: problem.corrected?, reason: problem.says })
+    }
+
+    /// What each word of `command` is, from its program's own list: `None` when the program
+    /// has none, or the line is more than one simple command. Needs no model; nothing is sent.
+    pub(crate) fn told(&self, command: &str) -> Option<Explained> {
+        unifyterm_programs::explain(&self.programs.now(), command)
+    }
+
+    /// What a program's list has against a command (one the model wrote): a command or an
+    /// option the list does not have.
+    pub(crate) fn doubt(&self, command: &str) -> Option<String> {
+        unifyterm_programs::problem(&self.programs.now(), command).map(|problem| problem.says)
     }
 
     /// Whether a failed command is one to ask the model to fix.
@@ -321,9 +368,20 @@ impl Helper {
         }
         // UnifyTerm's commands are in every tab's PATH: the model may use them on any system.
         let programs = self.ut.as_ref().map(|(_, names)| names.clone()).unwrap_or_default();
+        // The lists of the programs the sentence or the last commands name: the model need not guess their commands.
+        let mentions: Vec<&str> =
+            std::iter::once(words.as_str()).chain(recent.iter().take(5).map(String::as_str)).collect();
+        let described = unifyterm_programs::brief(&self.programs.now(), &mentions, DESCRIBED_WITH_A_SENTENCE);
         self.ask(move |provider| {
-            let ask =
-                Ask { words: &words, cwd: &cwd, shell: &shell, system: SYSTEM, programs: &programs, recent: &recent };
+            let ask = Ask {
+                words: &words,
+                cwd: &cwd,
+                shell: &shell,
+                system: SYSTEM,
+                programs: &programs,
+                described: &described,
+                recent: &recent,
+            };
             unifyterm_assist::ask(provider, &ask)
         })
     }
@@ -333,9 +391,11 @@ impl Helper {
             return None;
         }
         let ut = self.ut.clone();
+        // What the program on the line says of the command used, when it has a list.
+        let described = unifyterm_programs::help(&self.programs.now(), &command, DESCRIBED_WITH_A_COMMAND);
         // Starting `ut` takes a moment: on the question's thread, not the window's.
         self.ask(move |provider| {
-            let help = ut.as_ref().and_then(|(program, names)| own_help(program, names, &command));
+            let help = ut.as_ref().and_then(|(program, names)| own_help(program, names, &command)).or(described);
             unifyterm_assist::explain(provider, &command, &shell, help.as_deref())
         })
     }
@@ -379,6 +439,53 @@ mod tests {
         }
         assert!(not_found("", Some(127)), "127 is the shells' code for it");
         assert!(!not_found("ls: cannot access 'x': No such file or directory", Some(2)));
+    }
+
+    /// A helper with one program's command list, whatever is in the data directory.
+    fn with_panes(ai: &AiConfig) -> Helper {
+        let text = r#"{"opencli": "0.1", "info": {"title": "Panes", "version": "1.2.0"}, "command": {"name": "panes",
+            "commands": [{"name": "split-window", "description": "Split a pane in two.",
+                          "options": [{"name": "-h", "description": "Side by side."}]},
+                         {"name": "kill-pane"}]}}"#;
+        let panes = unifyterm_programs::read(text).expect("a description").program;
+        Helper::new(ai, None, None).0.with_programs(Programs::fixed(vec![panes]))
+    }
+
+    #[test]
+    fn a_program_s_own_list_helps_with_no_model_at_all() {
+        let helper = with_panes(&AiConfig::default());
+        assert!(!helper.has_model());
+        let offered: Vec<String> = helper.offers_for("panes sp").into_iter().map(|offer| offer.line).collect();
+        assert_eq!(offered, ["panes split-window"]);
+        let fixed = helper.list_fix("panes splt-window -h", Some(1)).expect("near a command of the list");
+        assert_eq!(fixed.command, "panes split-window -h");
+        assert!(fixed.reason.contains("'splt-window'") && fixed.reason.contains("'split-window'"), "{}", fixed.reason);
+        assert_eq!(helper.list_fix("panes splt-window", Some(0)), None, "it did not fail");
+        assert_eq!(helper.list_fix("panes splt-window", None), None, "a shell that does not say how it ended");
+        assert_eq!(helper.list_fix("panes frobnicate", Some(1)), None, "nothing near: nothing to put in its place");
+        assert_eq!(helper.list_fix("panes split-window -h", Some(1)), None, "failed for another reason");
+        let told = helper.told("panes split-window -h").expect("the list tells it");
+        assert_eq!((told.program.as_str(), told.parts.len()), ("panes", 3));
+        assert_eq!(told.parts[2], ("-h".to_owned(), "Side by side".to_owned()));
+        assert_eq!(helper.told("ls -l"), None, "a program with no list");
+        assert_eq!(helper.doubt("panes frobnicate").as_deref(), Some("panes's list has no command 'frobnicate'."));
+        assert_eq!(helper.doubt("panes kill-pane"), None);
+        assert_eq!(helper.doubt("ls --frobnicate"), None, "no list: no doubt");
+    }
+
+    #[test]
+    fn the_lists_fix_is_off_with_ai_fix_and_nothing_changes_with_no_list() {
+        let off = with_panes(&AiConfig { fix: false, ..AiConfig::default() });
+        assert_eq!(off.list_fix("panes splt-window", Some(1)), None, "ai.fix turns every fix off");
+        assert!(
+            off.told("panes kill-pane").is_some(),
+            "telling what a line means sends nothing: not a setting's matter"
+        );
+        let none = Helper::new(&AiConfig::default(), None, None).0.with_programs(Programs::default());
+        assert!(none.offers_for("panes sp").is_empty());
+        assert_eq!(none.list_fix("panes splt-window", Some(1)), None);
+        assert_eq!(none.told("panes split-window"), None);
+        assert_eq!(none.doubt("panes frobnicate"), None);
     }
 
     #[test]

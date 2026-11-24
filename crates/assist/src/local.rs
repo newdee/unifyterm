@@ -1,45 +1,9 @@
 //! The fix that needs no model: a command name that is not a program but
 //! is one or two keystrokes from one (`gti` for `git`).
 
+use unifyterm_programs::{bare, distance, within_reach};
+
 use crate::Fix;
-
-/// How many single-character edits turn `a` into `b`: insert, delete,
-/// replace, or swap two neighbors (optimal string alignment distance).
-#[must_use]
-pub fn distance(a: &str, b: &str) -> usize {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    let width = b.len() + 1;
-    let mut table = vec![0usize; (a.len() + 1) * width];
-    let at = |i: usize, j: usize| i * width + j;
-    for i in 0..=a.len() {
-        table[at(i, 0)] = i;
-    }
-    for j in 0..=b.len() {
-        table[at(0, j)] = j;
-    }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            let mut best = (table[at(i - 1, j)] + 1).min(table[at(i, j - 1)] + 1).min(table[at(i - 1, j - 1)] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                best = best.min(table[at(i - 2, j - 2)] + 1);
-            }
-            table[at(i, j)] = best;
-        }
-    }
-    table[at(a.len(), b.len())]
-}
-
-/// A program's name as compared: no `.exe` or the like, lower case.
-fn bare(name: &str) -> String {
-    let lower = name.to_lowercase();
-    for extension in [".exe", ".cmd", ".bat", ".com", ".ps1"] {
-        if let Some(stem) = lower.strip_suffix(extension) {
-            return stem.to_owned();
-        }
-    }
-    lower
-}
 
 /// A fix for `command` when its first word is no name in `known` but is
 /// close to one: one edit for names of up to four letters, two for longer
@@ -54,7 +18,7 @@ pub fn local_fix(command: &str, known: &[String]) -> Option<Fix> {
     if typed.contains(['/', '\\']) || known.iter().any(|known| bare(known) == typed) {
         return None;
     }
-    let allowed = if typed.chars().count() <= 4 { 1 } else { 2 };
+    let allowed = within_reach(&typed);
     let (best, how_far) = known
         .iter()
         .map(|candidate| (candidate, distance(&typed, &bare(candidate))))
@@ -71,16 +35,6 @@ mod tests {
 
     fn known(names: &[&str]) -> Vec<String> {
         names.iter().map(|&name| name.to_owned()).collect()
-    }
-
-    #[test]
-    fn the_distance_counts_swaps_as_one() {
-        assert_eq!(distance("gti", "git"), 1);
-        assert_eq!(distance("git", "git"), 0);
-        assert_eq!(distance("", "abc"), 3);
-        assert_eq!(distance("kitten", "sitting"), 3);
-        assert_eq!(distance("dokcer", "docker"), 1);
-        assert_eq!(distance("中文", "中午"), 1);
     }
 
     #[test]

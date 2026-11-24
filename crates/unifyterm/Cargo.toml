@@ -50,6 +50,8 @@ dirs = "6"
 unifyterm-config = { path = "../config" }
 unifyterm-history = { path = "../history" }
 unifyterm-assist = { path = "../assist" }
+# What programs say of their own commands: offered while typing, used to put a mistyped one right and to explain.
+unifyterm-programs = { path = "../programs" }
 regex = "1"
 # updates.check: GitHub's latest release (already in the tree through unifyterm-assist).
 ureq = { version = "3.5", features = ["json"] }

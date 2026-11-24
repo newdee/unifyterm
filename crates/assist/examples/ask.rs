@@ -90,8 +90,15 @@ fn main() -> Result<(), String> {
                 loop {
                     let Some(case) = waiting.lock().expect("lock poisoned").pop() else { break };
                     let asked = Instant::now();
-                    let question =
-                        Ask { words: &case.words, cwd: "~/work", shell: &shell, system, programs: &[], recent: &[] };
+                    let question = Ask {
+                        words: &case.words,
+                        cwd: "~/work",
+                        shell: &shell,
+                        system,
+                        programs: &[],
+                        described: "",
+                        recent: &[],
+                    };
                     let answer = ask(provider.as_ref(), &question).map(|asked| asked.map(|asked| asked.command));
                     let has_expected = matches!(&answer, Ok(Some(command))
                         if case.expected.iter().any(|word| command.to_lowercase().contains(word)));

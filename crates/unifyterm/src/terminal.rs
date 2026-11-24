@@ -131,9 +131,10 @@ enum Popup {
     Fix(unifyterm_assist::Fix),
     /// The model is asked what a command means.
     Waiting(String),
-    Explained(String, Vec<unifyterm_assist::Part>),
+    /// A command, what each part of it means, and where that is from when not from the model.
+    Explained(String, Vec<unifyterm_assist::Part>, Option<String>),
     /// The command made of a sentence, and what became of it (one of the lines below).
-    Asked(unifyterm_assist::Asked, &'static str),
+    Asked(unifyterm_assist::Asked, &'static str, Option<String>),
     /// A short line: why there is no answer.
     Note(String),
 }
@@ -142,6 +143,7 @@ enum Popup {
 const ON_THE_LINE: &str = "Enter: run it    any other key: change it first";
 const NOT_RUN: &str = "It may change something, so it was not run.    Enter: run it";
 const NOT_PUT: &str = "The line changed meanwhile: the command was not put on it.";
+const DOUBTED: &str = "The program's own list does not have that, so it was not run.    Enter: run it";
 /// What a line begins with when it is a sentence for the model, not a command.
 const SENTENCE: char = '#';
 
@@ -345,9 +347,14 @@ impl TerminalView {
         self.popup_number
     }
 
-    /// For a command that was not found: the local fix, else the model's.
+    /// For a command that failed: the local fix for a name that was not found, else the
+    /// fix from its program's own command list, else the model's.
     fn offer_fix(&mut self, finished: &crate::prompt::Finished, cx: &mut Context<'_, Self>) {
-        if let Some(fix) = self.helper.local_fix(&finished.text, &finished.output, finished.exit, &self.recent[1..]) {
+        let local = self
+            .helper
+            .local_fix(&finished.text, &finished.output, finished.exit, &self.recent[1..])
+            .or_else(|| self.helper.list_fix(&finished.text, finished.exit));
+        if let Some(fix) = local {
             self.open(Popup::Fix(fix));
             return;
         }
@@ -452,7 +459,7 @@ impl TerminalView {
                             return; // Closed meanwhile.
                         }
                         view.popup = Some(match answered {
-                            Ok(Ok(parts)) => Popup::Explained(command, parts),
+                            Ok(Ok(parts)) => Popup::Explained(command, parts, None),
                             Ok(Err(error)) => Popup::Note(error.to_string()),
                             Err(_) => Popup::Note("No answer.".into()),
                         });
@@ -506,7 +513,14 @@ impl TerminalView {
             cx.notify();
             return;
         };
-        if !self.helper.has_model() {
+        if let Some(told) = self.helper.told(command.trim()) {
+            // The program's own list tells it: at once, with no model, and nothing is sent.
+            let parts =
+                told.parts.into_iter().map(|(text, meaning)| unifyterm_assist::Part { text, meaning }).collect();
+            let version = if told.version.is_empty() { String::new() } else { format!(" ({})", told.version) };
+            let from = format!("From {}'s own command list{version}. Nothing was sent.", told.program);
+            self.open(Popup::Explained(command.trim().to_owned(), parts, Some(from)));
+        } else if !self.helper.has_model() {
             self.open(Popup::Note("No model is set: [ai] in the settings names one.".into()));
         } else if !self.helper.offers(Feature::Explain) {
             self.open(Popup::Note("Explanations are off: ai.explain is false in the settings.".into()));
@@ -567,12 +581,21 @@ impl TerminalView {
         self.popup_number += 1;
     }
 
-    /// Asks the history about what is on the input line now, if that changed.
+    /// Asks the history and the command lists about what is on the input line now, if that changed.
     fn ask(&mut self, cx: &mut Context<'_, Self>) {
         let history = &self.settings.config.history;
-        let Some(recorder) = self.recorder.clone().filter(|_| history.candidates) else { return };
+        if !history.candidates {
+            return;
+        }
         let input = self.session.input();
         let Some((number, text)) = self.candidates.question(input.as_ref().map(|input| input.text.as_str())) else {
+            return;
+        };
+        // What the line's program says may come next: in memory, no waiting.
+        let listed = self.helper.offers_for(&text);
+        let Some(recorder) = self.recorder.clone() else {
+            // The history is off: the command lists' words alone.
+            self.candidates.answer(number, Vec::new(), listed);
             return;
         };
         let answer = recorder.search(&text, self.session.cwd().unwrap_or_default(), history.limit);
@@ -580,7 +603,7 @@ impl TerminalView {
             if let Ok(rows) = answer.recv().await {
                 // The tab may be closed by now: nobody to show it to.
                 let _ = this.update(cx, |view, cx| {
-                    view.candidates.answer(number, rows);
+                    view.candidates.answer(number, rows, listed);
                     cx.notify();
                 });
             }
@@ -631,13 +654,17 @@ impl TerminalView {
     /// The model's command for a sentence: put on the input line in the sentence's place, if the
     /// line is still as it was, and run when the settings say so and it only reads.
     fn asked(&mut self, asked: unifyterm_assist::Asked, line: &str, cx: &mut Context<'_, Self>) {
+        // A command or an option the program's own list does not have: the model may have made it up.
+        let doubt = self.helper.doubt(&asked.command);
         if self.session.input().is_none_or(|input| input.text != line) {
-            self.popup = Some(Popup::Asked(asked, NOT_PUT));
+            self.popup = Some(Popup::Asked(asked, NOT_PUT, doubt));
             return;
         }
         self.fill(&asked.command, cx);
         if !self.helper.runs_what_only_reads() {
-            self.popup = Some(Popup::Asked(asked, ON_THE_LINE));
+            self.popup = Some(Popup::Asked(asked, ON_THE_LINE, doubt));
+        } else if doubt.is_some() {
+            self.popup = Some(Popup::Asked(asked, DOUBTED, doubt));
         } else if unifyterm_assist::only_reads(&asked.command, self.session.shell().unwrap_or_default()) {
             // As the Enter key does it: the command starts now, and its text is known.
             self.session.enter_with(&asked.command);
@@ -650,7 +677,7 @@ impl TerminalView {
             // No box: it would lie over what the command prints. The command itself is on the screen.
             self.popup = None;
         } else {
-            self.popup = Some(Popup::Asked(asked, NOT_RUN));
+            self.popup = Some(Popup::Asked(asked, NOT_RUN, None));
         }
     }
 
@@ -1269,21 +1296,23 @@ impl TerminalView {
                 ("Enter: put it on the line (not run)    Esc: close".to_owned(), false),
             ],
             Popup::Waiting(command) => vec![(command.clone(), true), ("Asking the model…".to_owned(), false)],
-            Popup::Explained(command, parts) => {
+            Popup::Explained(command, parts, from) => {
                 let widest = parts.iter().map(|part| part.text.chars().count()).max().unwrap_or(0);
                 let mut lines = vec![(command.clone(), true)];
                 lines.extend(parts.iter().map(|part| {
                     let pad = widest.saturating_sub(part.text.chars().count());
                     (format!("{}{}  {}", part.text, " ".repeat(pad), part.meaning), false)
                 }));
+                lines.extend(from.iter().map(|from| (from.clone(), false)));
                 lines.push(("Enter or Esc: close".to_owned(), false));
                 lines
             }
-            Popup::Asked(asked, became) => {
+            Popup::Asked(asked, became, doubt) => {
                 let mut lines = vec![(asked.command.clone(), true)];
                 if !asked.note.is_empty() {
                     lines.push((asked.note.clone(), false));
                 }
+                lines.extend(doubt.iter().map(|doubt| (doubt.clone(), false)));
                 lines.push(((*became).to_owned(), false));
                 lines
             }
@@ -1335,8 +1364,9 @@ impl TerminalView {
         )
     }
 
-    /// The list of commands from the history, under the input line (over
-    /// it when there is no room below); `None` when it is closed.
+    /// The list of commands from the history and of words from the command
+    /// lists, under the input line (over it when there is no room below);
+    /// `None` when it is closed.
     fn candidate_list(&self) -> Option<impl IntoElement> {
         let (rows, chosen, typed) = self.candidates.visible()?;
         let input = self.session.input()?;
@@ -1345,13 +1375,24 @@ impl TerminalView {
         let count = rows.len();
         let below = input.cursor.0 + 1;
         let first_line = if below + count <= usize::from(lines) { below } else { input.cursor.0.saturating_sub(count) };
-        let widest = rows.iter().map(|row| row.text.chars().count()).max().unwrap_or(0) + 10;
+        let now = unifyterm_history::now_ms();
+        // Beside each row: for a command from the history, how often and when it ran; for a
+        // word of a command list, what the list says of it.
+        let beside = |row: &candidates::Row| match row {
+            candidates::Row::Ran(ran) => {
+                let failed = ran.last_exit.is_some_and(|exit| exit != 0);
+                let mark = if failed { "✗ " } else { "" };
+                format!("{mark}×{} {}", ran.count, unifyterm_history::ago(ran.last_at_ms, now))
+            }
+            candidates::Row::Listed(offer) => offer.note.clone(),
+        };
+        let widest =
+            rows.iter().map(|row| row.text().chars().count() + beside(row).chars().count() + 4).max().unwrap_or(0);
         let width = widest.min(usize::from(columns).saturating_sub(input.start_column)).max(10);
         // Placed in the view, which starts below the tab bar, not in the window.
         let text_origin = self.origin - self.view_origin;
         let at =
             text_origin + point(self.cell.width * factor(input.start_column), self.cell.height * factor(first_line));
-        let now = unifyterm_history::now_ms();
         let dim = theme.foreground.toward(theme.background, 0.45);
         let accent = theme.indexed(12);
         let list = div()
@@ -1366,14 +1407,8 @@ impl TerminalView {
             .text_size(self.font_size())
             .line_height(self.cell.height)
             .children(rows.iter().enumerate().map(|(index, row)| {
-                let (before, matched, after) = split_match(&row.text, typed);
-                let failed = row.last_exit.is_some_and(|exit| exit != 0);
-                let info = format!(
-                    "{}×{} {}",
-                    if failed { "✗ " } else { "" },
-                    row.count,
-                    unifyterm_history::ago(row.last_at_ms, now)
-                );
+                let (before, matched, after) = split_match(row.text(), typed);
+                let info = beside(row);
                 let line = div()
                     .flex()
                     .flex_row()

@@ -7849,6 +7849,7 @@ dependencies = [
  "unifyterm-assist",
  "unifyterm-config",
  "unifyterm-history",
+ "unifyterm-programs",
  "ureq",
  "windows-sys 0.61.2",
  "winresource",
@@ -7864,6 +7865,7 @@ dependencies = [
  "tempfile",
  "unifyterm-config",
  "unifyterm-history",
+ "unifyterm-programs",
  "ureq",
 ]
 
@@ -7887,6 +7889,16 @@ dependencies = [
  "dirs 6.0.0",
  "regex",
  "rusqlite",
+ "tempfile",
+]
+
+[[package]]
+name = "unifyterm-programs"
+version = "0.3.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -8009,6 +8021,7 @@ dependencies = [
  "unicode-width 0.2.3",
  "unifyterm-config",
  "unifyterm-history",
+ "unifyterm-programs",
  "uu_arch",
  "uu_b2sum",
  "uu_base32",

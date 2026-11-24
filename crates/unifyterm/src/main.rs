@@ -394,14 +394,23 @@ impl Workspace {
     /// changes nothing: the settings in use stay, and the log says why.
     fn follow_settings(path: PathBuf, cx: &mut Context<'_, Self>) {
         cx.spawn(async move |this, cx| {
+            let young = |stamp: Option<(std::time::SystemTime, u64)>| {
+                stamp.is_some_and(|(written, _)| unifyterm_programs::stamp_is_young(written))
+            };
             let mut seen = stamp(&path);
+            // Read while its time was young: a change of the same size in the same step of the
+            // file system's clock would not show, so the file is read once more when it is older.
+            let mut unsettled = young(seen);
             loop {
                 cx.background_executor().timer(SETTINGS_LOOK).await;
                 let now = stamp(&path);
-                if now == seen {
+                // Read now: the stamp changed, or the time that was young is young no longer.
+                let read_now = now != seen || (unsettled && !young(now));
+                if !read_now {
                     continue;
                 }
                 seen = now;
+                unsettled = young(now);
                 let read = Config::load(&path);
                 let alive = this.update(cx, |this, cx| match read {
                     Ok(config) => this.use_settings(config, cx),

@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|graphics|agents] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|edges|commands|history|ai|programs|graphics|agents] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'graphics', 'agents')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\unifyterm.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -659,6 +659,110 @@ if ($Section -in 'all', 'ai') {
         Report 'a program that is not there: the line stays' ((LastLine $t) -match '> # list the files$') "last line: '$(LastLine $t)'"
     } finally {
         Stop-Process -Id $server.Id -Force -ErrorAction Ignore
+        $env:UNIFYTERM_DATA_DIR = $keptData
+        Remove-Item Env:UNIFYTERM_TEST_KEY -ErrorAction Ignore
+    }
+}
+if ($Section -in 'all', 'programs') {
+    "--- programs ---"
+    # What a program says of its own commands (ut program), used with no model: in the list
+    # under the input line, to put a mistyped command right, to tell what a line means.
+    # A data directory of this section's own with one description in it, and one with none:
+    # the same keys in both show what the description adds.
+    $keptData = $env:UNIFYTERM_DATA_DIR
+    $with = Join-Path $work 'data-programs'; $without = Join-Path $work 'data-programs-none'
+    $env:UNIFYTERM_DATA_DIR = $with
+    $ut = Join-Path (Split-Path $Exe) 'ut.exe'
+    # A small part of git, written here: git is on this machine (the ai section's first check
+    # needs it too) and refuses a command it does not know with exit code 1.
+    $description = Join-Path $work 'git.opencli.json'
+    Set-Content $description -Encoding utf8 -Value @"
+{"opencli": "0.1", "info": {"title": "git", "summary": "A small part of git, for these checks.", "version": "0.0.1"},
+ "command": {"name": "git", "commands": [
+   {"name": "status", "description": "Show the working tree status.",
+    "options": [{"name": "--short", "aliases": ["-s"], "description": "Give the output in the short format."}]},
+   {"name": "stash", "description": "Stash the changes away."},
+   {"name": "commit", "description": "Record changes.", "options": [{"name": "--amend", "description": "Replace the last commit."}]}]}}
+"@
+    $noList = "[history]`ncandidates = false"
+    $lastOf = { param([string]$text) @($text -split "`n" | Where-Object { $_.Trim() })[-1] }
+    function BelowLine([string]$a, [string]$b) { PixelDiff $a $b 0 ($Row.Y + $Row.H) 900 220 }
+    # PowerShell's own prediction (grey text after the cursor, from the user's PowerShell history:
+    # on the owner's machine 'git sta' has one) is turned off first: the text read back is then
+    # only what was typed and what UnifyTerm put on the line. Kept out of both histories as above.
+    $plain = "Set-PSReadLineOption -PredictionSource None; cls # password: a test's line{ENTER}{WAIT:700}"
+    $port = 8766
+    $requests = Join-Path $work 'programs-requests.jsonl'
+    $server = $null
+    try {
+        $added = (& $ut program add $description 2>&1 | Out-String).Trim()
+        $known = (& $ut program 2>&1 | Out-String).Trim()
+        Report 'ut program add keeps a description' ($added -eq 'added git 0.0.1: 3 commands, 2 options' -and $known -eq 'git 0.0.1: 3 commands, 2 options') "add: '$added'; ut program: '$known'"
+
+        # The history is empty here: every row of the list is a word of the description.
+        Run 'prog-list' "${plain}git sta{WAIT:1200}" | Out-Null
+        Run 'prog-nolist' "${plain}git sta{WAIT:1200}" $noList | Out-Null
+        $env:UNIFYTERM_DATA_DIR = $without
+        Run 'prog-none' "${plain}git sta{WAIT:1200}" | Out-Null
+        $env:UNIFYTERM_DATA_DIR = $with
+        $shown = BelowLine 'prog-list' 'prog-nolist'; $bare = BelowLine 'prog-none' 'prog-nolist'
+        Report "a described program's commands are in the list" ($shown -gt 300 -and $bare -lt 50) "$shown pixels differ below the input line from the list off; with no description: $bare"
+        $t = Run 'prog-take' "${plain}git sta{WAIT:1200}{KEY:CTRL+N}{WAIT:300}{TAB}{WAIT:900}"
+        Report 'Ctrl-N and Tab put the first command on the line' ((& $lastOf $t) -match '> git status$') "last line: '$(& $lastOf $t)' (the description's first command that begins with 'sta')"
+        $t = Run 'prog-option' "${plain}git commit --{WAIT:1200}{KEY:CTRL+N}{WAIT:300}{TAB}{WAIT:900}"
+        Report 'after a dash, the options of the command' ((& $lastOf $t) -match '> git commit --amend$') "last line: '$(& $lastOf $t)'"
+
+        # git does not know 'statsu' and ends with 1: the description has 'status' one keystroke away.
+        $t = Run 'prog-fix' "${plain}git statsu{ENTER}{WAIT:2000}{ENTER}{WAIT:800}" $noList
+        $refused = Count $t "is not a git command"
+        Report 'a mistyped command of a described program is put right' ((& $lastOf $t) -match '> git status$' -and $refused -ge 1) "last line after Enter: '$(& $lastOf $t)'; git refused it: $($refused -ge 1)"
+        $t = Run 'prog-fix-off' "${plain}git statsu{ENTER}{WAIT:2000}{ENTER}{WAIT:800}" "$noList`n[ai]`nfix = false"
+        $env:UNIFYTERM_DATA_DIR = $without
+        $u = Run 'prog-fix-none' "${plain}git statsu{ENTER}{WAIT:2000}{ENTER}{WAIT:800}" $noList
+        $env:UNIFYTERM_DATA_DIR = $with
+        Report 'no fix with ai.fix off, none with no description' ((& $lastOf $t) -notmatch 'git status$' -and (& $lastOf $u) -notmatch 'git status$') "last lines: '$(& $lastOf $t)' | '$(& $lastOf $u)'"
+
+        # No model is named. With the description the box tells each word (6 lines); without, it
+        # says that no model is set (2 lines): the difference is in the box's lines 3 to 5.
+        Run 'prog-explain' "${plain}git commit --amend{WAIT:500}{KEY:CTRL+SHIFT+E}{WAIT:1500}" $noList | Out-Null
+        $env:UNIFYTERM_DATA_DIR = $without
+        Run 'prog-explain-none' "${plain}git commit --amend{WAIT:500}{KEY:CTRL+SHIFT+E}{WAIT:1500}" $noList | Out-Null
+        $env:UNIFYTERM_DATA_DIR = $with
+        $told = PixelDiff 'prog-explain' 'prog-explain-none' 0 ($Row.Y + 3 * $Row.H) 900 (3 * $Row.H)
+        Report 'Ctrl-Shift-E tells a described command with no model' ($told -gt 300) "$told pixels differ in the box's lines 3 to 5 from the same keys with no description"
+
+        # With a model (tools/fake-model.ps1 on this machine): the description goes along with a
+        # sentence that names the program, and the model's command is checked against it.
+        $server = Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$requests`"" -PassThru -WindowStyle Hidden
+        Start-Sleep 2
+        $env:UNIFYTERM_TEST_KEY = 'test-key'
+        $model = "$noList`n[ai]`nprovider = `"anthropic`"`nmodel = `"claude-haiku-5-5`"`nbase_url = `"http://localhost:$port`"`napi_key_env = `"UNIFYTERM_TEST_KEY`""
+        $auto = "$model`nask_enter = `"auto`""
+        $sent = { @(Get-Content $requests -ErrorAction Ignore) }
+        # Nothing agreed to yet in this data directory: the first Enter brings the question, the second says yes.
+        # The request that carries a sentence, among all the service got (a suggestion may be asked for after it).
+        $about = { param([string]$words) "$(@(& $sent | Where-Object { $_ -match "Request: $words" })[-1])" }
+        $t = Run 'prog-ask' "${plain}# git status in short form{ENTER}{WAIT:1200}{ENTER}{WAIT:3000}" $model
+        $request = & $about 'git status in short form'
+        $named = $request -match '- git 0\.0\.1: A small part of git'; $table = $request -match 'The commands of git'; $options = $request -match 'status \[--short\]'
+        Report 'the description goes with a sentence that names the program' ((& $lastOf $t) -match '> git status --short$' -and $named -and $table -and $options) "last line: '$(& $lastOf $t)'; in the request: the program's line $named, its commands $table, their options $options ($((& $sent).Count) requests, this one $($request.Length) characters)"
+        $t = Run 'prog-ask-other' "${plain}# list the files{ENTER}{WAIT:3000}" $model
+        $request = & $about 'list the files'
+        $named = $request -match '- git 0\.0\.1: A small part of git'; $table = $request -match 'The commands of git'
+        Report 'a sentence that does not name it gets one line of it' ($named -and -not $table) "the program's line: $named; its commands: $table"
+        # ask_enter = "auto": 'git status --short' only reads and the description has it: run at once.
+        # '--frobnicate' is no option of the description: left on the line, whatever the mode.
+        $t = Run 'prog-ask-auto' "${plain}# git status in short form{ENTER}{WAIT:3500}" $auto
+        $ran = (& $lastOf $t) -notmatch 'git status --short$' -and (Count $t 'git status --short') -ge 1
+        Report 'auto: a command the description has is run' $ran "last line: '$(& $lastOf $t)' (the prompt again: it ran)"
+        $t = Run 'prog-ask-doubt' "${plain}# git status frob{ENTER}{WAIT:3500}" $auto
+        Report 'auto: an option the description does not have is not run' ((& $lastOf $t) -match '> git status --frobnicate$' -and (Count $t 'frobnicate') -eq 1) "last line: '$(& $lastOf $t)'; 'frobnicate' seen $(Count $t 'frobnicate') time(s) (2 would be git's own error)"
+
+        $removed = (& $ut program remove git 2>&1 | Out-String).Trim()
+        $left = (& $ut program 2>&1 | Out-String).Trim()
+        Report 'ut program remove forgets it' ($removed -eq 'removed git' -and $left -match '^no program') "remove: '$removed'; ut program: '$left'"
+    } finally {
+        if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction Ignore }
         $env:UNIFYTERM_DATA_DIR = $keptData
         Remove-Item Env:UNIFYTERM_TEST_KEY -ErrorAction Ignore
     }
