@@ -275,6 +275,19 @@ if ($Section -in 'all', 'themes') {
         $ok = @($seen.Keys | Where-Object { -not (SameColor $seen[$_] $page[$name][$_]) }).Count -eq 0 -and $mark -ge 40
         Report "${name}: the window has the page's colors" $ok "bar $($seen.bar) (page $($page[$name].bar)), tab in use $($seen.well) ($($page[$name].well)), text's background $($seen.screen) ($($page[$name].screen)), mark: $mark pixels of $($page[$name].accent)"
     }
+    # keepane's own two looks (its themes/paper-dark.conf and paper.conf): the panes' background,
+    # the bar a shade darker, and cinnabar under the tab in use.
+    $keepane = [ordered]@{
+        'paper-dark' = @{ bar = '#121212'; accent = '#dd625e'; screen = '#171716' }
+        'paper'      = @{ bar = '#e3d8bf'; accent = '#a53736'; screen = '#f0e7d2' }
+    }
+    foreach ($name in $keepane.Keys) {
+        Run "theme-$name" '{WAIT:500}' "[theme]`nname = `"$name`"`n$quiet" | Out-Null
+        $seen = [ordered]@{ bar = (PixelAt "theme-$name" @InBar); screen = (PixelAt "theme-$name" @InText) }
+        $mark = CountColor "theme-$name" $keepane[$name].accent 30 60 40 12
+        $ok = @($seen.Keys | Where-Object { -not (SameColor $seen[$_] $keepane[$name][$_]) }).Count -eq 0 -and $mark -ge 40
+        Report "${name}: the window has keepane's colors" $ok "bar $($seen.bar) (keepane $($keepane[$name].bar)), text's background $($seen.screen) ($($keepane[$name].screen)), mark: $mark pixels of $($keepane[$name].accent)"
+    }
     # The default theme gives no colors for what is around the text: they are worked out.
     Run 'theme-default' '{WAIT:500}' $quiet | Out-Null
     Report 'no theme named: Tokyo Night, its bar worked out' ((SameColor (PixelAt 'theme-default' @InText) '#16161e') -and (SameColor (PixelAt 'theme-default' @InBar) '#1c1c26')) "text's background $(PixelAt 'theme-default' @InText) (#16161e), bar $(PixelAt 'theme-default' @InBar) (#1c1c26)"
@@ -1124,6 +1137,16 @@ if ($Section -in 'all', 'agents') {
     Run 'agents-key' "{KEY:CTRL+SHIFT+A}{WAIT:1500}" "[agents]`n$list" | Out-Null
     Run 'agents-key-twice' "{KEY:CTRL+SHIFT+A}{WAIT:1500}{KEY:CTRL+SHIFT+A}{WAIT:800}" "[agents]`n$list" | Out-Null
     Report 'Ctrl-Shift-A shows the sidebar, and hides it again' ((Cards 'agents-key') -eq 2 -and (Cards 'agents-key-twice') -eq 0) "cards: $(Cards 'agents-key'), then $(Cards 'agents-key-twice')"
+    # [keys]: the sidebar's key is the one the settings give, and the default one does nothing then.
+    Run 'keys-old' "{KEY:CTRL+SHIFT+A}{WAIT:1500}" "[keys]`nagents = [`"ctrl-alt-g`"]`n[agents]`n$list" | Out-Null
+    Run 'keys-new' "{KEY:CTRL+ALT+G}{WAIT:1500}" "[keys]`nagents = [`"ctrl-alt-g`"]`n[agents]`n$list" | Out-Null
+    Report 'keys.agents: the settings'' key shows the sidebar, the old one does not' ((Cards 'keys-old') -eq 0 -and (Cards 'keys-new') -eq 2) "cards after Ctrl-Shift-A: $(Cards 'keys-old'); after Ctrl-Alt-G: $(Cards 'keys-new')"
+    # Changed by ut setting in a tab: the new key is the window's key at once, written in the one form.
+    $t = Run 'keys-live' "ut setting set keys.agents Ctrl+Alt+J{ENTER}{WAIT:2500}ut setting get keys.agents{ENTER}{WAIT:700}{KEY:CTRL+ALT+J}{WAIT:1500}" "[agents]`n$list" -after 1.5
+    Report 'a key changed in a tab is the window''s key at once' ((Cards 'keys-live') -eq 2 -and ($t -replace "`n", ' ') -match '(?<!set keys\.agents )ctrl-alt-j') "cards after the new key: $(Cards 'keys-live'); kept as: $([regex]::Match(($t -replace "`n", ' '), 'ctrl-alt-j').Value)"
+    $t = Run 'keys-wrong' "ut setting set keys.agents ctrl-shift-t{ENTER}{WAIT:1200}ut setting set keys.agents g{ENTER}{WAIT:1200}" "[agents]`n$list"
+    $flat = $t -replace "`n", ' '
+    Report 'a key another command has, and a key the shell needs, are refused' ($flat -match 'keys\.new_tab and keys\.agents both have' -and $flat -match 'the shell needs that key') "said of the taken key: $($flat -match 'both have'); of the bare letter: $($flat -match 'the shell needs that key')"
 
     # A click on the first card runs agents.focus with its pane; when that fails, the place is copied.
     $went = Join-Path $work 'went'

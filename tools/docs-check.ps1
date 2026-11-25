@@ -26,14 +26,13 @@ $settingsTable = ($readme -split '## Settings')[1].Split('## Environment')[0]
 $documentedSettings = [regex]::Matches($settingsTable, '(?m)^\| `([a-z_]+\.[a-z_]+)` \|') | ForEach-Object { $_.Groups[1].Value }
 Compare-Sets 'settings' @($settings) @($documentedSettings)
 
-# Keys: the window's (key_bindings in main.rs) and the terminal view's (terminal.rs).
-$main = & $read 'crates/unifyterm/src/main.rs'
-$bindings = ($main -split 'fn key_bindings')[1].Split('/// Lets a release build')[0]
+# Keys: the window's (the defaults of the settings' [keys], DEFAULT_KEYS in the settings library:
+# each command's keys on Windows and Linux, and on macOS) and the list's (terminal.rs).
+$defaults = ($config -split 'pub const DEFAULT_KEYS')[1].Split('];')[0]
 $spelled = { param($key) ($key -split '-' | ForEach-Object { switch ($_) { 'ctrl' { 'Ctrl' } 'shift' { 'Shift' } 'cmd' { 'Cmd' } 'alt' { 'Alt' } 'insert' { 'Insert' } 'tab' { 'Tab' } 'enter' { 'Enter' } default { $_.ToUpper() } } }) -join '-' }
-$windowKeys = [regex]::Matches($bindings, '\("([a-z0-9-]+)", \d\)') | ForEach-Object { & $spelled $_.Groups[1].Value } | Sort-Object -Unique
+$windowKeys = [regex]::Matches($defaults, '\("\w+", &\[([^\]]*)\], &\[([^\]]*)\]\)') | ForEach-Object { $_.Groups[1].Value, $_.Groups[2].Value } | ForEach-Object { [regex]::Matches($_, '"([a-z0-9-]+)"') } | ForEach-Object { & $spelled $_.Groups[1].Value } | Sort-Object -Unique
 $terminal = & $read 'crates/unifyterm/src/terminal.rs'
 $viewKeys = @()
-if ($terminal -match 'key\.key == "e" && held\.control && held\.shift') { $viewKeys += 'Ctrl-Shift-E' }
 foreach ($m in [regex]::Matches($terminal, '"([np])" if held\.control')) { $viewKeys += "Ctrl-$($m.Groups[1].Value.ToUpper())" }
 foreach ($m in [regex]::Matches($terminal, '"(down|up|tab|right|enter|escape)"(?: \| "(right)")? if plain')) { foreach ($g in 1, 2) { if ($m.Groups[$g].Success) { $viewKeys += @{ down = 'Down'; up = 'Up'; tab = 'Tab'; right = 'Right'; enter = 'Enter'; escape = 'Esc' }[$m.Groups[$g].Value] } } }
 $keysTable = ($readme -split '## Keys')[1].Split('## Settings')[0]

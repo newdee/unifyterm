@@ -82,7 +82,8 @@ public static class Win {
         var held = (byte[])before.Clone();
         if (ctrl) held[0x11] = 0x80;
         if (shift) held[0x10] = 0x80;
-        if (alt) held[0x12] = 0x80;
+        // Alt, and the left Alt key: the window asks for each Alt key by itself.
+        if (alt) { held[0x12] = 0x80; held[0xA4] = 0x80; }
         SetKeyboardState(held);
         PostMessageW(h, WM_KEYDOWN, (IntPtr)vk, (IntPtr)1);
         System.Threading.Thread.Sleep(120);

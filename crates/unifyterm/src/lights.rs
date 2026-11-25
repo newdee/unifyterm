@@ -41,12 +41,17 @@ pub(crate) fn set(window: &Window, lights: Lights) {
         if ns_window.is_null() {
             return;
         }
+        let mut now_hidden = 0;
         for button in BUTTONS {
             let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: button];
             if !button.is_null() {
                 let () = msg_send![button, setHidden: hidden];
+                // Read back: what the log says is what the system holds, not what was asked.
+                let is: bool = msg_send![button, isHidden];
+                now_hidden += usize::from(is);
             }
         }
+        log::info!("window: the system's three buttons asked to be {lights:?}; hidden now: {now_hidden} of 3");
     }
 }
 
