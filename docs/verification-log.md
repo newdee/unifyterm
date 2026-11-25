@@ -20,6 +20,8 @@ keepane 一侧的建议：`cost_partial` 为 true 时，cost 只是有价格的�
 
 没跑的：实机检查的其余 9 段、其余 crate 的测试、Linux 上的 `ut`。交给 CI。
 
+发版（2026-11-25）：CI（`3e42d9d`）三个平台通过；标签 `v0.6.2`，Release 18 个文件；包清单由工作流提交 `1a78673`；formula 3 个下载地址都是 v0.6.2、3 个哈希与 Release 相同；Scoop bucket 0.6.2、哈希相同；网页显示 0.6.2、356、178。
+
 ## 2026-11-25 · 0.6.1：别的程序写的 JSON 里的 `null`
 
 现象（keepane 一侧报告，用户转来）：keepane 的窗格里运行一个 keepane 没有价格表的 agent 时，侧栏的卡片全部消失，只剩一行 "keepane's answer could not be read: see the log."。
