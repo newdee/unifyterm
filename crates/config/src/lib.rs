@@ -445,6 +445,13 @@ pub struct ThemeConfig {
     pub rounding: Option<f32>,
     /// The window's own corners, where the system lets a program choose (Windows 11).
     pub corners: Option<Corners>,
+    /// A picture's file, drawn behind the text over the whole window: made
+    /// as large as the window, what goes past its sides cut off. Found as
+    /// `picture` is. Empty: none.
+    pub wallpaper: Option<String>,
+    /// How much of the wallpaper shows over the color behind the text: 0 is
+    /// nothing of it, 1 all of it.
+    pub wallpaper_opacity: Option<f32>,
 }
 
 /// The window's own corners.
@@ -464,12 +471,14 @@ pub struct Look {
     pub colors: ThemeConfig,
     /// The picture, where it was found to be.
     pub picture: Option<themes::Picture>,
+    /// The wallpaper, where it was found to be.
+    pub wallpaper: Option<themes::Picture>,
 }
 
 impl ThemeConfig {
     /// Every key the table has, as the file writes it. A theme file's key
     /// that is not one of these is passed over (see [`themes::read`]).
-    pub const KEYS: [&'static str; 18] = [
+    pub const KEYS: [&'static str; 20] = [
         "name",
         "foreground",
         "background",
@@ -488,6 +497,8 @@ impl ThemeConfig {
         "picture",
         "rounding",
         "corners",
+        "wallpaper",
+        "wallpaper_opacity",
     ];
 
     /// The single colors by their names in the file, in the file's order.
@@ -542,6 +553,11 @@ impl ThemeConfig {
         {
             bail!("theme.rounding is {rounding}: it must be from 0 to {MAX_ROUNDING}");
         }
+        if let Some(shows) = self.wallpaper_opacity
+            && !(0.0..=1.0).contains(&shows)
+        {
+            bail!("theme.wallpaper_opacity is {shows}: it must be from 0 to 1");
+        }
         Ok(())
     }
 
@@ -567,6 +583,8 @@ impl ThemeConfig {
             picture: self.picture.or(under.picture),
             rounding: self.rounding.or(under.rounding),
             corners: self.corners.or(under.corners),
+            wallpaper: self.wallpaper.or(under.wallpaper),
+            wallpaper_opacity: self.wallpaper_opacity.or(under.wallpaper_opacity),
         }
     }
 }
@@ -645,17 +663,21 @@ impl Config {
             }
             None => (None, None),
         };
-        let theirs = under.as_ref().and_then(|under| under.picture.as_deref());
-        let picture = match (self.theme.picture.as_deref(), theirs) {
+        // A picture's file: the settings' own goes first, looked for beside the settings file;
+        // else the theme's, beside the theme's file.
+        let found = |own: Option<&str>, theirs: Option<&str>| match (own, theirs) {
             (Some(own), _) => themes::picture(own, themes.and_then(Path::parent)),
             (None, Some(theirs)) => themes::picture(theirs, theme_folder.as_deref()),
             (None, None) => None,
         };
+        let theirs = under.as_ref();
+        let picture = found(self.theme.picture.as_deref(), theirs.and_then(|under| under.picture.as_deref()));
+        let wallpaper = found(self.theme.wallpaper.as_deref(), theirs.and_then(|under| under.wallpaper.as_deref()));
         let colors = match under {
             Some(under) => self.theme.clone().over(under),
             None => self.theme.clone(),
         };
-        Ok(Look { colors, picture })
+        Ok(Look { colors, picture, wallpaper })
     }
 
     /// What the provider named needs is there: a model, an address, a key's variable, a program.

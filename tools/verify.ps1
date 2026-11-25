@@ -339,6 +339,26 @@ if ($Section -in 'all', 'themes') {
     $ownStrip = CountColor 'picture-own' '#ff00ff' @strip
     Report 'a theme of one''s own shows the picture its file names' ($ownStrip -ge 15000) "pixels of the picture's color (#ff00ff) in the strip: $ownStrip of $($strip[2] * $strip[3])"
 
+    # theme.wallpaper: a picture behind the text, as large as the window. The picture made here is
+    # magenta on its left half and green on its right: whole (opacity 1) the text area shows the
+    # two colors, to the window's far corner; at 0.5 on a black background each is halved; and in
+    # a window made wider the two still meet in the middle. The row of tabs keeps its own color.
+    $wall = [System.Drawing.Bitmap]::new(400, 200); $wg = [System.Drawing.Graphics]::FromImage($wall)
+    $wg.Clear([System.Drawing.Color]::FromArgb(255, 255, 0, 255)); $wg.FillRectangle([System.Drawing.Brushes]::Lime, 200, 0, 200, 200); $wg.Dispose()
+    $wall.Save((Join-Path $work 'wall.png'), [System.Drawing.Imaging.ImageFormat]::Png); $wall.Dispose()
+    $walled = "[theme]`nbackground = `"#000000`"`nwallpaper = `"wall.png`""
+    Run 'wall-whole' '{WAIT:1000}' "$walled`nwallpaper_opacity = 1`n$quiet" | Out-Null
+    Run 'wall-half' '{WAIT:1000}' "$walled`nwallpaper_opacity = 0.5`n$quiet" | Out-Null
+    Run 'wall-wide' '{WAIT:1000}{SIZE:1400,500}{WAIT:1200}' "$walled`n$quiet" | Out-Null
+    $whole = @((PixelAt 'wall-whole' 244 395), (PixelAt 'wall-whole' 732 395), (PixelAt 'wall-whole' 956 639))
+    $half = @((PixelAt 'wall-half' 244 395), (PixelAt 'wall-half' 732 395))
+    $wide = @((PixelAt 'wall-wide' 350 318), (PixelAt 'wall-wide' 1050 318))
+    $okWhole = (SameColor $whole[0] '#ff00ff') -and (SameColor $whole[1] '#00ff00') -and (SameColor $whole[2] '#00ff00')
+    $okHalf = (SameColor $half[0] '#7f007f') -and (SameColor $half[1] '#007f00')
+    $okWide = (SameColor $wide[0] '#400040') -and (SameColor $wide[1] '#004000')
+    $barKept = SameColor (PixelAt 'wall-whole' @InBar) (PixelAt 'wall-half' @InBar)
+    Report 'theme.wallpaper: a picture behind the text, as large as the window' ($okWhole -and $okHalf -and $okWide -and $barKept -and -not (SameColor (PixelAt 'wall-whole' @InBar) '#ff00ff')) "whole: left $($whole[0]), right $($whole[1]), far corner $($whole[2]); at 0.5 on black: $($half -join ', '); 1400 wide at the default 0.25: left $($wide[0]), right $($wide[1]); the row of tabs: $(PixelAt 'wall-whole' @InBar)"
+
     # theme.rounding: the first tab's own corner (its outline is columns 20 on, rows 36 to 71 of the
     # picture). Round, the corner's pixel is the row's color; square, it is the tab's line.
     Run 'round-7' '{WAIT:500}' "[theme]`nname = `"night`"`n$quiet" | Out-Null

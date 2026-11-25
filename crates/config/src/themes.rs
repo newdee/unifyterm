@@ -430,6 +430,8 @@ mod tests {
             picture: Some("x.png".into()),
             rounding: Some(7.0),
             corners: Some(crate::Corners::Small),
+            wallpaper: Some("x.jpg".into()),
+            wallpaper_opacity: Some(0.25),
         };
         let written = toml::Value::try_from(all).expect("a table");
         let mut keys: Vec<&str> = written.as_table().expect("a table").keys().map(String::as_str).collect();
@@ -563,5 +565,26 @@ mod tests {
             "with no theme named"
         );
         assert_eq!(look(""), None);
+
+        // The wallpaper is found the same way, and is another thing than the picture.
+        std::fs::write(file_of("walled", &themes), OWN.replace("[theme]", "[theme]\nwallpaper = \"wall.jpg\""))
+            .expect("write");
+        let wall = |settings: &str| Config::parse(settings).expect("settings").look(Some(&themes)).expect("a look");
+        let theirs = wall("[theme]\nname = \"walled\"");
+        assert_eq!((theirs.wallpaper, theirs.picture), (Some(Picture::File(themes.join("wall.jpg"))), None));
+        assert_eq!(
+            wall("[theme]\nname = \"walled\"\nwallpaper = \"mine.png\"").wallpaper,
+            Some(Picture::File(folder.path().join("mine.png"))),
+            "the settings' own, beside the settings file"
+        );
+        assert_eq!(wall("[theme]\nname = \"walled\"\nwallpaper = \"\"").wallpaper, None, "turned off in the settings");
+        assert_eq!(wall("[theme]\nwallpaper = \"aurora.png\"").wallpaper, Some(Picture::BuiltIn("aurora.png")));
+        let aurora = wall("[theme]\nname = \"aurora\"");
+        assert_eq!(
+            (aurora.wallpaper, aurora.picture),
+            (None, Some(Picture::BuiltIn("aurora.png"))),
+            "no theme has one"
+        );
+        assert!(Config::parse("[theme]\nwallpaper_opacity = 1.5").is_err());
     }
 }

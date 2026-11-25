@@ -59,7 +59,13 @@ pub(crate) struct Theme {
     pub(crate) rounding: f32,
     /// The window's own corners; `None`: as the system makes them.
     pub(crate) corners: Option<unifyterm_config::Corners>,
+    /// How much of the wallpaper shows over the color behind the text: 0 to 1.
+    pub(crate) wallpaper_opacity: f32,
 }
+
+/// A wallpaper shows this much until the look says otherwise: enough to
+/// see, and the text is still read over it.
+const WALLPAPER_OPACITY: f32 = 0.25;
 
 /// A tab's and a card's corners when the theme does not say: as the preview
 /// page draws them. A list's and a box's are 8 there, a small button's 5.
@@ -114,6 +120,7 @@ impl Default for Theme {
             blur: false,
             rounding: ROUNDING,
             corners: None,
+            wallpaper_opacity: WALLPAPER_OPACITY,
             // The bright colors are the plain ones again, but for black and white.
             ansi: [
                 black,

@@ -84,7 +84,7 @@
 | `cursor_shape` | 光标的形状：块、竖线、下划线 | 预览页的 `phosphor` 是下划线光标。程序自己要的形状（DECSCUSR）仍然优先 |
 | `shadow = "soft" \| "hard" \| "none"` | 列表和弹框的投影 | 预览页的 `riso` 是不模糊的硬投影 |
 | `mark = "#…"` 或两个颜色 | 当前标签下短线的颜色，两个颜色时是渐变 | 预览页的 `eclipse` 是从琥珀到红的渐变。现在用光标色 |
-| `wallpaper`、`wallpaper_opacity` | 文字区后面的图 | 常见的要求；与 `picture`（侧栏的图）是两样东西，所以不叫同一个名字 |
+| `wallpaper`、`wallpaper_opacity` | 文字区后面的图 | **0.6.0 已做**（见 `docs/plan-m11.md`）。与 `picture`（侧栏的图）是两样东西，所以不叫同一个名字 |
 | `picture_height`、`picture_fade` | 侧栏那幅图的高度、渐隐到哪里 | 现在固定 180 像素、54% |
 | `padding` | 文字离窗口边多远（现在是设置项 `terminal.padding`） | 预览页是 24。它会改行列数，是否算"外观"到时再定 |
 | `font` | 字体 | **不打算做**：字体是每台机器装了什么的问题，放主题里换机器就坏。占着名字只为不被拿去作别的用途 |

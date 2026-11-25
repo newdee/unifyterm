@@ -22,11 +22,22 @@ use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, 
 use crate::theme::{Rgb, Theme};
 use crate::{Copy, Explain, Paste, boxdraw};
 
+/// What is behind a tab's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Backdrop {
+    /// The theme's background color: the tab draws it itself.
+    Color,
+    /// The window's wallpaper, with the background color under it: the
+    /// window draws both, and the tab draws nothing behind its text.
+    Wallpaper,
+}
+
 /// The settings every tab shares.
 #[derive(Debug)]
 pub(crate) struct Settings {
     pub(crate) config: Config,
     pub(crate) theme: Theme,
+    pub(crate) backdrop: Backdrop,
 }
 
 /// What a tab tells the window that holds it.
@@ -1176,7 +1187,10 @@ impl Render for TerminalView {
             .track_focus(&self.focus)
             .size_full()
             // With `theme.opacity` under 1, what is behind the window shows through this color alone.
-            .bg(gpui::Hsla { a: self.settings.theme.opacity, ..hsla(self.settings.theme.background) })
+            // Under a wallpaper the window has drawn the color already, with the picture over it.
+            .when(self.settings.backdrop == Backdrop::Color, |view| {
+                view.bg(gpui::Hsla { a: self.settings.theme.opacity, ..hsla(self.settings.theme.background) })
+            })
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(|view, _: &Explain, _, cx| view.explain(cx)))

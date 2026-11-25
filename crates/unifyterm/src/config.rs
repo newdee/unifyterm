@@ -17,10 +17,18 @@ use crate::theme::{Rgb, Theme};
 /// give themselves over it. An error when the named theme is not there or
 /// is wrong: the caller keeps the colors it has.
 ///
-/// With it, where the look's picture is, when it has one.
-pub(crate) fn theme(config: &Config, themes: Option<&Path>) -> anyhow::Result<(Theme, Option<Picture>)> {
+/// With it, where the look's pictures are, when it has them.
+pub(crate) fn theme(config: &Config, themes: Option<&Path>) -> anyhow::Result<(Theme, Pictures)> {
     let look = config.look(themes)?;
-    Ok((laid(&look.colors), look.picture))
+    Ok((laid(&look.colors), Pictures { picture: look.picture, wallpaper: look.wallpaper }))
+}
+
+/// Where a look's two pictures are: the one at the foot of the sidebar, and
+/// the one behind the text.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Pictures {
+    pub(crate) picture: Option<Picture>,
+    pub(crate) wallpaper: Option<Picture>,
 }
 
 /// The settings' own colors, without the theme they name: for when that
@@ -72,6 +80,9 @@ fn laid(colors: &ThemeConfig) -> Theme {
     }
     if let Some(rounding) = colors.rounding {
         theme.rounding = rounding;
+    }
+    if let Some(shows) = colors.wallpaper_opacity {
+        theme.wallpaper_opacity = shows;
     }
     theme.corners = colors.corners;
     theme
@@ -131,8 +142,20 @@ mod tests {
         let glass = made("[theme]\nname = \"night\"\nopacity = 0.7\nblur = true");
         assert_eq!((glass.opacity, glass.blur), (0.7, true));
         let settings = Config::parse("[theme]\nname = \"aurora\"").expect("settings");
-        assert_eq!(theme(&settings, None).expect("a theme").1, Some(Picture::BuiltIn("aurora.png")));
-        assert_eq!(theme(&Config::default(), None).expect("a theme").1, None, "the default theme has no picture");
+        assert_eq!(theme(&settings, None).expect("a theme").1.picture, Some(Picture::BuiltIn("aurora.png")));
+        assert_eq!(
+            theme(&Config::default(), None).expect("a theme").1,
+            Pictures::default(),
+            "the default theme has no picture"
+        );
+        let walled = Config::parse("[theme]\nwallpaper = \"night.png\"\nwallpaper_opacity = 0.6").expect("settings");
+        let (theme_of, pictures) = theme(&walled, None).expect("a theme");
+        assert_eq!((theme_of.wallpaper_opacity, pictures.wallpaper), (0.6, Some(Picture::BuiltIn("night.png"))));
+        assert_eq!(
+            (plain.wallpaper_opacity, plain.blur),
+            (0.25, false),
+            "a wallpaper is faint until the look says otherwise"
+        );
         assert_eq!((plain.rounding, plain.panel_rounding(), plain.button_rounding()), (7.0, 8.0, 5.0));
         assert_eq!(plain.corners, None, "the system's own");
         let square = made("[theme]\nrounding = 0\ncorners = \"square\"");

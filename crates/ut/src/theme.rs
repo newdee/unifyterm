@@ -27,8 +27,9 @@ const USAGE: &str = "usage: ut theme                       the themes there are;
 A theme is a file with a table, [theme], and the keys of the settings file's
 [theme]: foreground, background and ansi (the 16 colors) it must give; it may
 give cursor, selection, the colors around the text (bar, panel, well, rule,
-edge, muted, symbol), opacity, blur, and picture (a picture's file beside the
-theme's, shown at the foot of the sidebar). A key this version does not know
+edge, muted, symbol), opacity, blur, rounding, corners, picture (a picture's
+file beside the theme's, shown at the foot of the sidebar) and wallpaper (one
+drawn behind the text, as large as the window; wallpaper_opacity). A key this version does not know
 is passed over, and check names it. Your own themes are NAME.toml in the
 themes folder beside the settings file; one with a built-in theme's name is
 used in its place. --config FILE names the settings file, as for ut setting.";
@@ -89,11 +90,13 @@ fn notes(text: &str, colors: &ThemeConfig, beside: Option<&Path>) -> Vec<String>
             passed.join(", ")
         ));
     }
-    let picture = colors.picture.as_deref().and_then(|named| themes::picture(named, beside));
-    if let Some(themes::Picture::File(file)) = picture
-        && !file.is_file()
-    {
-        notes.push(format!("its picture is not there: {}", file.display().to_string().replace('\\', "/")));
+    for (what, named) in [("picture", &colors.picture), ("wallpaper", &colors.wallpaper)] {
+        let found = named.as_deref().and_then(|named| themes::picture(named, beside));
+        if let Some(themes::Picture::File(file)) = found
+            && !file.is_file()
+        {
+            notes.push(format!("its {what} is not there: {}", file.display().to_string().replace('\\', "/")));
+        }
     }
     notes
 }
@@ -176,6 +179,10 @@ fn choose(name: &str, settings: &Path, out: &mut dyn Write) -> Result<i32> {
         ("opacity", own.opacity.is_some()),
         ("blur", own.blur.is_some()),
         ("picture", own.picture.is_some()),
+        ("rounding", own.rounding.is_some()),
+        ("corners", own.corners.is_some()),
+        ("wallpaper", own.wallpaper.is_some()),
+        ("wallpaper_opacity", own.wallpaper_opacity.is_some()),
     ]
     .iter()
     .filter(|(_, given)| *given)
@@ -448,6 +455,11 @@ mod tests {
         );
         std::fs::write(themes_folder.join("mine.png"), "x").expect("write");
         assert!(!ran(&["later"], &file).1.contains("its picture"), "the picture is there now");
+        // A wallpaper is looked for the same way.
+        std::fs::write(themes_folder.join("walled.toml"), night.replace("[theme]", "[theme]\nwallpaper = \"sea.jpg\""))
+            .expect("write");
+        let out = ran(&["walled"], &file).1;
+        assert!(out.contains("its wallpaper is not there: ") && out.contains("/themes/sea.jpg"), "{out}");
         let out = ran(&["tokyo-night"], &file).1;
         assert_eq!(out, "theme: tokyo-night\n");
     }

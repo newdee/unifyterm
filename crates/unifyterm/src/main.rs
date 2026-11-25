@@ -41,7 +41,7 @@ use gpui::{
 use config::Config;
 use lights::Lights;
 use shell::{Commands, Hooks};
-use terminal::{Settings, TerminalEvent, TerminalView};
+use terminal::{Backdrop, Settings, TerminalEvent, TerminalView};
 
 actions!(
     unifyterm,
@@ -296,10 +296,13 @@ struct Workspace {
     bar: Bar,
     /// What the system was last told of the window: that what is behind it shows through, or not.
     behind: Behind,
-    /// Where the look's picture is, and the picture: at the foot of the sidebar.
-    picture_at: Option<config::Picture>,
+    /// Where the look's pictures are, and the pictures: the one at the foot
+    /// of the sidebar, and the wallpaper behind the text.
+    pictures_at: config::Pictures,
     picture: Option<Arc<gpui::Image>>,
+    wallpaper: Option<Arc<gpui::Image>>,
     pictures: art::Shown,
+    wallpapers: art::Shown,
     corners_told: CornersTold,
     /// Whether the system's three buttons show (macOS; see [`lights`]).
     lights: Lights,
@@ -415,8 +418,8 @@ struct Sidebar {
 /// What the window starts with.
 struct Start {
     settings: Arc<Settings>,
-    /// Where the look's picture is, when it has one.
-    picture: Option<config::Picture>,
+    /// Where the look's pictures are, when it has them.
+    pictures: config::Pictures,
     commands: Option<Commands>,
     recorder: Option<recorder::Recorder>,
     hooks: Option<Hooks>,
@@ -433,7 +436,18 @@ struct Start {
 impl Workspace {
     /// A window with one tab.
     fn new(start: Start, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let Start { settings, picture, commands, recorder, hooks, directory, file, helper, command, notices } = start;
+        let Start {
+            settings,
+            pictures: pictures_at,
+            commands,
+            recorder,
+            hooks,
+            directory,
+            file,
+            helper,
+            command,
+            notices,
+        } = start;
         let sidebar = Sidebar::default();
         let title_bar = TitleBar::choose(&settings.config.window);
         let named_settings = file.as_ref().filter(|file| file.asked == Asked::WithConfig).map(|file| file.path.clone());
@@ -441,8 +455,19 @@ impl Workspace {
         let theme_named = settings.config.theme.name.clone();
         // The window was opened with what the settings asked for then (see `main`).
         let behind = Behind::of(&settings.theme);
-        let mut pictures = art::Shown::default();
-        let shown = pictures.of(picture.as_ref());
+        let (mut pictures, mut wallpapers) = (art::Shown::default(), art::Shown::default());
+        let shown = pictures.of(pictures_at.picture.as_ref());
+        let wallpaper = wallpapers.of(pictures_at.wallpaper.as_ref());
+        // With a wallpaper the window draws what is behind the text: the tabs are told before the first one opens.
+        let settings = if wallpaper.is_some() {
+            Arc::new(Settings {
+                config: settings.config.clone(),
+                theme: settings.theme.clone(),
+                backdrop: Backdrop::Wallpaper,
+            })
+        } else {
+            settings
+        };
         let mut workspace = Self {
             tabs: Vec::new(),
             active: 0,
@@ -459,9 +484,11 @@ impl Workspace {
             newer: None,
             bar: Bar::default(),
             behind,
-            picture_at: picture,
+            pictures_at,
             picture: shown,
+            wallpaper,
             pictures,
+            wallpapers,
             corners_told: CornersTold::NotYet,
             lights: Lights::Shown,
         };
@@ -603,20 +630,23 @@ impl Workspace {
     /// A theme that is not there, or whose file is wrong, changes no color:
     /// the colors in use stay, and the log says why.
     fn use_settings(&mut self, config: Config, cx: &mut Context<'_, Self>) {
-        let (theme, picture_at) = config::theme(&config, self.themes.as_deref()).unwrap_or_else(|error| {
+        let (theme, pictures_at) = config::theme(&config, self.themes.as_deref()).unwrap_or_else(|error| {
             log::warn!("theme: the colors in use stay: {error:#}");
-            (self.settings.theme.clone(), self.picture_at.clone())
+            (self.settings.theme.clone(), self.pictures_at.clone())
         });
-        let picture = self.pictures.of(picture_at.as_ref());
-        let same_picture = match (&picture, &self.picture) {
+        let picture = self.pictures.of(pictures_at.picture.as_ref());
+        let wallpaper = self.wallpapers.of(pictures_at.wallpaper.as_ref());
+        let same = |new: &Option<Arc<gpui::Image>>, old: &Option<Arc<gpui::Image>>| match (new, old) {
             (Some(new), Some(old)) => Arc::ptr_eq(new, old),
             (None, None) => true,
             _ => false,
         };
-        if config == self.settings.config && theme == self.settings.theme && same_picture {
+        let same_pictures = same(&picture, &self.picture) && same(&wallpaper, &self.wallpaper);
+        if config == self.settings.config && theme == self.settings.theme && same_pictures {
             return;
         }
-        (self.picture_at, self.picture) = (picture_at, picture);
+        let backdrop = if wallpaper.is_some() { Backdrop::Wallpaper } else { Backdrop::Color };
+        (self.pictures_at, self.picture, self.wallpaper) = (pictures_at, picture, wallpaper);
         // Other keys in the settings: they are the window's keys from now on.
         if config.keys != self.settings.config.keys {
             cx.clear_key_bindings();
@@ -626,7 +656,7 @@ impl Workspace {
         if config.window.tab_bar != self.settings.config.window.tab_bar {
             self.bar.asked = None;
         }
-        self.settings = Arc::new(Settings { config, theme });
+        self.settings = Arc::new(Settings { config, theme, backdrop });
         for tab in &self.tabs {
             let settings = Arc::clone(&self.settings);
             tab.view.update(cx, |view, cx| view.use_settings(settings, cx));
@@ -1281,10 +1311,32 @@ impl Render for Workspace {
         let keeps_away = self.bar_keeps_away();
         let in_its_place = (!keeps_away).then(|| self.tab_bar(BarPlace::InItsRow, window, cx));
         let over_the_text = (keeps_away && self.bar.shown).then(|| self.tab_bar(BarPlace::OverTheText, window, cx));
+        // The wallpaper, under everything: the color behind the text first (the tabs do not draw
+        // it then), and the picture over it as large as the window, what goes past the window's
+        // sides cut off, showing as much as the look says.
+        let theme = &self.settings.theme;
+        let wallpaper = self.wallpaper.clone().map(|picture| {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .overflow_hidden()
+                .bg(seen_through(theme.background, theme.opacity))
+                .child(
+                    gpui::img(picture)
+                        .absolute()
+                        .size_full()
+                        .object_fit(gpui::ObjectFit::Cover)
+                        .opacity(theme.wallpaper_opacity),
+                )
+        });
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
+            .children(wallpaper)
             .text_size(px(13.))
             .on_action(cx.listener(|this, _: &NewTab, window, cx| this.open(None, window, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)))
@@ -1423,9 +1475,9 @@ fn main() {
         None => (Config::default(), Vec::new()),
     };
     let themes = file.as_ref().map(|file| unifyterm_config::themes::directory(&file.path));
-    let (theme, picture) = config::theme(&config, themes.as_deref()).unwrap_or_else(|error| {
+    let (theme, pictures) = config::theme(&config, themes.as_deref()).unwrap_or_else(|error| {
         notices.push(format!("theme not used: {error:#}"));
-        (config::own_colors(&config), None)
+        (config::own_colors(&config), config::Pictures::default())
     });
     let (commands, told) = Commands::prepare(&config.commands);
     notices.extend(told);
@@ -1445,10 +1497,21 @@ fn main() {
     let ut = commands.as_ref().and_then(|commands| Some((Commands::program().ok()?, commands.names().to_vec())));
     let (helper, told) = helper::Helper::new(&config.ai, ut, commands.as_ref().map(Commands::directory));
     notices.extend(told);
-    let settings = Arc::new(Settings { config, theme });
+    // What is behind the text is settled when the window opens: it reads the wallpaper then.
+    let settings = Arc::new(Settings { config, theme, backdrop: Backdrop::Color });
     let helper = Arc::new(helper);
-    let start =
-        Start { settings, picture, commands, recorder, hooks, directory, file, helper, command: args.command, notices };
+    let start = Start {
+        settings,
+        pictures,
+        commands,
+        recorder,
+        hooks,
+        directory,
+        file,
+        helper,
+        command: args.command,
+        notices,
+    };
 
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys(key_bindings(&start.settings.config.keys));

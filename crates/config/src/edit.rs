@@ -307,7 +307,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (40, 19), "40 with a default written, 19 that are not set");
+        assert_eq!((written.len(), unset_by_default), (40, 21), "40 with a default written, 21 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -321,7 +321,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (38, 3, 2, 16)
+            (40, 3, 2, 16)
         );
     }
 
@@ -354,6 +354,8 @@ mod tests {
             ("theme.picture", "mine.png", "mine.png"),
             ("theme.rounding", "0", "0.0"),
             ("theme.corners", "square", "square"),
+            ("theme.wallpaper", "sea.jpg", "sea.jpg"),
+            ("theme.wallpaper_opacity", "0.4", "0.4"),
             ("keys.agents", "Ctrl+Shift+G", "ctrl-shift-g"),
             ("keys.paste", "ctrl-shift-v, Shift-Insert", "ctrl-shift-v, shift-insert"),
             ("keys.explain", "", ""),
@@ -384,6 +386,7 @@ mod tests {
             ("window.tab_bar", "sometimes", "one of always, auto-hide"),
             ("theme.opacity", "0", "from 0.1 to 1"),
             ("theme.rounding", "40", "from 0 to 18"),
+            ("theme.wallpaper_opacity", "1.5", "from 0 to 1"),
             ("theme.corners", "pointed", "one of round, small, square"),
             ("keys.agents", "ctrl-shft-g", "'shft' is not ctrl, alt, shift or cmd"),
             ("keys.agents", "g", "the shell needs that key"),

@@ -108,7 +108,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 }
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 59] = [
+pub const KEYS: [Key; 61] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -195,6 +195,16 @@ pub const KEYS: [Key; 59] = [
         "theme.corners",
         Kind::OneOf(&["round", "small", "square"]),
         "The window's own corners: round, round with a smaller radius, or square. Windows 11 only.",
+    ),
+    setting(
+        "theme.wallpaper",
+        Kind::OptionalText,
+        "A picture's file, drawn behind the text over the whole window and made as large as the window.",
+    ),
+    setting(
+        "theme.wallpaper_opacity",
+        Kind::Number { least: 0.0, most: 1.0 },
+        "How much of the wallpaper shows over the color behind the text: 0 nothing, 1 all of it. Not set: 0.25.",
     ),
     setting("commands.builtin", Kind::Switch, "Put UnifyTerm's commands before the system's in each shell's PATH."),
     setting("commands.system", Kind::Words, "Commands that stay the system's although builtin is on: find, sort."),
