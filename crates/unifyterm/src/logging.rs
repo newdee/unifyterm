@@ -12,10 +12,23 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use log::{Level, LevelFilter, Log, Metadata, Record};
+use log::{Level, Log, Metadata, Record};
 
-/// What is written: warnings and errors, UnifyTerm's own and its libraries'.
+/// What is written when nothing says otherwise: warnings and errors,
+/// UnifyTerm's own and its libraries'.
 const LEVEL: Level = Level::Warn;
+/// The variable that asks for more: `info` or `debug`, for looking into a
+/// problem (which settings were taken, what the system was told).
+const LEVEL_VARIABLE: &str = "UNIFYTERM_LOG";
+
+/// The level `asked` names; the usual one for anything else.
+fn level_of(asked: Option<&str>) -> Level {
+    match asked.map(str::trim) {
+        Some("info") => Level::Info,
+        Some("debug") => Level::Debug,
+        _ => LEVEL,
+    }
+}
 /// A log file larger than this is started over when UnifyTerm starts, so it
 /// cannot grow without end.
 const MAX_BYTES: u64 = 1024 * 1024;
@@ -23,11 +36,13 @@ const MAX_BYTES: u64 = 1024 * 1024;
 struct Logger {
     /// `None` when the file could not be opened: stderr alone is written.
     file: Option<Mutex<File>>,
+    /// Messages less grave than this are dropped.
+    level: Level,
 }
 
 impl Log for Logger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.level() <= LEVEL
+        metadata.level() <= self.level
     }
 
     fn log(&self, record: &Record<'_>) {
@@ -63,15 +78,26 @@ fn open(path: &PathBuf) -> Option<File> {
 /// Called once, before the window opens.
 pub(crate) fn init() {
     let file = path().as_ref().and_then(open).map(Mutex::new);
+    let level = level_of(std::env::var(LEVEL_VARIABLE).ok().as_deref());
     // Set twice only by a second call, which changes nothing.
-    if log::set_boxed_logger(Box::new(Logger { file })).is_ok() {
-        log::set_max_level(LevelFilter::Warn);
+    if log::set_boxed_logger(Box::new(Logger { file, level })).is_ok() {
+        log::set_max_level(level.to_level_filter());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_level_is_warnings_unless_the_variable_asks_for_more() {
+        assert_eq!(level_of(None), Level::Warn);
+        assert_eq!(level_of(Some("info")), Level::Info);
+        assert_eq!(level_of(Some(" debug ")), Level::Debug);
+        for other in ["", "INFO", "trace", "1"] {
+            assert_eq!(level_of(Some(other)), Level::Warn, "{other}");
+        }
+    }
 
     #[test]
     fn a_large_log_is_started_over_and_a_small_one_kept() {
@@ -91,9 +117,13 @@ mod tests {
 
     #[test]
     fn only_warnings_and_errors_are_written() {
-        let logger = Logger { file: None };
+        let logger = Logger { file: None, level: LEVEL };
         let level = |level| logger.enabled(&Metadata::builder().level(level).build());
         assert!(level(Level::Error) && level(Level::Warn));
         assert!(!level(Level::Info) && !level(Level::Debug));
+        // Asked for more: what was told is written too, what is only for finding a fault is not.
+        let more = Logger { file: None, level: Level::Info };
+        let level = |level| more.enabled(&Metadata::builder().level(level).build());
+        assert!(level(Level::Warn) && level(Level::Info) && !level(Level::Debug));
     }
 }

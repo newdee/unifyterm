@@ -5,8 +5,9 @@
 //! What a person types is read loosely (`Ctrl+Shift+T` is the same key) and
 //! kept in one form, the one the window's key table takes.
 
-/// The keys held with a key, in the order they are written.
-const HELD: [&str; 4] = ["ctrl", "alt", "shift", "cmd"];
+/// The keys held with a key, in the order they are written: the order the
+/// window's own key table writes them in (`cmd-shift-a`, `ctrl-cmd-f`).
+const HELD: [&str; 4] = ["ctrl", "alt", "cmd", "shift"];
 
 /// The keys that have a name: the ones that type nothing.
 const NAMED: [&str; 16] = [
@@ -115,6 +116,8 @@ mod tests {
             ("ctrl-shift-t", "ctrl-shift-t"),
             ("Ctrl+Shift+T", "ctrl-shift-t"),
             ("shift-ctrl-t", "ctrl-shift-t"),
+            ("shift-cmd-a", "cmd-shift-a"),
+            ("Shift+Alt+Cmd+Ctrl+K", "ctrl-alt-cmd-shift-k"),
             (" CMD-T ", "cmd-t"),
             ("command+enter", "cmd-enter"),
             ("win-e", "cmd-e"),

@@ -216,6 +216,7 @@ After a shell's start files have run, UnifyTerm's commands are put first in `PAT
 |---|---|
 | `UNIFYTERM_CONFIG` | The settings file `ut setting` changes, when it is not the default one. UnifyTerm sets it in its tabs when it was started with `--config` |
 | `UNIFYTERM_DATA_DIR` | Keep UnifyTerm's data (history, log, command links, shell hooks) in this directory instead of the system's |
+| `UNIFYTERM_LOG` | `info` or `debug`: the log file (`unifyterm.log` in the data directory) also gets what is not a warning, as what the system was told about the window. For looking into a problem |
 | `UNIFYTERM_RAW_LOG` | A file to append every byte the first tab's program prints to (later tabs: `.2`, `.3`); `unifyterm --replay FILE` shows the screen they draw |
 | `UT_NATIVE_PATHS` | On Windows: `ut`'s commands print paths with Windows' own `\` |
 | `UT_NO_GLOB` | On Windows: `ut`'s commands keep every wildcard as typed instead of expanding it |

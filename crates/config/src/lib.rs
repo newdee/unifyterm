@@ -687,6 +687,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_default_keys_of_every_system_are_keys_in_the_form_they_are_kept() {
+        // Both tables, whatever system the tests run on: the other system's defaults are data here.
+        for column in [0, 1] {
+            let mut taken: Vec<&str> = Vec::new();
+            for (name, elsewhere, mac) in DEFAULT_KEYS {
+                for key in if column == 0 { elsewhere } else { mac } {
+                    assert_eq!(chord::chord(key).as_deref(), Ok(*key), "keys.{name}: {key}");
+                    assert!(!taken.contains(key), "keys.{name}: {key} is given twice in one table");
+                    taken.push(key);
+                }
+            }
+        }
+        let names: Vec<&str> = DEFAULT_KEYS.iter().map(|(name, _, _)| *name).collect();
+        let fields: Vec<&str> = KeysConfig::default().all().iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, fields, "a default for each command, in the commands' order");
+        assert!(Config::parse("").is_ok(), "this system's defaults are settings the terminal takes");
+    }
+
+    #[test]
+    fn keys_are_checked_when_the_settings_are_read() {
+        let keys = |text: &str| Config::parse(text).map(|config| config.keys);
+        assert_eq!(keys("[keys]\nagents = [\"ctrl-alt-g\", \"f9\"]").expect("settings").agents, ["ctrl-alt-g", "f9"]);
+        assert!(keys("[keys]\nexplain = []").expect("no key").explain.is_empty());
+        let said = |text: &str| format!("{:#}", keys(text).expect_err("refused"));
+        assert!(
+            said("[keys]\nagents = [\"Ctrl+Alt+G\"]").contains("write it \"ctrl-alt-g\""),
+            "the one form, in the file"
+        );
+        assert!(said("[keys]\nagents = [\"g\"]").contains("keys.agents has \"g\": the shell needs that key"));
+        assert!(said("[keys]\nagents = [\"ctrl-shft-g\"]").contains("'shft' is not ctrl, alt, shift or cmd"));
+        assert!(
+            said("[keys]\ncopy = [\"ctrl-alt-x\"]\npaste = [\"ctrl-alt-x\"]")
+                .contains("keys.copy and keys.paste both have")
+        );
+        assert!(said("[keys]\ncopy = [\"ctrl-alt-x\", \"ctrl-alt-x\"]").contains("keys.copy and keys.copy both have"));
+        assert!(said("[keys]\nfrobnicate = [\"f9\"]").contains("unknown field"), "a command that is none");
+    }
+
+    #[test]
     fn nothing_set_gives_the_defaults() {
         let config = Config::parse("").unwrap();
         assert_eq!(config, Config::default());

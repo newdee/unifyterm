@@ -17,7 +17,8 @@ pub(crate) enum Lights {
     Hidden,
 }
 
-/// Shows or hides the three buttons of `window`.
+/// Shows or hides the three buttons of `window`. What the system holds
+/// after is read back and written to the log (`UNIFYTERM_LOG=info`).
 #[cfg(target_os = "macos")]
 pub(crate) fn set(window: &Window, lights: Lights) {
     use objc2::msg_send;
@@ -33,26 +34,26 @@ pub(crate) fn set(window: &Window, lights: Lights) {
     let view: *mut AnyObject = handle.ns_view.as_ptr().cast();
     let hidden = lights == Lights::Hidden;
     // SAFETY: `view` is this window's own NSView, alive while `handle` is, and this is the main
-    // thread (a window is drawn there). `window` answers the NSWindow the view is in, or nil;
-    // `standardWindowButton:` answers an NSButton or nil; `setHidden:` takes a BOOL and answers
-    // nothing. A nil is not sent to.
-    unsafe {
-        let ns_window: *mut AnyObject = msg_send![view, window];
-        if ns_window.is_null() {
-            return;
-        }
-        let mut now_hidden = 0;
-        for button in BUTTONS {
-            let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: button];
-            if !button.is_null() {
-                let () = msg_send![button, setHidden: hidden];
-                // Read back: what the log says is what the system holds, not what was asked.
-                let is: bool = msg_send![button, isHidden];
-                now_hidden += usize::from(is);
-            }
-        }
-        log::info!("window: the system's three buttons asked to be {lights:?}; hidden now: {now_hidden} of 3");
+    // thread (a window is drawn there). `window` answers the NSWindow the view is in, or nil.
+    let ns_window: *mut AnyObject = unsafe { msg_send![view, window] };
+    if ns_window.is_null() {
+        return;
     }
+    let mut now_hidden = 0;
+    for button in BUTTONS {
+        // SAFETY: `ns_window` is that view's window, not nil. `standardWindowButton:` takes an
+        // NSUInteger and answers an NSButton, or nil for a window without that button.
+        let button: *mut AnyObject = unsafe { msg_send![ns_window, standardWindowButton: button] };
+        if button.is_null() {
+            continue;
+        }
+        // SAFETY: `button` is an NSButton, not nil. `setHidden:` takes a BOOL and answers nothing.
+        let () = unsafe { msg_send![button, setHidden: hidden] };
+        // SAFETY: the same button. `isHidden` takes nothing and answers a BOOL.
+        let is: bool = unsafe { msg_send![button, isHidden] };
+        now_hidden += usize::from(is);
+    }
+    log::info!("window: the system's three buttons asked to be {lights:?}; hidden now: {now_hidden} of 3");
 }
 
 /// Elsewhere the system draws no buttons over the row: nothing is done.
