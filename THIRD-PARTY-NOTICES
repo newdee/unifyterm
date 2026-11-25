@@ -11429,12 +11429,12 @@ SOFTWARE.
 ====================================================================
 MIT License (MIT)
 Used by:
-  unifyterm-assist 0.6.0
-  unifyterm-config 0.6.0
-  unifyterm-history 0.6.0
-  unifyterm-programs 0.6.0
-  unifyterm 0.6.0
-  ut 0.6.0
+  unifyterm-assist 0.6.1
+  unifyterm-config 0.6.1
+  unifyterm-history 0.6.1
+  unifyterm-programs 0.6.1
+  unifyterm 0.6.1
+  ut 0.6.1
   base64-simd 0.8.0  https://github.com/Nugine/simd
   blade-graphics 0.7.1  https://github.com/kvark/blade
   blade-macros 0.3.0  https://github.com/kvark/blade

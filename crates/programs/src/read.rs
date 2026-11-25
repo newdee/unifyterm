@@ -1,13 +1,15 @@
 //! Reading an OpenCLI description (<https://github.com/spectreconsole/open-cli>, version 0.1)
 //! into the tree the rest of this crate works on.
 //!
-//! Only what is used is read; other fields are passed over. Words that
-//! may be put on an input line (names, aliases, accepted values) are left
-//! out when they hold a character a shell reads: a description is data, it
-//! must never become a command.
+//! Only what is used is read; other fields are passed over, and a field
+//! given as `null` is read as one left out (a program whose JSON writer puts
+//! `null` for what it has not got). Words that may be put on an input line
+//! (names, aliases, accepted values) are left out when they hold a character
+//! a shell reads: a description is data, it must never become a command.
 
 use serde::Deserialize;
 
+use crate::nulls::or_empty;
 use crate::{Argument, Command, Flag, Program, bare};
 
 /// The largest description read, in bytes (ffmpeg's is 2.2 MB).
@@ -53,13 +55,13 @@ pub struct Read {
 
 #[derive(Deserialize, Default)]
 struct RawInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     summary: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     description: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     version: String,
 }
 
@@ -67,60 +69,60 @@ struct RawInfo {
 struct RawDocument {
     /// The version of the specification: its presence says what the file is.
     opencli: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     info: RawInfo,
     /// The root command (since 2026-04-19).
     command: Option<RawCommand>,
     // Before that, the root command's parts were the document's own.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     commands: Vec<RawCommand>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     options: Vec<RawOption>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     arguments: Vec<RawArgument>,
 }
 
 #[derive(Deserialize, Default)]
 struct RawCommand {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     aliases: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     description: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     hidden: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     options: Vec<RawOption>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     arguments: Vec<RawArgument>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     commands: Vec<RawCommand>,
 }
 
 #[derive(Deserialize)]
 struct RawOption {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     aliases: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     description: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     hidden: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     recursive: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     arguments: Vec<RawArgument>,
 }
 
 #[derive(Deserialize)]
 struct RawArgument {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_empty")]
     description: String,
-    #[serde(default, rename = "acceptedValues")]
+    #[serde(default, rename = "acceptedValues", deserialize_with = "or_empty")]
     accepted: Vec<String>,
     arity: Option<RawArity>,
 }
@@ -311,6 +313,38 @@ mod tests {
         assert_eq!(program.name, "old");
         assert_eq!(program.root.commands[0].name, "run");
         assert_eq!(program.root.options[0].name, "--quiet");
+    }
+
+    /// Every field this crate reads, given as `null`: the same tree as with the fields left out.
+    #[test]
+    fn a_field_given_as_null_is_read_as_left_out() {
+        let nulls = r#"{"opencli": "0.1",
+            "info": {"title": null, "summary": null, "description": null, "version": null},
+            "commands": null, "options": null, "arguments": null,
+            "command": {"name": "panes", "aliases": null, "description": null, "hidden": null,
+                "options": [{"name": "-L", "aliases": null, "description": null, "hidden": null, "recursive": null,
+                             "arguments": [{"name": "socket", "description": null, "acceptedValues": null, "arity": null}]},
+                            {"name": "-q", "arguments": null}],
+                "arguments": null,
+                "commands": [{"name": "run", "options": null, "arguments": null, "commands": null}]}}"#;
+        let left_out = r#"{"opencli": "0.1", "info": {},
+            "command": {"name": "panes",
+                "options": [{"name": "-L", "arguments": [{"name": "socket"}]}, {"name": "-q"}],
+                "commands": [{"name": "run"}]}}"#;
+        let (with_nulls, without) = (read(nulls).expect("nulls are read"), read(left_out).expect("it is read"));
+        assert_eq!(with_nulls.program, without.program);
+        assert_eq!((with_nulls.left_out, without.program.root.options.len()), (0, 2));
+        let no_info = read(r#"{"opencli": "0.1", "info": null, "command": {"name": "x"}}"#).expect("no info");
+        assert_eq!((no_info.program.name.as_str(), no_info.program.version.as_str()), ("x", ""));
+        // What is there and of the wrong kind is still refused, and the place is still named.
+        let wrong = read("{\"opencli\": \"0.1\", \"command\": {\"name\": \"x\",\n \"hidden\": \"yes\"}}");
+        let Err(Error::NotADescription(said)) = wrong.map(|read| read.left_out) else { panic!("it was read") };
+        assert!(said.contains("expected a boolean") && said.contains("line 2"), "{said}");
+        assert_eq!(
+            read(r#"{"opencli": "0.1", "command": {"name": null}}"#).map(|read| read.left_out),
+            Err(Error::NoName(String::new())),
+            "a name is needed all the same"
+        );
     }
 
     #[test]

@@ -930,14 +930,15 @@ impl Workspace {
         .detach();
     }
 
-    /// The sidebar: a card for each agent, or a line saying why there are none.
+    /// The sidebar: a card for each agent, and a line saying why there are
+    /// none, or that some of the list could not be read.
     fn sidebar(&self, window: &Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = &self.settings.theme;
         let (ink, muted, rule, well) =
             (solid(theme.foreground), solid(theme.muted()), solid(theme.rule()), solid(theme.well()));
         let mono = SharedString::from(self.settings.config.font.family.clone());
         let listed = match &self.sidebar.agents {
-            Some(agents::Agents::Listed(agents)) => agents.clone(),
+            Some(agents::Agents::Listed { agents, .. }) => agents.clone(),
             _ => Vec::new(),
         };
         let notice =

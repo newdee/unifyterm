@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::json;
+use unifyterm_programs::or_empty;
 
 pub use command::Command;
 pub use local::local_fix;
@@ -117,7 +118,9 @@ fn object_schema(properties: &serde_json::Value, required: &[&str]) -> serde_jso
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
-/// The answer's text as JSON of type `T`.
+/// The answer's text as JSON of type `T`. A field the model gives as `null`
+/// is read as the empty text (`or_empty`, on each field): "no command" is
+/// then no command, as it is with `""`. A field it leaves out is an error.
 fn parse<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, Error> {
     // A small model may write its thoughts first, braces and all: the answer is what follows them.
     let text = text.rfind(THOUGHTS_END).map_or(text, |end| &text[end + THOUGHTS_END.len()..]);
@@ -131,6 +134,7 @@ fn parse<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, Error> {
 pub fn suggest(provider: &dyn Provider, context: &Context<'_>) -> Result<Option<String>, Error> {
     #[derive(Deserialize)]
     struct Answer {
+        #[serde(deserialize_with = "or_empty")]
         completion: String,
     }
     let typed = clean(context.typed);
@@ -173,7 +177,10 @@ pub struct Failure<'a> {
 /// A corrected command and why.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Fix {
+    #[serde(deserialize_with = "or_empty")]
     pub command: String,
+    /// May be empty: a model may give none.
+    #[serde(deserialize_with = "or_empty")]
     pub reason: String,
 }
 
@@ -210,7 +217,9 @@ pub fn fix(provider: &dyn Provider, failure: &Failure<'_>) -> Result<Option<Fix>
 /// One part of a command and what it means.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Part {
+    #[serde(deserialize_with = "or_empty")]
     pub text: String,
+    #[serde(deserialize_with = "or_empty")]
     pub meaning: String,
 }
 
@@ -219,6 +228,7 @@ pub struct Part {
 pub fn explain(provider: &dyn Provider, command: &str, shell: &str, help: Option<&str>) -> Result<Vec<Part>, Error> {
     #[derive(Deserialize)]
     struct Answer {
+        #[serde(deserialize_with = "or_empty")]
         parts: Vec<Part>,
     }
     let command = clean(command);
@@ -271,7 +281,9 @@ pub struct Ask<'a> {
 /// The command a sentence was turned into, and what it does.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Asked {
+    #[serde(deserialize_with = "or_empty")]
     pub command: String,
+    #[serde(deserialize_with = "or_empty")]
     pub note: String,
 }
 
@@ -488,6 +500,36 @@ mod tests {
         let secret = Fixed::new(vec![Ok(r#"{"command": "", "note": ""}"#.into())]);
         let _ = ask(&secret, &asking("log in to mysql with --password hunter2", &recent, &[]));
         assert!(!secret.sent().contains("hunter2") && secret.sent().contains(REDACTED), "{}", secret.sent());
+    }
+
+    /// A model that writes `null` where it has nothing: read as the empty text, in all four answers.
+    #[test]
+    fn a_null_in_an_answer_is_the_empty_text() {
+        let recent = Vec::new();
+        let failure = Failure { command: "gti status", exit: Some(1), output: "gti: not found", shell: PWSH };
+        let no_fix = Fixed::new(vec![Ok(r#"{"command": null, "reason": null}"#.into())]);
+        assert_eq!(fix(&no_fix, &failure), Ok(None), "no command: no fix");
+        let bare_fix = Fixed::new(vec![Ok(r#"{"command": "git status", "reason": null}"#.into())]);
+        assert_eq!(fix(&bare_fix, &failure), Ok(Some(Fix { command: "git status".into(), reason: String::new() })));
+        let no_command = Fixed::new(vec![Ok(r#"{"command": null, "note": null}"#.into())]);
+        assert_eq!(ask(&no_command, &asking("write me a poem", &recent, &[])), Ok(None));
+        let bare_command = Fixed::new(vec![Ok(r#"{"command": "ls", "note": null}"#.into())]);
+        assert_eq!(
+            ask(&bare_command, &asking("list", &recent, &[])),
+            Ok(Some(Asked { command: "ls".into(), note: String::new() }))
+        );
+        let parts = r#"{"parts": [{"text": "ls", "meaning": null}]}"#;
+        assert_eq!(
+            explain(&Fixed::new(vec![Ok(parts.into())]), "ls", PWSH, None),
+            Ok(vec![Part { text: "ls".into(), meaning: String::new() }])
+        );
+        // Nothing that was refused before is taken now: no suggestion, no parts.
+        let nothing = Fixed::new(vec![Ok(r#"{"completion": null}"#.into())]);
+        assert!(matches!(suggest(&nothing, &context("car", &recent)), Err(Error::BadAnswer(_))));
+        let no_parts = Fixed::new(vec![Ok(r#"{"parts": null}"#.into())]);
+        assert!(matches!(explain(&no_parts, "ls", PWSH, None), Err(Error::BadAnswer(_))));
+        let number = Fixed::new(vec![Ok(r#"{"command": 3, "note": ""}"#.into())]);
+        assert!(matches!(ask(&number, &asking("list", &recent, &[])), Err(Error::BadAnswer(_))), "a wrong type");
     }
 
     #[test]

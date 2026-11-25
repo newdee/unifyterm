@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
+use unifyterm_programs::or_empty;
 
 /// How long the command may take before it is stopped.
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(1);
@@ -14,28 +15,39 @@ pub(crate) const TIMEOUT: Duration = Duration::from_secs(1);
 const LOOK: Duration = Duration::from_millis(10);
 /// The same problem goes to the log at most this often.
 const LOG_EVERY: Duration = Duration::from_secs(60);
+/// Of the entries that could not be read, the log line says why for the first this many.
+const UNREAD_NAMED: usize = 3;
 
 /// One agent, as `keepane list-agents -J` gives it. Fields keepane adds
-/// later are passed over; any of these left out take their empty value.
+/// later are passed over; any of these left out, or given as `null`, take
+/// their empty value. keepane gives `null` for a figure it does not know:
+/// the cost of an agent it has no prices for, the context's share before
+/// the first reply.
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
 pub(crate) struct Agent {
     /// keepane's pane number: `%426`.
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) pane: String,
     /// Where the pane is: `session:window.pane`.
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) target: String,
     /// Which agent: `claude`, `codex`, `pi`, `cursor`.
-    #[serde(rename = "agent")]
+    #[serde(rename = "agent", deserialize_with = "or_empty")]
     pub(crate) kind: String,
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) model: String,
-    /// In dollars.
-    pub(crate) cost: f64,
+    /// In dollars, when known.
+    pub(crate) cost: Option<f64>,
     /// How full its context is, in percent, when known.
     pub(crate) context_pct: Option<u32>,
     /// Percent of one processor.
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) cpu: f64,
     /// Bytes.
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) mem: u64,
+    #[serde(deserialize_with = "or_empty")]
     pub(crate) turns: u64,
 }
 
@@ -55,9 +67,13 @@ impl Agent {
         }
     }
 
-    /// The card's third line: cost, context, processor, memory, turns.
+    /// The card's third line: cost, context, processor, memory, turns. A
+    /// cost or a context's share that is not known is left out.
     pub(crate) fn figures(&self) -> String {
-        let mut parts = vec![format!("${:.2}", self.cost)];
+        let mut parts = Vec::new();
+        if let Some(cost) = self.cost {
+            parts.push(format!("${cost:.2}"));
+        }
         if let Some(percent) = self.context_pct {
             parts.push(format!("context {percent}%"));
         }
@@ -73,7 +89,10 @@ impl Agent {
 pub(crate) enum Agents {
     /// Not asked yet.
     Asking,
-    Listed(Vec<Agent>),
+    /// The list was read: its agents, and for each entry that is not an
+    /// agent's, which one and why. Such an entry does not take the others
+    /// with it.
+    Listed { agents: Vec<Agent>, unread: Vec<String> },
     /// The program is not there: keepane is not installed, or not on `PATH`.
     NoProgram(String),
     /// It ran and said something is wrong: no keepane server, for one. The first line it printed.
@@ -85,12 +104,23 @@ pub(crate) enum Agents {
 }
 
 impl Agents {
-    /// The line in place of the cards; `None` when there are cards.
+    /// A list with nothing wrong in it.
+    #[cfg(test)]
+    fn listed(agents: Vec<Agent>) -> Self {
+        Self::Listed { agents, unread: Vec::new() }
+    }
+
+    /// The line above the cards, or in their place; `None` when the cards say it all.
     pub(crate) fn notice(&self) -> Option<String> {
         match self {
             Self::Asking => Some("Asking keepane…".into()),
-            Self::Listed(agents) if agents.is_empty() => Some("No agents in keepane's panes.".into()),
-            Self::Listed(_) => None,
+            Self::Listed { agents, unread } if !unread.is_empty() => Some(format!(
+                "{} of keepane's {} agents could not be read: see the log.",
+                unread.len(),
+                agents.len() + unread.len()
+            )),
+            Self::Listed { agents, .. } if agents.is_empty() => Some("No agents in keepane's panes.".into()),
+            Self::Listed { .. } => None,
             Self::NoProgram(program) => Some(format!("{program} was not found: is keepane installed?")),
             Self::Failed(said) => Some(said.clone()),
             Self::Unreadable(_) => Some("keepane's answer could not be read: see the log.".into()),
@@ -101,19 +131,36 @@ impl Agents {
     /// What goes to the log; `None` when nothing is wrong.
     fn problem(&self) -> Option<String> {
         match self {
-            Self::Asking | Self::Listed(_) => None,
+            Self::Asking => None,
+            Self::Listed { unread, .. } if unread.is_empty() => None,
+            Self::Listed { agents, unread } => Some(format!(
+                "agents: {} of the {} entries in keepane's answer are not an agent's: {}",
+                unread.len(),
+                agents.len() + unread.len(),
+                unread.iter().take(UNREAD_NAMED).map(String::as_str).collect::<Vec<_>>().join("; ")
+            )),
             Self::Unreadable(error) => Some(format!("agents: keepane's answer is not the agents' list: {error}")),
             other => other.notice().map(|notice| format!("agents: {notice}")),
         }
     }
 }
 
-/// The agents in the command's output.
+/// The agents in the command's output. The output is a list; each of its
+/// entries is read on its own, so that one that cannot be read (a figure of
+/// another type than today's) is named and the others are still shown.
 pub(crate) fn parse(output: &[u8]) -> Agents {
-    match serde_json::from_slice(output) {
-        Ok(agents) => Agents::Listed(agents),
-        Err(error) => Agents::Unreadable(error.to_string()),
+    let entries: Vec<serde_json::Value> = match serde_json::from_slice(output) {
+        Ok(entries) => entries,
+        Err(error) => return Agents::Unreadable(error.to_string()),
+    };
+    let (mut agents, mut unread) = (Vec::with_capacity(entries.len()), Vec::new());
+    for (index, entry) in entries.into_iter().enumerate() {
+        match serde_json::from_value(entry) {
+            Ok(agent) => agents.push(agent),
+            Err(error) => unread.push(format!("entry {}: {error}", index + 1)),
+        }
     }
+    Agents::Listed { agents, unread }
 }
 
 /// How a program run by [`run`] went.
@@ -326,9 +373,17 @@ mod tests {
     }
     const FIXTURE: &str = include_str!("../tests/fixtures/agents.json");
 
+    /// The agents of a list in which every entry was read.
+    fn all_read(output: &[u8]) -> Vec<Agent> {
+        match parse(output) {
+            Agents::Listed { agents, unread } if unread.is_empty() => agents,
+            other => panic!("not all read: {other:?}"),
+        }
+    }
+
     #[test]
     fn the_fixture_is_read() {
-        let Agents::Listed(agents) = parse(FIXTURE.as_bytes()) else { panic!("not read") };
+        let agents = all_read(FIXTURE.as_bytes());
         assert_eq!(agents.len(), 2);
         assert_eq!(agents[0].title(), "claude · claude-opus-5-5");
         assert_eq!(agents[0].place(), "work:1.0 (%12)");
@@ -339,13 +394,56 @@ mod tests {
 
     #[test]
     fn unknown_fields_are_passed_over_and_missing_ones_are_empty() {
-        let Agents::Listed(agents) = parse(br#"[{"pane":"%1","agent":"pi","new_field":{"x":1}}]"#) else { panic!() };
+        let agents = all_read(br#"[{"pane":"%1","agent":"pi","new_field":{"x":1}}]"#);
         assert_eq!(agents[0].place(), "%1");
-        assert!(agents[0].cost.abs() < f64::EPSILON);
-        assert_eq!(parse(b"[]"), Agents::Listed(Vec::new()));
-        assert_eq!(Agents::Listed(Vec::new()).notice().as_deref(), Some("No agents in keepane's panes."));
+        assert_eq!(agents[0].cost, None, "no cost given: not known, not $0.00");
+        assert_eq!(agents[0].figures(), "CPU 0% · 0 MiB · 0 turns");
+        assert_eq!(parse(b"[]"), Agents::listed(Vec::new()));
+        assert_eq!(Agents::listed(Vec::new()).notice().as_deref(), Some("No agents in keepane's panes."));
+        assert_eq!(Agents::listed(vec![Agent::default()]).notice(), None, "cards: no line");
         assert!(matches!(parse(b"keepane: no server"), Agents::Unreadable(_)));
         assert!(matches!(parse(br#"{"pane":"%1"}"#), Agents::Unreadable(_)), "an object, not a list");
+        assert!(matches!(parse(b"null"), Agents::Unreadable(_)), "no list at all");
+    }
+
+    /// keepane gives `null` for a cost it does not know (an agent it has no
+    /// prices for, `agent-cost off`): the card has no cost, and the list is read.
+    #[test]
+    fn a_figure_given_as_null_is_not_known_and_the_list_is_still_read() {
+        let unknown = FIXTURE.replacen("\"cost\":3.25", "\"cost\":null", 1);
+        assert_ne!(unknown, FIXTURE, "the fixture has that cost");
+        let agents = all_read(unknown.as_bytes());
+        assert_eq!(agents.len(), 2, "both cards, as before");
+        assert_eq!(agents[0].figures(), "context 41% · CPU 12% · 512 MiB · 37 turns", "no cost: left out");
+        assert_eq!(agents[1].figures(), "$0.00 · CPU 0% · 128 MiB · 0 turns", "a cost of nothing is a cost");
+        // Every field as null: an agent all the same, with its empty values.
+        let nulls = br#"[{"pane":null,"target":null,"agent":null,"model":null,"cost":null,
+            "context_pct":null,"cpu":null,"mem":null,"turns":null}]"#;
+        assert_eq!(all_read(nulls), [Agent::default()]);
+        assert_eq!(Agent::default().title(), "agent");
+    }
+
+    /// An entry of another shape than an agent's: named, and the others are shown.
+    #[test]
+    fn an_entry_that_cannot_be_read_does_not_take_the_others() {
+        let list = br#"[{"pane":"%1","cost":1.5}, {"pane":"%2","mem":"lots"}, 7, {"pane":"%4","cost":null}]"#;
+        let Agents::Listed { agents, unread } = parse(list) else { panic!("not a list") };
+        let panes: Vec<&str> = agents.iter().map(|agent| agent.pane.as_str()).collect();
+        assert_eq!(panes, ["%1", "%4"], "in the list's order");
+        assert_eq!(unread.len(), 2);
+        assert!(unread[0].starts_with("entry 2: ") && unread[0].contains("expected u64"), "{}", unread[0]);
+        assert!(unread[1].starts_with("entry 3: "), "{}", unread[1]);
+        let read = Agents::Listed { agents, unread };
+        assert_eq!(read.notice().as_deref(), Some("2 of keepane's 4 agents could not be read: see the log."));
+        let problem = read.problem().expect("it goes to the log");
+        assert!(problem.starts_with("agents: 2 of the 4 entries in keepane's answer are not an agent's: entry 2: "));
+        // None could be read: the line says so, not "no agents".
+        let none = parse(b"[1, 2]");
+        assert_eq!(none.notice().as_deref(), Some("2 of keepane's 2 agents could not be read: see the log."));
+        // Many: the log line names the first three.
+        let many = parse(b"[1, 2, 3, 4, 5]").problem().expect("it goes to the log");
+        assert!(many.contains("entry 3: ") && !many.contains("entry 4: "), "{many}");
+        assert_eq!(Agents::listed(vec![Agent::default()]).problem(), None, "nothing wrong: nothing logged");
     }
 
     #[cfg(windows)]
@@ -367,7 +465,7 @@ mod tests {
         let print = vec!["findstr".to_owned(), ".".to_owned(), file.display().to_string()];
         #[cfg(not(windows))]
         let print = vec!["cat".to_owned(), file.display().to_string()];
-        assert_eq!(ask(&print), Agents::Listed(vec![Agent { pane: "%3".into(), ..Agent::default() }]));
+        assert_eq!(ask(&print), Agents::listed(vec![Agent { pane: "%3".into(), ..Agent::default() }]));
         assert_eq!(ask(&["unifyterm-no-such-program".into()]), Agents::NoProgram("unifyterm-no-such-program".into()));
         assert_eq!(
             ask(&shell("echo keepane: no server running 1>&2 && exit 1")),
@@ -405,8 +503,14 @@ mod tests {
         let first = quiet.last.clone().unwrap();
         quiet.log(&Agents::TooSlow);
         assert_eq!(quiet.last.as_ref().unwrap().1, first.1, "not logged again");
-        quiet.log(&Agents::Listed(Vec::new()));
+        quiet.log(&Agents::listed(Vec::new()));
         assert!(quiet.last.is_none(), "fine again: the next problem is logged at once");
+        // An entry that cannot be read is a problem like the others: said, then not again within the minute.
+        let unread = Agents::Listed { agents: vec![Agent::default()], unread: vec!["entry 2: no agent".into()] };
+        quiet.log(&unread);
+        let first = quiet.last.clone().expect("it was logged");
+        quiet.log(&unread);
+        assert_eq!(quiet.last.as_ref().map(|(_, at)| *at), Some(first.1), "not logged again");
     }
 
     #[test]

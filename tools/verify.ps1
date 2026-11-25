@@ -1025,9 +1025,12 @@ if ($Section -in 'all', 'programs') {
         Report 'a sentence that does not name it gets one line of it' ($named -and -not $table) "the program's line: $named; its commands: $table"
         # ask_enter = "auto": 'git status --short' only reads and the description has it: run at once.
         # '--frobnicate' is no option of the description: left on the line, whatever the mode.
+        $before = (& $sent).Count
         $t = Run 'prog-ask-auto' "${plain}# git status in short form{ENTER}{WAIT:3500}" $auto
         $ran = (& $lastOf $t) -notmatch 'git status --short$' -and (Count $t 'git status --short') -ge 1
-        Report 'auto: a command the description has is run' $ran "last line: '$(& $lastOf $t)' (the prompt again: it ran)"
+        # How often the model was asked says, when this fails, whether the window took the line for a sentence at all.
+        $askedNow = @(& $sent | Select-Object -Skip $before | Where-Object { $_ -match 'Request: git status in short form' }).Count
+        Report 'auto: a command the description has is run' $ran "last line: '$(& $lastOf $t)' (the prompt again: it ran); the command on the screen $(Count $t 'git status --short') time(s); the model asked about the sentence $askedNow time(s)"
         $t = Run 'prog-ask-doubt' "${plain}# git status frob{ENTER}{WAIT:3500}" $auto
         Report 'auto: an option the description does not have is not run' ((& $lastOf $t) -match '> git status --frobnicate$' -and (Count $t 'frobnicate') -eq 1) "last line: '$(& $lastOf $t)'; 'frobnicate' seen $(Count $t 'frobnicate') time(s) (2 would be git's own error)"
 
@@ -1172,6 +1175,14 @@ if ($Section -in 'all', 'agents') {
 
     Run 'agents-shown' "{WAIT:1500}" "[agents]`nsidebar = true`n$list" | Out-Null
     Report 'agents.sidebar = true: a card for each agent' ((Cards 'agents-shown') -eq 2) "cards: $(Cards 'agents-shown') (the list has 2)"
+    # keepane gives null for a figure it does not know (the cost of an agent it has no prices for), and may
+    # one day give an entry this version cannot read: the other cards are shown, and the log names that entry.
+    $odd = Join-Path $work 'agents-odd.json'
+    $more = ',{"pane":"%14","target":"work:3.0","agent":"other","model":null,"cost":null,"context_pct":null,"cpu":1.0,"mem":1048576,"turns":2},{"pane":"%15","mem":"lots"}]'
+    [IO.File]::WriteAllText($odd, (Get-Content $fixture -Raw).Replace('"cost":3.25', '"cost":null').TrimEnd().TrimEnd(']') + $more)
+    Run 'agents-odd' "{WAIT:1500}" "[agents]`nsidebar = true`ncommand = ['$utExe', 'cat', '$odd']" | Out-Null
+    $unread = ([regex]::Matches((Logged), "agents: 1 of the 4 entries in keepane's answer are not an agent's: entry 4: ")).Count
+    Report 'a cost that is null, and an entry that cannot be read: the other cards are shown' ((Cards 'agents-odd') -eq 3 -and $unread -eq 1) "cards: $(Cards 'agents-odd') (4 entries: 2 with a null cost, 1 that is not an agent's); log lines that name entry 4: $unread"
     Run 'agents-hidden' "{WAIT:1500}" "[agents]`n$list" | Out-Null
     Report 'by default the sidebar is hidden' ((Cards 'agents-hidden') -eq 0) "cards: $(Cards 'agents-hidden')"
     Run 'agents-key' "{KEY:CTRL+SHIFT+A}{WAIT:1500}" "[agents]`n$list" | Out-Null

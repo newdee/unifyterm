@@ -256,7 +256,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 
 ## For agents
 
-- **The sidebar** (Ctrl-Shift-A) shows the agents in keepane's panes (keepane is a terminal multiplexer): model, cost, context, CPU, memory. It asks keepane only while it shows.
+- **The sidebar** (Ctrl-Shift-A) shows the agents in keepane's panes (keepane is a terminal multiplexer): model, cost, context, CPU, memory. A cost or a context share keepane does not know is left out of the card. It asks keepane only while it shows.
 - **`ut mcp`** gives an agent four tools: `history_search`, `history_recent`, `list_commands`, `command_help`. It reads the history and runs nothing. Register it with Claude Code: `claude mcp add unifyterm -- ut mcp`.
 - **The skill** (`skills/unifyterm/SKILL.md`, or `ut skill`) tells an agent how to work in UnifyTerm.
 

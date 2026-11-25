@@ -1307,11 +1307,14 @@ impl TerminalView {
                 (WHAT_IS_SENT.to_owned(), false),
                 ("Enter: yes, from now on    Esc: no, not while UnifyTerm runs".to_owned(), false),
             ],
-            Popup::Fix(fix) => vec![
-                (fix.command.clone(), true),
-                (fix.reason.clone(), false),
-                ("Enter: put it on the line (not run)    Esc: close".to_owned(), false),
-            ],
+            Popup::Fix(fix) => {
+                let mut lines = vec![(fix.command.clone(), true)];
+                if !fix.reason.is_empty() {
+                    lines.push((fix.reason.clone(), false));
+                }
+                lines.push(("Enter: put it on the line (not run)    Esc: close".to_owned(), false));
+                lines
+            }
             Popup::Waiting(command) => vec![(command.clone(), true), ("Asking the model…".to_owned(), false)],
             Popup::Explained(command, parts, from) => {
                 let widest = parts.iter().map(|part| part.text.chars().count()).max().unwrap_or(0);

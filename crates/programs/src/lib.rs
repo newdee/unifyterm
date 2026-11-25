@@ -16,6 +16,7 @@
 
 mod check;
 mod names;
+mod nulls;
 mod offer;
 mod read;
 mod store;
@@ -24,6 +25,7 @@ mod walk;
 
 pub use check::{Problem, problem};
 pub use names::{bare, distance, nearest, within_reach};
+pub use nulls::or_empty;
 pub use offer::{Offer, complete};
 pub use read::{Error, MOST_BYTES, Read, read};
 pub use store::{Programs, directory_in, load, stamp_is_young};
