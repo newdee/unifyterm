@@ -156,6 +156,8 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; mar
     </div>
   </fieldset>
 
+  <label class="check"><input type="checkbox" id="autohide"> 标签栏自动收起（指针停在字区的顶边时出来）</label>
+
   <fieldset>
     <legend>阴影和边线</legend>
     <div class="choices" id="shadows">
@@ -185,7 +187,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; mar
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { shape: "rect", radius: 24, fit: "clip", shadow: "shape", edge: true, mark: true };
+const state = { shape: "rect", radius: 24, fit: "clip", shadow: "shape", edge: true, mark: true, autohide: false, peek: false };
 const TAB_H = 34, PAD = 6, LINE = 1.35;
 
 // What the terminal shows: a shell, then a program's status line across the bottom row, as vim or less draw one.
@@ -246,14 +248,20 @@ function layout() {
     else { const d = r * (1 - Math.SQRT1_2); x0 = d; y0 = d; x1 = W - d; y1 = H - d; }
   }
   const region = $("region");
-  Object.assign(region.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+  Object.assign(region.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px`, overflow: state.autohide ? "hidden" : "visible" });
 
   const cell = cellSize();
-  const gx = x0 + PAD, gy = y0 + TAB_H + PAD;
+  // With the row of tabs out of the way the text has its height; shown again, the row lies over the text.
+  const bar = state.autohide ? 0 : TAB_H;
+  const tabs = $("tabs");
+  Object.assign(tabs.style, state.autohide
+    ? { position: "absolute", left: 0, right: 0, top: 0, zIndex: 2, transform: state.peek ? "none" : `translateY(-${TAB_H + 2}px)`, boxShadow: state.peek ? "0 6px 16px rgb(0 0 0 / .3)" : "none" }
+    : { position: "relative", transform: "none", boxShadow: "none" });
+  const gx = x0 + PAD, gy = y0 + bar + PAD;
   const cols = Math.max(0, Math.floor((x1 - x0 - 2 * PAD) / cell.w));
-  const rows = Math.max(0, Math.floor((y1 - y0 - TAB_H - 2 * PAD) / cell.h));
+  const rows = Math.max(0, Math.floor((y1 - y0 - bar - 2 * PAD) / cell.h));
   const grid = $("grid");
-  Object.assign(grid.style, { top: `${TAB_H + PAD}px`, left: `${PAD}px`, width: `${cols * cell.w}px`, height: `${rows * cell.h}px` });
+  Object.assign(grid.style, { top: `${bar + PAD}px`, left: `${PAD}px`, width: `${cols * cell.w}px`, height: `${rows * cell.h}px` });
 
   // The rows: the last lines of the shell, and the status line in the bottom row, the whole width.
   const shown = lines.slice(Math.max(0, lines.length - Math.max(0, rows - 1)));
@@ -286,7 +294,7 @@ function layout() {
   const btnRight = inside(x1 - 8, y0 + TAB_H / 2, W, H, r, ellipse) && inside(x1 - 8, y0 + 5, W, H, r, ellipse);
 
   // Against a window of the same size with square corners.
-  const fullCols = Math.floor((W - 2 * PAD) / cell.w), fullRows = Math.floor((H - TAB_H - 2 * PAD) / cell.h);
+  const fullCols = Math.floor((W - 2 * PAD) / cell.w), fullRows = Math.floor((H - bar - 2 * PAD) / cell.h);
   const full = fullCols * fullRows;
   const seen = state.fit === "clip" ? whole : cols * rows;
   $("numbers").innerHTML =
@@ -294,7 +302,8 @@ function layout() {
     `格子 <b>${cols} 列 × ${rows} 行</b> = <b>${cols * rows}</b> 格<br>` +
     `完整看得见 <b>${whole}</b> 格；切掉一部分 <b>${cut}</b>；看不见 <b>${gone}</b><br>` +
     `和方角窗口比（${fullCols} × ${fullRows} = ${full} 格）：完整的少 <b>${full ? Math.round((1 - seen / full) * 100) : 0}%</b><br>` +
-    `标签栏左端 <b>${tabsLeft ? "在里面" : "被切"}</b>；右上角按钮 <b>${btnRight ? "在里面" : "被切"}</b>`;
+    `标签栏左端 <b>${tabsLeft ? "在里面" : "被切"}</b>；右上角按钮 <b>${btnRight ? "在里面" : "被切"}</b>` +
+    (state.autohide ? `<br>标签栏收起：比一直显示多 <b>${rows - Math.max(0, Math.floor((y1 - y0 - TAB_H - 2 * PAD) / cell.h))}</b> 行` : "");
 
   const notes = {
     clip: "铺满：终端的列数、行数和方角窗口一样，程序不用知道窗口是圆的。代价是角上的格被切掉：最后一行（vim、less 的状态栏）两头和第一行的标签、按钮最先受影响。",
@@ -322,6 +331,17 @@ $("radius").addEventListener("input", (e) => { state.radius = Number(e.target.va
 document.querySelectorAll("[data-radius]").forEach((b) => b.addEventListener("click", () => { state.radius = Number(b.dataset.radius); $("radius").value = state.radius; layout(); }));
 $("edge").addEventListener("change", (e) => { state.edge = e.target.checked; layout(); });
 $("mark").addEventListener("change", (e) => { state.mark = e.target.checked; layout(); });
+$("autohide").addEventListener("change", (e) => { state.autohide = e.target.checked; state.peek = false; layout(); });
+// The pointer at the top edge of the text's place brings the row of tabs; leaving the row puts it away.
+$("frame").addEventListener("mousemove", (e) => {
+  if (!state.autohide) return;
+  const region = $("region").getBoundingClientRect();
+  const y = e.clientY - region.top, x = e.clientX - region.left;
+  const within = x >= 0 && x <= region.width;
+  const peek = within && (state.peek ? y >= -4 && y <= TAB_H : y >= -4 && y <= 6);
+  if (peek !== state.peek) { state.peek = peek; layout(); }
+});
+$("frame").addEventListener("mouseleave", () => { if (state.peek) { state.peek = false; layout(); } });
 addEventListener("resize", layout);
 // A state can be given in the address: ?shape=ellipse&fit=inset&radius=60&shadow=system&theme=paper
 const asked = new URLSearchParams(location.search);
@@ -331,6 +351,7 @@ for (const [key, group, attr] of [["shape", "shapes", "shape"], ["fit", "fits", 
   if (button) button.click();
 }
 if (asked.has("radius")) state.radius = Number(asked.get("radius")) || 0;
+if (asked.has("autohide")) { state.autohide = true; $("autohide").checked = true; state.peek = asked.get("autohide") === "peek"; }
 $("radius").value = state.radius;
 document.fonts.ready.then(layout);
 layout();
