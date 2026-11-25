@@ -288,6 +288,7 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - The picture at the foot of the sidebar and the wallpaper are read again when the settings or the theme's file change, not when only the picture's own file is written anew. The sidebar's picture is not shown in a window less than 480 pixels high.
 - The row of tabs, the lists, the boxes and the sidebar were redrawn in 0.5.0 and looked at on Windows only: macOS and Linux build them and run the tests.
 - The white-text rule for light themes covers white and bright white on the theme's background. A program that writes another color the theme has made light is left as it wrote it.
+- A wallpaper is blended toward its own edges where the window shows them, over about half a pixel of the picture: 2 rows of the window for a picture of 400 by 200 made 3 times larger, and more the smaller the picture is. A picture of the window's size or larger shows none of it.
 - The builds are not signed.
 
 ## License
