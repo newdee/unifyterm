@@ -6,7 +6,9 @@ use std::path::Path;
 
 use unifyterm_config::ThemeConfig;
 pub(crate) use unifyterm_config::themes::Picture;
-pub(crate) use unifyterm_config::{AiConfig, AskEnter, CommandsConfig, Config, Provider, TabBar, WindowConfig};
+pub(crate) use unifyterm_config::{
+    AiConfig, AskEnter, CommandsConfig, Config, KeysConfig, Provider, TabBar, WindowConfig,
+};
 
 use crate::theme::{Rgb, Theme};
 
@@ -116,8 +118,8 @@ mod tests {
     fn the_users_theme_file_is_read_from_its_folder() {
         let folder = tempfile::tempdir().expect("a folder");
         let text = unifyterm_config::themes::text("day", None).expect("built in").0.replace("#f4f9fe", "#fffff0");
-        std::fs::write(folder.path().join("paper.toml"), text).expect("write");
-        let settings = Config::parse("[theme]\nname = \"paper\"").expect("settings");
+        std::fs::write(folder.path().join("mine.toml"), text).expect("write");
+        let settings = Config::parse("[theme]\nname = \"mine\"").expect("settings");
         assert_eq!(theme(&settings, Some(folder.path())).expect("the file").0.background, Rgb(0xff, 0xff, 0xf0));
         assert!(theme(&settings, None).is_err(), "no folder, no such theme");
     }

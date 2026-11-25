@@ -26,6 +26,8 @@ pub enum Kind {
     Color,
     /// The 16 terminal colors, or nothing: the built-in ones.
     Colors,
+    /// Keys, each with the keys held with it (`ctrl-shift-t`); none: no key.
+    Keys,
 }
 
 /// When a running UnifyTerm uses a setting that was changed. It reads the
@@ -83,7 +85,7 @@ impl Key {
     #[must_use]
     pub fn applies(&self) -> Applies {
         match (self.section(), self.field()) {
-            ("font" | "theme", _)
+            ("font" | "theme" | "keys", _)
             | ("terminal", "padding")
             | ("window", "tab_bar")
             | ("history", "candidates" | "limit")
@@ -106,7 +108,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 }
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 49] = [
+pub const KEYS: [Key; 59] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -138,6 +140,20 @@ pub const KEYS: [Key; 49] = [
         Kind::OneOf(&["always", "auto-hide"]),
         "The row of tabs: always there, or out of the way until the pointer is at the window's top edge.",
     ),
+    setting(
+        "keys.new_tab",
+        Kind::Keys,
+        "The keys for a new tab. Written as ctrl-shift-t; several with commas; none: no key.",
+    ),
+    setting("keys.close_tab", Kind::Keys, "The keys that close the tab."),
+    setting("keys.next_tab", Kind::Keys, "The keys for the next tab."),
+    setting("keys.previous_tab", Kind::Keys, "The keys for the tab before."),
+    setting("keys.copy", Kind::Keys, "The keys that copy the selection."),
+    setting("keys.paste", Kind::Keys, "The keys that paste."),
+    setting("keys.agents", Kind::Keys, "The keys that show or hide the agents' sidebar."),
+    setting("keys.tab_bar", Kind::Keys, "The keys that put the row of tabs out of the way, or back."),
+    setting("keys.full_screen", Kind::Keys, "The keys for full screen, and out of it."),
+    setting("keys.explain", Kind::Keys, "The keys that explain the command on the line."),
     setting(
         "theme.name",
         Kind::OptionalText,

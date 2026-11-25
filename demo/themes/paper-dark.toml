@@ -1,0 +1,20 @@
+# Paper Dark · UnifyTerm
+# keepane's own look (its themes/paper-dark.conf): ink on dark paper. Vitesse
+# Dark's hues with more color in them, on a warm near-black, a bar a shade
+# darker than the text's background, and one accent, cinnabar.
+[theme]
+foreground = "#cecabe"
+background = "#171716"
+# Cinnabar: the cursor, the mark of the tab in use and of the chosen row.
+cursor = "#dd625e"
+selection = "#3c3b38"
+# Around the text: keepane's bar, its lines and its muted ink.
+bar = "#121212"
+edge = "#666664"
+muted = "#87837b"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#393a34", "#dc696c", "#2b9870", "#efca4b", "#4f95cf", "#ec60a1", "#38aebe", "#dbd7ca",
+  # Bright variants in the same order
+  "#818181", "#dc696c", "#2b9870", "#efca4b", "#4f95cf", "#ec60a1", "#38aebe", "#ffffff",
+]

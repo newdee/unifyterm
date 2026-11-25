@@ -151,8 +151,8 @@ mod tests {
         assert_eq!(built_in[1], ("tokyo-night".to_owned(), "built in".to_owned()));
         assert_eq!(built_in.len(), unifyterm_config::themes::BUILT_IN.len() + 1);
         std::fs::create_dir_all(folder.path().join("themes")).unwrap();
-        std::fs::write(folder.path().join("themes").join("paper.toml"), "").unwrap();
-        assert_eq!(listed(&settings).last(), Some(&("paper".to_owned(), "yours".to_owned())));
+        std::fs::write(folder.path().join("themes").join("mine.toml"), "").unwrap();
+        assert_eq!(listed(&settings).last(), Some(&("mine".to_owned(), "yours".to_owned())));
         assert!(for_key(key(THEME).unwrap()).is_none(), "the screen asks with the file: not from the key alone");
     }
 

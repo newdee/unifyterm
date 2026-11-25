@@ -1,0 +1,22 @@
+# Paper · UnifyTerm
+# The light one of Paper Dark (keepane's themes/paper.conf): ink on sepia
+# paper. Vitesse Light's hues, darkened to be read on the page; a bar like the
+# page's darker edge, and one accent, cinnabar. White and bright white are
+# ink, so that text a program writes in white is read; black stays light, for
+# what is drawn on a color.
+[theme]
+foreground = "#33302a"
+background = "#f0e7d2"
+# Cinnabar: the cursor, the mark of the tab in use and of the chosen row.
+cursor = "#a53736"
+selection = "#cac2b0"
+# Around the text: keepane's bar, its lines and its muted ink.
+bar = "#e3d8bf"
+edge = "#8a8172"
+muted = "#635b4e"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#e3d8bf", "#a6363d", "#046641", "#815501", "#035fa0", "#b50165", "#036470", "#5a5346",
+  # Bright variants in the same order
+  "#5e584d", "#a6363d", "#046641", "#815501", "#035fa0", "#b50165", "#036470", "#33302a",
+]

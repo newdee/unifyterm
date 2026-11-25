@@ -709,7 +709,7 @@ mod tests {
             let named = |line: &&String| line.split_whitespace().next() == Some(key.name);
             assert_eq!(lines.iter().filter(named).count(), 1, "{}", key.name);
         }
-        assert_eq!(lines.iter().filter(|line| line.starts_with('[')).count(), 10, "ten sections");
+        assert_eq!(lines.iter().filter(|line| line.starts_with('[')).count(), 11, "eleven sections");
         assert!(
             lines.iter().any(|line| line == "  font.size                16"),
             "the value as the file has it: {lines:#?}"
@@ -907,11 +907,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   12 of 49");
+        assert_eq!(lines[1], "/color   12 of 59");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 49");
+        assert_eq!(lines[1], "/colorzzz   0 of 59");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }

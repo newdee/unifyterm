@@ -17,6 +17,7 @@ mod frame;
 mod graphics;
 mod helper;
 mod keys;
+mod lights;
 mod logging;
 mod marks;
 mod prompt;
@@ -38,12 +39,13 @@ use gpui::{
 };
 
 use config::Config;
+use lights::Lights;
 use shell::{Commands, Hooks};
 use terminal::{Settings, TerminalEvent, TerminalView};
 
 actions!(
     unifyterm,
-    [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen, ToggleTabBar]
+    [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen, ToggleTabBar, Explain]
 );
 
 const APP_NAME: &str = "UnifyTerm";
@@ -299,6 +301,8 @@ struct Workspace {
     picture: Option<Arc<gpui::Image>>,
     pictures: art::Shown,
     corners_told: CornersTold,
+    /// Whether the system's three buttons show (macOS; see [`lights`]).
+    lights: Lights,
 }
 
 /// What the system was last told of the window's corners.
@@ -430,6 +434,7 @@ impl Workspace {
             picture: shown,
             pictures,
             corners_told: CornersTold::NotYet,
+            lights: Lights::Shown,
         };
         if let Some(file) = file {
             Self::follow_settings(file.path, theme_named, cx);
@@ -583,6 +588,11 @@ impl Workspace {
             return;
         }
         (self.picture_at, self.picture) = (picture_at, picture);
+        // Other keys in the settings: they are the window's keys from now on.
+        if config.keys != self.settings.config.keys {
+            cx.clear_key_bindings();
+            cx.bind_keys(key_bindings(&config.keys));
+        }
         // The setting changed: it is what holds again, not what the key asked before.
         if config.window.tab_bar != self.settings.config.window.tab_bar {
             self.bar.asked = None;
@@ -664,16 +674,11 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Whether the row of tabs keeps out of the way now: the settings ask
-    /// for it, and the window has nothing in that row that must stay.
-    ///
-    /// On macOS, when the row is the title bar, the system draws the
-    /// window's three buttons in it and they cannot be taken away: the row
-    /// stays, but in full screen, where the system hides them itself.
-    fn bar_keeps_away(&self, window: &Window) -> bool {
-        let wanted = self.bar_mode() == config::TabBar::AutoHide;
-        let buttons_stay = cfg!(target_os = "macos") && self.title_bar == TitleBar::Tabs && !window.is_fullscreen();
-        wanted && !buttons_stay
+    /// Whether the row of tabs keeps out of the way now: the settings, or
+    /// the key, ask for it. (On macOS the system's three buttons in the row
+    /// go with it: see [`lights`].)
+    fn bar_keeps_away(&self) -> bool {
+        self.bar_mode() == config::TabBar::AutoHide
     }
 
     /// When the row of tabs shows, in this window: what its key last asked,
@@ -699,7 +704,7 @@ impl Workspace {
     /// A tab was opened, closed or gone to: a row that keeps out of the way
     /// shows which tab is the one in use now, for a moment.
     fn show_bar_a_moment(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if !self.bar_keeps_away(window) {
+        if !self.bar_keeps_away() {
             return;
         }
         self.bar.shown = true;
@@ -724,7 +729,7 @@ impl Workspace {
     /// out of the way comes when the pointer rests at the window's top
     /// edge, and goes when the pointer is well below it.
     fn pointer_moved(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if !self.bar_keeps_away(window) {
+        if !self.bar_keeps_away() {
             return;
         }
         if !self.bar.shown {
@@ -1063,8 +1068,10 @@ impl Workspace {
         // Full screen has no frame to minimize or restore (macOS draws its own buttons there).
         let buttons =
             (own_bar && cfg!(target_os = "windows") && !window.is_fullscreen()).then(|| window_buttons(window, theme));
-        // macOS draws its three buttons at the row's left; elsewhere the tabs begin a little in from the edge.
-        let lead = if own_bar && cfg!(target_os = "macos") { TRAFFIC_LIGHTS_WIDTH } else { 12. };
+        // macOS draws its three buttons at the row's left, but not in full screen and not while
+        // they are hidden with the row; elsewhere the tabs begin a little in from the edge.
+        let lights = own_bar && cfg!(target_os = "macos") && !window.is_fullscreen();
+        let lead = if lights { TRAFFIC_LIGHTS_WIDTH } else { 12. };
         // Seen through like the text's background when it is part of the window; whole when it lies over the text.
         let lies_over = place == BarPlace::OverTheText;
         let behind = if lies_over { 1.0 } else { theme.opacity };
@@ -1225,6 +1232,15 @@ impl Render for Workspace {
             window.set_background_appearance(behind.appearance());
             self.behind = behind;
         }
+        // macOS: the system's three buttons are in the row of tabs when it is the title bar. They
+        // go away with a row that keeps out of the way, and come back with it; in full screen the
+        // system hides them itself.
+        let own_row = self.title_bar == TitleBar::Tabs && !window.is_fullscreen();
+        let lights = if own_row && self.bar_keeps_away() && !self.bar.shown { Lights::Hidden } else { Lights::Shown };
+        if lights != self.lights {
+            lights::set(window, lights);
+            self.lights = lights;
+        }
         // And of the window's corners, when the look names them (or stops naming them).
         let corners = self.settings.theme.corners;
         if self.corners_told != CornersTold::These(corners) {
@@ -1232,7 +1248,7 @@ impl Render for Workspace {
             self.corners_told = CornersTold::These(corners);
         }
         // A row that keeps out of the way lies over the text when it shows: the text keeps its place and size.
-        let keeps_away = self.bar_keeps_away(window);
+        let keeps_away = self.bar_keeps_away();
         let in_its_place = (!keeps_away).then(|| self.tab_bar(BarPlace::InItsRow, window, cx));
         let over_the_text = (keeps_away && self.bar.shown).then(|| self.tab_bar(BarPlace::OverTheText, window, cx));
         div()
@@ -1265,49 +1281,35 @@ impl Render for Workspace {
     }
 }
 
-/// The keys for the window's own commands. Ctrl-Shift on Windows and Linux,
-/// where Ctrl alone belongs to the program in the terminal; Cmd on macOS.
-/// Full screen: F11 and Alt-Enter as in Windows Terminal (a program in the
-/// terminal then never gets Alt-Enter); Cmd-Enter, and Ctrl-Cmd-F, the Mac's own key.
-fn key_bindings() -> Vec<KeyBinding> {
-    #[cfg(target_os = "macos")]
-    let keys = [
-        ("cmd-t", 0),
-        ("cmd-w", 1),
-        ("cmd-c", 4),
-        ("cmd-v", 5),
-        ("cmd-shift-a", 6),
-        ("cmd-shift-b", 8),
-        ("cmd-enter", 7),
-        ("ctrl-cmd-f", 7),
-    ];
-    #[cfg(not(target_os = "macos"))]
-    let keys = [
-        ("ctrl-shift-t", 0),
-        ("ctrl-shift-w", 1),
-        ("ctrl-shift-c", 4),
-        ("ctrl-shift-v", 5),
-        ("shift-insert", 5),
-        ("ctrl-shift-a", 6),
-        ("ctrl-shift-b", 8),
-        ("f11", 7),
-        ("alt-enter", 7),
-    ];
-    let common = [("ctrl-tab", 2), ("ctrl-shift-tab", 3)];
-    keys.into_iter()
-        .chain(common)
-        .map(|(key, action)| match action {
-            0 => KeyBinding::new(key, NewTab, None),
-            1 => KeyBinding::new(key, CloseTab, None),
-            2 => KeyBinding::new(key, NextTab, None),
-            3 => KeyBinding::new(key, PreviousTab, None),
-            4 => KeyBinding::new(key, Copy, None),
-            5 => KeyBinding::new(key, Paste, None),
-            6 => KeyBinding::new(key, ToggleAgents, None),
-            7 => KeyBinding::new(key, ToggleFullScreen, None),
-            _ => KeyBinding::new(key, ToggleTabBar, None),
-        })
-        .collect()
+/// The keys for the window's own commands, as the settings' `[keys]` give
+/// them (their defaults are `unifyterm_config::DEFAULT_KEYS`). A command
+/// with no key is done by none.
+fn key_bindings(keys: &config::KeysConfig) -> Vec<KeyBinding> {
+    let mut bindings = Vec::new();
+    for (name, chords) in keys.all() {
+        for chord in chords {
+            // The settings checked the key; GPUI reads it once more its own way, and a key it
+            // cannot read must not end the program.
+            if gpui::Keystroke::parse(chord).is_err() {
+                log::warn!("keys.{name}: \"{chord}\" is not a key this window can take: left out");
+                continue;
+            }
+            bindings.push(match name {
+                "new_tab" => KeyBinding::new(chord, NewTab, None),
+                "close_tab" => KeyBinding::new(chord, CloseTab, None),
+                "next_tab" => KeyBinding::new(chord, NextTab, None),
+                "previous_tab" => KeyBinding::new(chord, PreviousTab, None),
+                "copy" => KeyBinding::new(chord, Copy, None),
+                "paste" => KeyBinding::new(chord, Paste, None),
+                "agents" => KeyBinding::new(chord, ToggleAgents, None),
+                "tab_bar" => KeyBinding::new(chord, ToggleTabBar, None),
+                "full_screen" => KeyBinding::new(chord, ToggleFullScreen, None),
+                "explain" => KeyBinding::new(chord, Explain, None),
+                _ => continue,
+            });
+        }
+    }
+    bindings
 }
 
 /// Lets a release build print to the console it was started from. It is a
@@ -1419,7 +1421,7 @@ fn main() {
         Start { settings, picture, commands, recorder, hooks, directory, file, helper, command: args.command, notices };
 
     Application::new().run(move |cx: &mut App| {
-        cx.bind_keys(key_bindings());
+        cx.bind_keys(key_bindings(&start.settings.config.keys));
         let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
         let own_bar = TitleBar::choose(&start.settings.config.window) == TitleBar::Tabs;
         let options = WindowOptions {
@@ -1442,17 +1444,51 @@ fn main() {
 mod tests {
     use super::*;
 
+    /// The keys bound to `action` in `bindings`, as GPUI writes them.
+    fn keys_of(bindings: &[KeyBinding], action: &dyn gpui::Action) -> Vec<String> {
+        bindings
+            .iter()
+            .filter(|binding| binding.action().partial_eq(action))
+            .map(|binding| binding.keystrokes().iter().map(gpui::KeybindingKeystroke::unparse).collect())
+            .collect()
+    }
+
     #[test]
     fn full_screen_has_its_keys() {
-        let bindings = key_bindings();
-        let keys: Vec<String> = bindings
-            .iter()
-            .filter(|binding| binding.action().partial_eq(&ToggleFullScreen))
-            .map(|binding| binding.keystrokes().iter().map(gpui::KeybindingKeystroke::unparse).collect())
-            .collect();
+        let bindings = key_bindings(&config::KeysConfig::default());
         let wanted: &[&str] =
             if cfg!(target_os = "macos") { &["cmd-enter", "ctrl-cmd-f"] } else { &["f11", "alt-enter"] };
-        assert_eq!(keys, wanted);
+        assert_eq!(keys_of(&bindings, &ToggleFullScreen), wanted);
+    }
+
+    #[test]
+    fn every_default_key_of_every_system_is_one_the_window_takes() {
+        // Each command of the settings has an action here, on both tables of defaults.
+        for (name, elsewhere, mac) in unifyterm_config::DEFAULT_KEYS {
+            for chord in elsewhere.iter().chain(mac) {
+                assert!(gpui::Keystroke::parse(chord).is_ok(), "keys.{name}: {chord}");
+            }
+        }
+        let defaults = config::KeysConfig::default();
+        let bound = key_bindings(&defaults);
+        let given: usize = defaults.all().iter().map(|(_, chords)| chords.len()).sum();
+        assert_eq!(bound.len(), given, "a key table entry for every key the settings give");
+    }
+
+    #[test]
+    fn the_settings_keys_are_the_windows_keys() {
+        let settings = Config::parse("[keys]\nagents = [\"ctrl-alt-g\", \"f9\"]\nexplain = []\ntab_bar = [\"ctrl--\"]")
+            .expect("settings");
+        let bound = key_bindings(&settings.keys);
+        assert_eq!(keys_of(&bound, &ToggleAgents), ["ctrl-alt-g", "f9"], "the settings' keys, not the default one");
+        assert!(keys_of(&bound, &Explain).is_empty(), "no key: no key does it");
+        assert_eq!(keys_of(&bound, &ToggleTabBar), ["ctrl--"], "the minus key");
+        assert!(!keys_of(&bound, &NewTab).is_empty(), "the others keep theirs");
+        // Every form the settings keep a key in is one GPUI reads.
+        for typed in ["ctrl-alt-escape", "cmd-shift-pagedown", "alt-[", "ctrl-+", "ctrl-shift-space", "f35", "ctrl-1"] {
+            let kept = unifyterm_config::chord::chord(typed).expect(typed);
+            assert!(gpui::Keystroke::parse(&kept).is_ok(), "{kept}");
+        }
     }
 
     #[test]

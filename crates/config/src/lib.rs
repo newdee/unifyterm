@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 
+pub mod chord;
 mod edit;
 mod keys;
 pub mod providers;
@@ -54,6 +55,7 @@ pub struct Config {
     pub shell: ShellConfig,
     pub terminal: TerminalConfig,
     pub window: WindowConfig,
+    pub keys: KeysConfig,
     pub theme: ThemeConfig,
     pub commands: CommandsConfig,
     pub history: HistoryConfig,
@@ -126,6 +128,106 @@ pub struct WindowConfig {
     /// Windows and macOS) the row of tabs is the title bar.
     pub system_title_bar: bool,
     pub tab_bar: TabBar,
+}
+
+/// The window's own commands and the keys each has, when the settings do not
+/// say: its name in `[keys]`, its keys on Windows and Linux, its keys on
+/// macOS. Ctrl-Shift on Windows and Linux, where Ctrl alone belongs to the
+/// program in the terminal; Cmd on macOS. Full screen: F11 and Alt-Enter as
+/// in Windows Terminal; Cmd-Enter and Ctrl-Cmd-F, the Mac's own key.
+pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 10] = [
+    ("new_tab", &["ctrl-shift-t"], &["cmd-t"]),
+    ("close_tab", &["ctrl-shift-w"], &["cmd-w"]),
+    ("next_tab", &["ctrl-tab"], &["ctrl-tab"]),
+    ("previous_tab", &["ctrl-shift-tab"], &["ctrl-shift-tab"]),
+    ("copy", &["ctrl-shift-c"], &["cmd-c"]),
+    ("paste", &["ctrl-shift-v", "shift-insert"], &["cmd-v"]),
+    ("agents", &["ctrl-shift-a"], &["cmd-shift-a"]),
+    ("tab_bar", &["ctrl-shift-b"], &["cmd-shift-b"]),
+    ("full_screen", &["f11", "alt-enter"], &["cmd-enter", "ctrl-cmd-f"]),
+    ("explain", &["ctrl-shift-e"], &["ctrl-shift-e"]),
+];
+
+/// The keys of the window's own commands: each a list, so that a command
+/// may have two keys, or none (`[]`: no key does it).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct KeysConfig {
+    pub new_tab: Vec<String>,
+    pub close_tab: Vec<String>,
+    pub next_tab: Vec<String>,
+    pub previous_tab: Vec<String>,
+    pub copy: Vec<String>,
+    pub paste: Vec<String>,
+    /// Show or hide the agents' sidebar.
+    pub agents: Vec<String>,
+    /// The row of tabs out of the way, or always there again.
+    pub tab_bar: Vec<String>,
+    pub full_screen: Vec<String>,
+    /// What each part of the command on the line means.
+    pub explain: Vec<String>,
+}
+
+impl Default for KeysConfig {
+    fn default() -> Self {
+        let of = |name: &str| -> Vec<String> {
+            let (_, elsewhere, mac) =
+                DEFAULT_KEYS.iter().find(|(known, _, _)| *known == name).copied().unwrap_or_default();
+            let keys = if cfg!(target_os = "macos") { mac } else { elsewhere };
+            keys.iter().map(|&key| key.to_owned()).collect()
+        };
+        Self {
+            new_tab: of("new_tab"),
+            close_tab: of("close_tab"),
+            next_tab: of("next_tab"),
+            previous_tab: of("previous_tab"),
+            copy: of("copy"),
+            paste: of("paste"),
+            agents: of("agents"),
+            tab_bar: of("tab_bar"),
+            full_screen: of("full_screen"),
+            explain: of("explain"),
+        }
+    }
+}
+
+impl KeysConfig {
+    /// Every command with its keys, by its name in `[keys]`, in the file's order.
+    #[must_use]
+    pub fn all(&self) -> [(&'static str, &Vec<String>); 10] {
+        [
+            ("new_tab", &self.new_tab),
+            ("close_tab", &self.close_tab),
+            ("next_tab", &self.next_tab),
+            ("previous_tab", &self.previous_tab),
+            ("copy", &self.copy),
+            ("paste", &self.paste),
+            ("agents", &self.agents),
+            ("tab_bar", &self.tab_bar),
+            ("full_screen", &self.full_screen),
+            ("explain", &self.explain),
+        ]
+    }
+
+    /// Every key is one the window may take, in the form it is kept
+    /// ([`chord::chord`]), and no key is given to two commands.
+    fn check(&self) -> Result<()> {
+        let mut taken: Vec<(&str, &str)> = Vec::new();
+        for (name, keys) in self.all() {
+            for key in keys {
+                match chord::chord(key) {
+                    Ok(kept) if kept == *key => {}
+                    Ok(kept) => bail!("keys.{name} has \"{key}\": write it \"{kept}\""),
+                    Err(why) => bail!("keys.{name} has \"{key}\": {why}"),
+                }
+                if let Some((other, _)) = taken.iter().find(|(_, held)| *held == key.as_str()) {
+                    bail!("keys.{other} and keys.{name} both have \"{key}\": a key does one thing");
+                }
+                taken.push((name, key));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// When the row of tabs shows.
@@ -519,6 +621,7 @@ impl Config {
             }
         }
         config.check_model()?;
+        config.keys.check()?;
         config.theme.check()?;
         Ok(config)
     }

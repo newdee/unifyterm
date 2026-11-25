@@ -104,6 +104,7 @@ pub(crate) fn takes(kind: Kind) -> String {
         Kind::OneOf(choices) => choices.join(", "),
         Kind::Color => "#rrggbb; empty: the built-in color".into(),
         Kind::Colors => "16 colors as #rrggbb with commas between them; empty: the built-in ones".into(),
+        Kind::Keys => "keys as ctrl-shift-t, with commas between them; empty: no key".into(),
     }
 }
 

@@ -220,6 +220,14 @@ fn parse(key: &Key, input: &str) -> Result<Option<Value>> {
             Value::from(text)
         }
         Kind::Words => Value::Array(words(name, text)?),
+        Kind::Keys => {
+            // Each key in the one form it is kept: "Ctrl+Shift+T" is written ctrl-shift-t.
+            let mut kept = Array::new();
+            for key in words(name, text)?.iter().filter_map(Value::as_str) {
+                kept.push(crate::chord::chord(key).map_err(|why| anyhow!("{name} has \"{key}\": {why}"))?);
+            }
+            Value::Array(kept)
+        }
         Kind::Colors => {
             let colors = words(name, text)?;
             if colors.len() != ANSI_COLORS {
@@ -280,6 +288,8 @@ mod tests {
                 Kind::OneOf(choices) => choices[0].to_owned(),
                 Kind::Color => "#102030".to_owned(),
                 Kind::Colors => vec!["#102030"; ANSI_COLORS].join(", "),
+                // A key no command has by default.
+                Kind::Keys => "ctrl-alt-f9".to_owned(),
             };
             file.set(key, &sample).unwrap_or_else(|error| panic!("{}: {error:#}", key.name));
             assert!(file.value(key).is_some(), "{} is in the file", key.name);
@@ -297,7 +307,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (30, 19), "30 with a default written, 19 that are not set");
+        assert_eq!((written.len(), unset_by_default), (40, 19), "40 with a default written, 19 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -311,7 +321,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (28, 3, 2, 16)
+            (38, 3, 2, 16)
         );
     }
 
@@ -344,6 +354,9 @@ mod tests {
             ("theme.picture", "mine.png", "mine.png"),
             ("theme.rounding", "0", "0.0"),
             ("theme.corners", "square", "square"),
+            ("keys.agents", "Ctrl+Shift+G", "ctrl-shift-g"),
+            ("keys.paste", "ctrl-shift-v, Shift-Insert", "ctrl-shift-v, shift-insert"),
+            ("keys.explain", "", ""),
         ] {
             file.set(named(name), typed).unwrap();
             assert_eq!(file.value(named(name)).as_deref(), Some(kept), "{name}");
@@ -372,6 +385,9 @@ mod tests {
             ("theme.opacity", "0", "from 0.1 to 1"),
             ("theme.rounding", "40", "from 0 to 18"),
             ("theme.corners", "pointed", "one of round, small, square"),
+            ("keys.agents", "ctrl-shft-g", "'shft' is not ctrl, alt, shift or cmd"),
+            ("keys.agents", "g", "the shell needs that key"),
+            ("keys.agents", "ctrl-shift-t", "keys.new_tab and keys.agents both have"),
             ("theme.ansi", "#000000, #111111", "has 2 colors"),
             ("font.family", " ", "font.family is empty"),
             // Right for its kind, wrong for the settings as a whole: a provider needs a model.

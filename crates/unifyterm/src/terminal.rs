@@ -20,7 +20,7 @@ use crate::keys::{self, Mods, MouseAction};
 use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
 use crate::theme::{Rgb, Theme};
-use crate::{Copy, Paste, boxdraw};
+use crate::{Copy, Explain, Paste, boxdraw};
 
 /// The settings every tab shares.
 #[derive(Debug)]
@@ -511,7 +511,7 @@ impl TerminalView {
         .detach();
     }
 
-    /// Ctrl-Shift-E: what each part of the command on the line (or the last one) means.
+    /// The key for it (`keys.explain`, Ctrl-Shift-E): what each part of the command on the line (or the last one) means.
     fn explain(&mut self, cx: &mut Context<'_, Self>) {
         let typed = self.session.input().map(|input| input.text).filter(|text| !text.trim().is_empty());
         let Some(command) = typed.or_else(|| self.recent.first().cloned()) else {
@@ -857,11 +857,6 @@ impl TerminalView {
             return;
         }
         let plain = !held.control && !held.shift && !held.alt;
-        if key.key == "e" && held.control && held.shift && !held.alt {
-            self.explain(cx);
-            cx.stop_propagation();
-            return;
-        }
         if self.popup_key(key, cx) {
             cx.stop_propagation();
             return;
@@ -1184,6 +1179,7 @@ impl Render for TerminalView {
             .bg(gpui::Hsla { a: self.settings.theme.opacity, ..hsla(self.settings.theme.background) })
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(|view, _: &Explain, _, cx| view.explain(cx)))
             .on_key_down(cx.listener(Self::key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_down(MouseButton::Middle, cx.listener(Self::mouse_down))

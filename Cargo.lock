@@ -7838,6 +7838,7 @@ dependencies = [
  "gpui",
  "image",
  "log",
+ "objc2",
  "portable-pty",
  "raw-window-handle",
  "regex",

@@ -377,16 +377,16 @@ mod tests {
     #[test]
     fn a_theme_of_ones_own_is_begun_from_another_and_can_be_chosen() {
         let (folder, file) = settings("[theme]\nname = \"riso\"\n");
-        let (code, out) = ran(&["new", "paper"], &file);
+        let (code, out) = ran(&["new", "sheet"], &file);
         assert_eq!(code.expect("runs"), 0);
-        let made = folder.path().join("themes").join("paper.toml");
+        let made = folder.path().join("themes").join("sheet.toml");
         assert_eq!(out.trim_end(), made.display().to_string().replace('\\', "/"));
         let text = std::fs::read_to_string(&made).expect("made");
         assert!(
-            text.starts_with("# paper: a theme of your own, begun from riso. 'ut theme paper' uses it.\n[theme]\n")
+            text.starts_with("# sheet: a theme of your own, begun from riso. 'ut theme sheet' uses it.\n[theme]\n")
         );
         assert_eq!(themes::read(&text).expect("a theme"), themes::find("riso", None).expect("built in"));
-        assert!(ran(&["new", "paper"], &file).0.is_err(), "not over one that is there");
+        assert!(ran(&["new", "sheet"], &file).0.is_err(), "not over one that is there");
         assert_eq!(ran(&["new", "ink", "--from", "night"], &file).0.expect("runs"), 0);
         let ink = std::fs::read_to_string(folder.path().join("themes").join("ink.toml")).expect("made");
         assert!(ink.contains("begun from night") && ink.contains("#0e1620"), "{ink}");
@@ -395,10 +395,10 @@ mod tests {
         }
         assert!(ran(&["new", "x", "--from", "nosuch"], &file).0.is_err());
 
-        assert_eq!(ran(&["paper"], &file).1, "theme: paper\n");
+        assert_eq!(ran(&["sheet"], &file).1, "theme: sheet\n");
         let listed = ran(&[], &file).1;
-        assert!(listed.contains("* paper        yours"), "{listed}");
-        let (code, out) = ran(&["show", "paper"], &file);
+        assert!(listed.contains("* sheet        yours"), "{listed}");
+        let (code, out) = ran(&["show", "sheet"], &file);
         assert_eq!((code.expect("runs"), out), (0, text));
         assert!(ran(&["show", "aurora"], &file).1.contains("#0c1c24"), "a built-in theme's file is shown too");
     }

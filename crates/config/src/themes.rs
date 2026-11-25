@@ -30,7 +30,7 @@ macro_rules! built_in {
 }
 
 /// The themes UnifyTerm brings, in the order they are listed: each one's name and its file.
-pub const BUILT_IN: [(&str, &str); 7] = [
+pub const BUILT_IN: [(&str, &str); 9] = [
     built_in!("tokyo-night"),
     built_in!("aurora"),
     built_in!("eclipse"),
@@ -38,6 +38,8 @@ pub const BUILT_IN: [(&str, &str); 7] = [
     built_in!("riso"),
     built_in!("night"),
     built_in!("day"),
+    built_in!("paper-dark"),
+    built_in!("paper"),
 ];
 
 /// Where a theme is.
@@ -113,7 +115,31 @@ pub fn read(text: &str) -> Result<ThemeConfig> {
     if let Some((key, _)) = needed.iter().find(|(_, given)| !given) {
         bail!("the theme has no '{key}': a theme gives foreground, background and ansi itself");
     }
-    Ok(theme)
+    Ok(whole(theme))
+}
+
+/// The selection, when a theme does not give one, is this share of the way
+/// from the background to the text's color: one fifth.
+const SELECTION_SHARE: i32 = 5;
+
+/// A theme with the two colors it may leave out worked out from its own:
+/// the cursor is the text's color, the selection a step from the background
+/// toward it. Left empty they would be the built-in theme's, a dark theme's
+/// blue behind the selected text of a light one.
+fn whole(mut theme: ThemeConfig) -> ThemeConfig {
+    let (Some(text), Some(behind)) = (theme.foreground.clone(), theme.background.clone()) else { return theme };
+    if theme.selection.is_none()
+        && let (Some(ink), Some(paper)) = (crate::parse_color(&text), crate::parse_color(&behind))
+    {
+        let mixed = [0, 1, 2].map(|at| {
+            let (from, to) = (i32::from(paper[at]), i32::from(ink[at]));
+            // Between two channels: a channel itself.
+            u8::try_from(from + (to - from) / SELECTION_SHARE).unwrap_or(paper[at])
+        });
+        theme.selection = Some(format!("#{:02x}{:02x}{:02x}", mixed[0], mixed[1], mixed[2]));
+    }
+    theme.cursor.get_or_insert(text);
+    theme
 }
 
 /// How far apart two colors (`#rrggbb`) are for the eye: the contrast ratio
@@ -347,6 +373,24 @@ mod tests {
     }
 
     #[test]
+    fn a_theme_that_leaves_out_the_cursor_and_the_selection_has_them_from_its_own_colors() {
+        // Text #111111 on #eeeeee: the cursor is the text's color, the selection a fifth of the way to it.
+        let theme = read(OWN).expect("a theme");
+        assert_eq!((theme.cursor.as_deref(), theme.selection.as_deref()), (Some("#111111"), Some("#c2c2c2")));
+        let given = OWN.replace("[theme]", "[theme]\ncursor = \"#ff0000\"\nselection = \"#00ff00\"");
+        let theme = read(&given).expect("a theme");
+        assert_eq!(
+            (theme.cursor.as_deref(), theme.selection.as_deref()),
+            (Some("#ff0000"), Some("#00ff00")),
+            "its own stay"
+        );
+        for (name, text) in BUILT_IN {
+            let theme = read(text).expect(name);
+            assert!(theme.cursor.is_some() && theme.selection.is_some(), "{name}");
+        }
+    }
+
+    #[test]
     fn what_this_version_does_not_know_in_a_theme_file_is_passed_over_and_named() {
         // A theme written for a later UnifyTerm: a key and a table this one has never heard of.
         let later = format!(
@@ -412,7 +456,9 @@ mod tests {
         );
         let elsewhere = folder.path().join("elsewhere.png");
         assert_eq!(picture(&elsewhere.display().to_string(), here), Some(Picture::File(elsewhere)), "a whole path");
-        for (name, _) in BUILT_IN.iter().filter(|(name, _)| *name != DEFAULT) {
+        // The six themes of the preview page each name their picture; the others have none.
+        let pictured: Vec<&str> = PICTURES.iter().map(|file| file.trim_end_matches(".png")).collect();
+        for name in &pictured {
             let named = find(name, None).expect("built in").picture.expect("it has one");
             assert_eq!(
                 picture(&named, None),
@@ -420,7 +466,9 @@ mod tests {
             );
             assert_eq!(named, format!("{name}.png"));
         }
-        assert_eq!(find(DEFAULT, None).expect("built in").picture, None);
+        for (name, _) in BUILT_IN.iter().filter(|(name, _)| !pictured.contains(name)) {
+            assert_eq!(find(name, None).expect("built in").picture, None, "{name}");
+        }
     }
 
     #[test]
@@ -429,12 +477,12 @@ mod tests {
         let here = Some(folder.path());
         assert_eq!(find("day", here).expect("built in"), find("day", None).expect("built in"));
         std::fs::write(file_of("day", folder.path()), OWN).expect("write");
-        std::fs::write(file_of("paper", folder.path()), OWN).expect("write");
+        std::fs::write(file_of("mine", folder.path()), OWN).expect("write");
         std::fs::write(folder.path().join("Not A Name.toml"), OWN).expect("write");
         std::fs::write(folder.path().join("notes.txt"), "x").expect("write");
         assert_eq!(find("day", here).expect("the file").background.as_deref(), Some("#eeeeee"));
         assert_eq!(find("day", None).expect("built in").background.as_deref(), Some("#f4f9fe"));
-        assert_eq!(text("paper", here).expect("the file").1, Source::File(file_of("paper", folder.path())));
+        assert_eq!(text("mine", here).expect("the file").1, Source::File(file_of("mine", folder.path())));
 
         let names: Vec<(String, bool)> =
             list(here).into_iter().map(|theme| (theme.name, theme.source == Source::BuiltIn)).collect();
@@ -446,7 +494,9 @@ mod tests {
             ("riso", true),
             ("night", true),
             ("day", false),
-            ("paper", false),
+            ("paper-dark", true),
+            ("paper", true),
+            ("mine", false),
         ];
         assert_eq!(names, wanted.map(|(name, built_in)| (name.to_owned(), built_in)));
         assert_eq!(list(None).len(), BUILT_IN.len());
@@ -459,7 +509,7 @@ mod tests {
         let said = |name: &str| format!("{:#}", find(name, Some(folder.path())).expect_err("refused"));
         assert_eq!(
             said("nosuch"),
-            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day"
+            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper"
         );
         assert!(said("../day").contains("is not a theme's name"), "a name never leaves the folder");
         std::fs::write(file_of("broken", folder.path()), "[theme]\nforeground = 1").expect("write");
