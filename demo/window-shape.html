@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="aurora">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnifyTerm · 窗口形状预览</title>
+<style>
+:root {
+  color-scheme: dark;
+  --desk-a: #0b2a33; --desk-b: #04111a;
+  --screen: #0c1c24; --bar: #10252d; --panel: #16303b; --well: #203c47;
+  --edge: #496674; --ink: #e6faf5; --muted: #a6c5ca; --accent: #a6ffce;
+  --cyan: #70e5ed; --blue: #95c6ff; --violet: #c0acff; --green: #7bf2ae; --red: #ff9eb6; --yellow: #ffe08a;
+  --mono: "Cascadia Code", "SFMono-Regular", Menlo, Consolas, "Microsoft YaHei UI", monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+:root[data-theme="eclipse"] {
+  --desk-a: #3a1c26; --desk-b: #12090d;
+  --screen: #21151b; --bar: #2b1a21; --panel: #36232b; --well: #432b32;
+  --edge: #79535e; --ink: #ffeee3; --muted: #dcbabe; --accent: #ffc178;
+  --cyan: #ffa6a0; --blue: #aac4fa; --violet: #dbb0eb; --green: #c6dc96; --red: #ff949a; --yellow: #ffd59a;
+}
+:root[data-theme="phosphor"] {
+  --desk-a: #183018; --desk-b: #050a05;
+  --screen: #101810; --bar: #152015; --panel: #1c291c; --well: #243324;
+  --edge: #536e50; --ink: #e4f5d4; --muted: #b4caa7; --accent: #d9ff8f;
+  --cyan: #b1edac; --blue: #c4dabb; --violet: #d9d19c; --green: #a6f693; --red: #ffae91; --yellow: #e8f59a;
+}
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --desk-a: #d9cfb8; --desk-b: #a99e86;
+  --screen: #f4efe2; --bar: #ebe4d3; --panel: #e4dcc8; --well: #d9cfb8;
+  --edge: #9a8b70; --ink: #2b2a26; --muted: #5d584c; --accent: #9c301d;
+  --cyan: #165376; --blue: #304b99; --violet: #693687; --green: #365d35; --red: #9a2535; --yellow: #7a5a00;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #0e1116; color: #d7dde8; font-family: var(--ui);
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 100vh;
+}
+@media (max-width: 900px) { body { grid-template-columns: minmax(0, 1fr); } }
+
+/* The desk: a wallpaper behind the window, so what the corners leave out shows. */
+.stage {
+  position: relative; overflow: hidden; min-height: 560px;
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in oklab, var(--accent) 22%, transparent) 0 14%, transparent 34%),
+    radial-gradient(circle at 82% 78%, color-mix(in oklab, var(--violet) 26%, transparent) 0 12%, transparent 36%),
+    repeating-linear-gradient(135deg, transparent 0 22px, rgb(255 255 255 / .025) 22px 23px),
+    linear-gradient(160deg, var(--desk-a), var(--desk-b));
+  display: grid; place-items: center;
+}
+.icons { position: absolute; left: 18px; top: 18px; display: grid; gap: 18px; }
+.icons span { width: 46px; height: 46px; border-radius: 10px; background: rgb(255 255 255 / .12); display: block; }
+
+.frame { position: relative; }
+.win {
+  position: absolute; inset: 0; overflow: hidden; background: var(--screen); color: var(--ink);
+  font-family: var(--mono); font-size: 14px; line-height: 1;
+}
+.win.edge { outline: 1px solid color-mix(in oklab, var(--edge) 70%, transparent); outline-offset: -1px; }
+.win.shadow-shape { box-shadow: 0 18px 50px rgb(0 0 0 / .55), 0 2px 8px rgb(0 0 0 / .35); }
+/* What Windows draws when its frame's shadow cannot be turned off: a rectangle around the window's box. */
+.sysframe {
+  position: absolute; inset: 0; pointer-events: none; border: 1px solid rgb(255 255 255 / .16); border-radius: 8px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / .55), 0 2px 8px rgb(0 0 0 / .35);
+}
+.region { position: absolute; }
+.tabs {
+  height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  background: var(--bar); font-family: var(--ui); font-size: 12px; color: var(--muted);
+}
+.tab { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 6px; background: var(--well); color: var(--ink); }
+.tab i { width: 14px; height: 2px; background: var(--accent); border-radius: 1px; display: inline-block; }
+.tabs .plus { padding: 0 6px; }
+.tabs .buttons { margin-left: auto; display: flex; gap: 14px; letter-spacing: 0; }
+.grid { position: absolute; left: 0; right: 0; bottom: 0; }
+.row { position: absolute; left: 0; white-space: pre; overflow: hidden; }
+.p { color: var(--accent); } .d { color: var(--blue); } .g { color: var(--green); } .r { color: var(--red); } .c { color: var(--cyan); } .m { color: var(--muted); } .y { color: var(--yellow); }
+.sel { background: color-mix(in oklab, var(--blue) 35%, transparent); }
+.status { background: var(--accent); color: var(--screen); }
+.cursor { background: var(--accent); color: var(--screen); }
+canvas.marks { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* The controls. */
+aside { padding: 20px 20px 28px; border-left: 1px solid #1f2630; overflow-y: auto; }
+@media (max-width: 900px) { aside { border-left: 0; border-top: 1px solid #1f2630; } }
+h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+.lead { margin: 0 0 18px; font-size: 13px; color: #8c96a8; line-height: 1.55; }
+fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+legend { font-size: 12px; color: #8c96a8; margin-bottom: 6px; padding: 0; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choices button {
+  font: inherit; font-size: 13px; color: #d7dde8; background: #171c24; border: 1px solid #2a3240;
+  border-radius: 7px; padding: 6px 10px; cursor: pointer; min-height: 32px;
+}
+.choices button[aria-pressed="true"] { background: #24324a; border-color: #5b7bb5; color: #fff; }
+input[type=range] { width: 100%; accent-color: #7aa2f7; }
+.value { float: right; font-variant-numeric: tabular-nums; color: #d7dde8; }
+label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 6px 0; cursor: pointer; }
+.numbers { margin: 18px 0 0; padding: 12px; border-radius: 8px; background: #141922; font-size: 13px; line-height: 1.7; }
+.numbers b { font-variant-numeric: tabular-nums; color: #fff; font-weight: 600; }
+.note { font-size: 12.5px; line-height: 1.6; color: #a3adbd; margin: 14px 0 0; }
+.note strong { color: #e0af68; font-weight: 600; }
+.legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main class="stage" id="stage">
+  <div class="icons" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="frame" id="frame">
+  <div class="sysframe" id="sysframe" hidden></div>
+  <div class="win" id="win">
+    <div class="region" id="region">
+      <div class="tabs" id="tabs">
+        <span class="tab"><i></i>pwsh</span><span class="tab" style="background:transparent;color:inherit">git</span><span class="plus">+</span>
+        <span class="buttons" id="buttons"><span>—</span><span>☐</span><span>✕</span></span>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+  <canvas class="marks" id="marks"></canvas>
+  </div>
+</main>
+
+<aside>
+  <h1>窗口形状预览</h1>
+  <p class="lead">任意半径的窗口圆角，到胶囊、椭圆和圆。终端的字是固定的格子：形状越圆，角上被切掉的格越多。右下角的数字按当前大小算出。</p>
+
+  <fieldset>
+    <legend>形状</legend>
+    <div class="choices" id="shapes">
+      <button type="button" data-shape="rect" aria-pressed="true">圆角矩形</button>
+      <button type="button" data-shape="pill" aria-pressed="false">胶囊</button>
+      <button type="button" data-shape="ellipse" aria-pressed="false">椭圆</button>
+      <button type="button" data-shape="circle" aria-pressed="false">圆</button>
+    </div>
+  </fieldset>
+
+  <fieldset id="radius-set">
+    <legend>圆角半径 <span class="value" id="radius-value"></span></legend>
+    <input type="range" id="radius" min="0" max="230" value="24" aria-label="圆角半径">
+    <div class="choices" style="margin-top:8px">
+      <button type="button" data-radius="8">8（Windows 11 的大小）</button>
+      <button type="button" data-radius="24">24</button>
+      <button type="button" data-radius="60">60</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>字放在哪里</legend>
+    <div class="choices" id="fits">
+      <button type="button" data-fit="clip" aria-pressed="true">铺满，角上切掉</button>
+      <button type="button" data-fit="inset" aria-pressed="false">缩到形状里面</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>阴影和边线</legend>
+    <div class="choices" id="shadows">
+      <button type="button" data-shadow="shape" aria-pressed="true">跟着形状</button>
+      <button type="button" data-shadow="system" aria-pressed="false">系统的矩形（关不掉时）</button>
+      <button type="button" data-shadow="none" aria-pressed="false">没有</button>
+    </div>
+    <label class="check"><input type="checkbox" id="edge" checked> 1 像素边线</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>主题</legend>
+    <div class="choices" id="themes">
+      <button type="button" data-theme-choice="aurora" aria-pressed="true">aurora</button>
+      <button type="button" data-theme-choice="eclipse" aria-pressed="false">eclipse</button>
+      <button type="button" data-theme-choice="phosphor" aria-pressed="false">phosphor</button>
+      <button type="button" data-theme-choice="paper" aria-pressed="false">paper</button>
+    </div>
+  </fieldset>
+
+  <label class="check"><input type="checkbox" id="mark" checked> 标出被切的格
+    （<span class="legend-mark" style="background:#ffb02e"></span>切掉一部分 <span class="legend-mark" style="background:#ff4d6d"></span>完全看不见）</label>
+
+  <div class="numbers" id="numbers"></div>
+  <p class="note" id="note"></p>
+</aside>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { shape: "rect", radius: 24, fit: "clip", shadow: "shape", edge: true, mark: true };
+const TAB_H = 34, PAD = 6, LINE = 1.35;
+
+// What the terminal shows: a shell, then a program's status line across the bottom row, as vim or less draw one.
+const lines = [
+  ['<span class="p">PS U:/&gt;</span> ls -l'],
+  ['<span class="m">-rw-r--r--</span>  demo  <span class="y">2.4K</span>  Cargo.toml'],
+  ['<span class="m">-rw-r--r--</span>  demo  <span class="y"> 140</span>  notes.md'],
+  ['<span class="m">-rw-r--r--</span>  demo  <span class="y"> 33K</span>  README.md'],
+  ['<span class="m">drwxr-xr-x</span>  demo  <span class="y">   -</span>  <span class="d">src/</span>'],
+  ['<span class="p">PS U:/&gt;</span> git status --short'],
+  ['<span class="r"> M</span> src/main.rs'],
+  ['<span class="g">??</span> notes.md'],
+  ['<span class="p">PS U:/&gt;</span> <span class="sel">cat notes.md | grep -n "same commands everywhere on every system"</span>'],
+  ['3:- **Same** commands everywhere'],
+  ['<span class="p">PS U:/&gt;</span> git log --oneline -3'],
+  ['<span class="y">a1c9f02</span> Say which shells'],
+  ['<span class="y">7d3e5b1</span> Add the release table'],
+  ['<span class="y">19be4c7</span> Start the notes'],
+  ['<span class="p">PS U:/&gt;</span> <span class="cursor"> </span>'],
+];
+
+const measure = document.createElement("canvas").getContext("2d");
+function cellSize() {
+  measure.font = `14px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+  return { w: measure.measureText("M").width, h: Math.round(14 * LINE * 100) / 100 };
+}
+
+// Is the point (x, y) of the window's box inside its shape?
+function inside(x, y, W, H, r, ellipse) {
+  if (ellipse) { const a = W / 2, b = H / 2; return ((x - a) / a) ** 2 + ((y - b) / b) ** 2 <= 1; }
+  if (x < 0 || y < 0 || x > W || y > H) return false;
+  const cx = x < r ? r : x > W - r ? W - r : x, cy = y < r ? r : y > H - r ? H - r : y;
+  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+}
+
+function layout() {
+  const stage = $("stage").getBoundingClientRect();
+  let W = Math.min(stage.width - 64, 860), H = Math.min(stage.height - 64, Math.round(W * 0.58));
+  W = Math.max(W, 280); H = Math.max(H, 200);
+  if (state.shape === "circle") { W = H = Math.min(W, H + 60, stage.height - 48); }
+  const ellipse = state.shape === "ellipse" || state.shape === "circle";
+  const rmax = Math.floor(Math.min(W, H) / 2);
+  $("radius").max = rmax;
+  const r = state.shape === "pill" ? rmax : ellipse ? 0 : Math.min(state.radius, rmax);
+  $("radius-value").textContent = ellipse ? "—" : `${r} px`;
+  $("radius-set").style.opacity = state.shape === "rect" ? 1 : .45;
+
+  const win = $("win");
+  $("frame").style.width = `${W}px`; $("frame").style.height = `${H}px`;
+  win.style.borderRadius = ellipse ? "50%" : `${r}px`;
+  win.classList.toggle("edge", state.edge);
+  win.classList.toggle("shadow-shape", state.shadow === "shape");
+
+  // Where the tabs and the text go: the whole box, or the largest rectangle inside the shape.
+  let x0 = 0, y0 = 0, x1 = W, y1 = H;
+  if (state.fit === "inset") {
+    if (ellipse) { const dx = W / 2 * (1 - Math.SQRT1_2), dy = H / 2 * (1 - Math.SQRT1_2); x0 = dx; x1 = W - dx; y0 = dy; y1 = H - dy; }
+    else { const d = r * (1 - Math.SQRT1_2); x0 = d; y0 = d; x1 = W - d; y1 = H - d; }
+  }
+  const region = $("region");
+  Object.assign(region.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+
+  const cell = cellSize();
+  const gx = x0 + PAD, gy = y0 + TAB_H + PAD;
+  const cols = Math.max(0, Math.floor((x1 - x0 - 2 * PAD) / cell.w));
+  const rows = Math.max(0, Math.floor((y1 - y0 - TAB_H - 2 * PAD) / cell.h));
+  const grid = $("grid");
+  Object.assign(grid.style, { top: `${TAB_H + PAD}px`, left: `${PAD}px`, width: `${cols * cell.w}px`, height: `${rows * cell.h}px` });
+
+  // The rows: the last lines of the shell, and the status line in the bottom row, the whole width.
+  const shown = lines.slice(Math.max(0, lines.length - Math.max(0, rows - 1)));
+  const status = (" -- NORMAL --  notes.md" + " ".repeat(400)).slice(0, Math.max(0, cols - 14)) + "3,1        All ";
+  let html = "";
+  shown.forEach((line, i) => { html += `<div class="row" style="top:${i * cell.h}px;height:${cell.h}px;line-height:${cell.h}px;width:${cols * cell.w}px">${line[0]}</div>`; });
+  if (rows > 0) html += `<div class="row status" style="top:${(rows - 1) * cell.h}px;height:${cell.h}px;line-height:${cell.h}px;width:${cols * cell.w}px">${status.slice(0, cols)}</div>`;
+  grid.innerHTML = html;
+
+  // The window's frame Windows draws if its shadow cannot be turned off: around the box, not the shape.
+  $("sysframe").hidden = state.shadow !== "system";
+
+  // Count the cells: whole, cut by the edge, or gone. The tabs' row counts as cells too, by its buttons and tabs.
+  let whole = 0, cut = 0, gone = 0;
+  const marks = $("marks");
+  const dpr = window.devicePixelRatio || 1;
+  marks.width = W * dpr; marks.height = H * dpr;
+  const ctx = marks.getContext("2d");
+  ctx.scale(dpr, dpr);
+  for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+    const x = gx + col * cell.w, y = gy + row * cell.h, X = x + cell.w, Y = y + cell.h;
+    const n = [[x, y], [X, y], [x, Y], [X, Y]].filter(([a, b]) => inside(a, b, W, H, r, ellipse)).length
+      + (inside((x + X) / 2, (y + Y) / 2, W, H, r, ellipse) ? 1 : 0);
+    if (n === 5) { whole++; continue; }
+    if (n === 0) gone++; else cut++;
+    if (state.mark) { ctx.fillStyle = n === 0 ? "rgba(255,77,109,.55)" : "rgba(255,176,46,.55)"; ctx.fillRect(x + .5, y + .5, cell.w - 1, cell.h - 1); }
+  }
+  // The tabs and the window's buttons: are their ends inside?
+  const tabsLeft = inside(x0 + 8, y0 + TAB_H / 2, W, H, r, ellipse) && inside(x0 + 8, y0 + 5, W, H, r, ellipse);
+  const btnRight = inside(x1 - 8, y0 + TAB_H / 2, W, H, r, ellipse) && inside(x1 - 8, y0 + 5, W, H, r, ellipse);
+
+  // Against a window of the same size with square corners.
+  const fullCols = Math.floor((W - 2 * PAD) / cell.w), fullRows = Math.floor((H - TAB_H - 2 * PAD) / cell.h);
+  const full = fullCols * fullRows;
+  const seen = state.fit === "clip" ? whole : cols * rows;
+  $("numbers").innerHTML =
+    `窗口 <b>${Math.round(W)} × ${Math.round(H)}</b> px<br>` +
+    `格子 <b>${cols} 列 × ${rows} 行</b> = <b>${cols * rows}</b> 格<br>` +
+    `完整看得见 <b>${whole}</b> 格；切掉一部分 <b>${cut}</b>；看不见 <b>${gone}</b><br>` +
+    `和方角窗口比（${fullCols} × ${fullRows} = ${full} 格）：完整的少 <b>${full ? Math.round((1 - seen / full) * 100) : 0}%</b><br>` +
+    `标签栏左端 <b>${tabsLeft ? "在里面" : "被切"}</b>；右上角按钮 <b>${btnRight ? "在里面" : "被切"}</b>`;
+
+  const notes = {
+    clip: "铺满：终端的列数、行数和方角窗口一样，程序不用知道窗口是圆的。代价是角上的格被切掉：最后一行（vim、less 的状态栏）两头和第一行的标签、按钮最先受影响。",
+    inset: "缩到里面：没有格被切，但四边都空出一条，列数、行数变少。圆角矩形空出 r×(1−1/√2)；椭圆和圆只剩内接矩形，约为面积的 64%（2/π）。",
+  };
+  $("note").innerHTML = notes[state.fit] +
+    (state.shadow === "system" ? " <strong>系统的矩形：</strong>Windows 给窗口画的阴影和边线是矩形的。关不掉时，圆角外面会露出一个方框，这一项要先在 Windows 上试。" : "") +
+    (ellipse ? " 椭圆和圆：拖动、改大小的边、最大化后的样子都要另想（最大化时大概要回到矩形）。" : "");
+}
+
+function pick(groupId, attr, key, parse = (v) => v) {
+  $(groupId).addEventListener("click", (event) => {
+    const button = event.target.closest("button"); if (!button) return;
+    state[key] = parse(button.dataset[attr]);
+    for (const b of $(groupId).querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === button));
+    if (key === "theme") document.documentElement.dataset.theme = state.theme;
+    layout();
+  });
+}
+pick("shapes", "shape", "shape");
+pick("fits", "fit", "fit");
+pick("shadows", "shadow", "shadow");
+pick("themes", "themeChoice", "theme");
+$("radius").addEventListener("input", (e) => { state.radius = Number(e.target.value); layout(); });
+document.querySelectorAll("[data-radius]").forEach((b) => b.addEventListener("click", () => { state.radius = Number(b.dataset.radius); $("radius").value = state.radius; layout(); }));
+$("edge").addEventListener("change", (e) => { state.edge = e.target.checked; layout(); });
+$("mark").addEventListener("change", (e) => { state.mark = e.target.checked; layout(); });
+addEventListener("resize", layout);
+// A state can be given in the address: ?shape=ellipse&fit=inset&radius=60&shadow=system&theme=paper
+const asked = new URLSearchParams(location.search);
+for (const [key, group, attr] of [["shape", "shapes", "shape"], ["fit", "fits", "fit"], ["shadow", "shadows", "shadow"], ["theme", "themes", "themeChoice"]]) {
+  const value = asked.get(key);
+  const button = value && [...$(group).querySelectorAll("button")].find((b) => b.dataset[attr] === value);
+  if (button) button.click();
+}
+if (asked.has("radius")) state.radius = Number(asked.get("radius")) || 0;
+$("radius").value = state.radius;
+document.fonts.ready.then(layout);
+layout();
+</script>
+</body>
+</html>

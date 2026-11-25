@@ -4,17 +4,24 @@
 # with ffmpeg. Nothing is mocked up, and nothing touches the user's own data:
 # every scene has a throwaway data directory and settings file.
 #
-#   pwsh tools/promo.ps1 [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img]
+#   pwsh tools/promo.ps1 [-Cut first|second] [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img] [-Narrate] [-Only s2,s3]
 #
-# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif (no sound); with -Narrate also OUT/unifyterm-promo-zh.mp4 and -en.mp4. With -Stills, also one
+# Two videos: `first` (0.2.4: the commands, the history, pictures, a model's explanation, the agents,
+# the settings) and `second` (0.3.0 to 0.6.2: themes, a command for a sentence, the model's sources,
+# command lists, the row of tabs, keys of your own).
+# Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif (no sound); the second video's files are
+# named unifyterm-promo-2. With -Narrate also OUT/unifyterm-promo-zh.mp4 and -en.mp4 (-2-zh, -2-en). With -Stills (first video), also one
 # picture of the window for each scene (the site's pictures, cut to the rows that have
 # something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png, settings.png. Needs ffmpeg and Microsoft Edge (for the cards).
+# -Only records the scenes named and joins them alone, without the cards: for trying a scene out.
 param(
+    [ValidateSet('first', 'second')][string]$Cut = 'first',
     [string]$Exe = (Join-Path (Split-Path $PSScriptRoot) 'target/release/unifyterm.exe'),
     [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media'),
     [string]$Stills = '',
     # Speak each part's line in each language (see $narration), and write a video for each.
-    [switch]$Narrate
+    [switch]$Narrate,
+    [string[]]$Only = @()
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
@@ -40,7 +47,7 @@ subst "${drive}:" $demo
 # Larger letters than the default: the window is shown smaller in the video and the GIF.
 $big = "[font]`nsize = 20`n"
 # The words on the cards, one line a scene (written by an agent from the README, checked against it).
-$caption = @{
+$caption = if ($Cut -eq 'first') { @{
     subtitle = 'One terminal for Windows, macOS and Linux'
     points   = '99+ Unix commands &middot; Searchable history &middot; Media previews &middot; Agent sidebar'
     s2       = 'Run 99 bundled Unix commands in Windows PowerShell'
@@ -53,11 +60,54 @@ $caption = @{
     s9       = 'Enter full screen with <b>F11</b> (<b>Cmd-Enter</b> on macOS)'
     s10      = 'Tab bar shows new versions and how to upgrade'
     install  = 'Install it from the UnifyTerm website'
-}
+} } else { @{
+    # The second video's words: written by ChatGPT from the README and the scenes, checked against the README.
+    subtitle = 'A cross-platform GUI terminal for Windows, macOS and Linux'
+    points   = 'What is new from 0.3.0 to 0.6.2'
+    themes   = 'Nine built-in themes, switched from the command line'
+    look     = 'Custom themes with wallpaper and a redesigned interface'
+    ask      = 'Turn natural language into commands you can review'
+    sources  = 'Connect hosted models, local servers, or agent CLIs'
+    lists    = 'OpenCLI command lists provide help without a model'
+    fix      = 'Correct mistyped commands using local command lists'
+    explain  = 'Press <b>Ctrl-Shift-E</b>: explained without calling a model'
+    tabbar   = 'Hide the tab bar with <b>Ctrl-Shift-B</b>, show it at the top edge'
+    shortcuts = 'Customize shortcuts for ten window actions'
+    install  = 'Install UnifyTerm: website and GitHub'
+} }
 # What is said over each part, one line a part, in each language (written by an agent from the README).
 # With -Narrate each language's lines are spoken (edge-tts: the words go to Microsoft's speech service)
 # and each part lasts until its longest line is said; OUT/unifyterm-promo-<language>.mp4 has that voice.
-$narration = [ordered]@{
+$narration = if ($Cut -eq 'second') { [ordered]@{
+    zh = @{
+        voice   = 'zh-CN-XiaoxiaoNeural'
+        title   = 'UnifyTerm 是一款支持 Windows、macOS 和 Linux 的图形终端。'
+        themes  = '内置九套主题，可以查看色样并通过命令即时切换。'
+        look    = '主题文件可设置壁纸、侧栏图片、透明度、毛玻璃和圆角。'
+        ask     = '输入自然语言，模型生成命令并放到输入行，检查后再执行。'
+        sources = '模型可以来自在线服务、本机模型服务器或已有的 Agent 命令行。'
+        lists   = '登记命令清单后，输入 git st 即可查看子命令和说明，无需模型。'
+        fix     = '命令拼错时，程序根据命令清单提供修正建议。'
+        explain = '按下快捷键，程序根据命令清单逐词解释，无需调用模型。'
+        tabbar  = '按快捷键隐藏标签栏，鼠标移到窗口顶边即可重新显示。'
+        shortcuts = '可以在设置中修改十个窗口操作的快捷键。'
+        end     = 'UnifyTerm 0.6.2，安装方式和项目源码请访问官网及 GitHub。'
+    }
+    en = @{
+        voice   = 'en-US-AriaNeural'
+        title   = 'UnifyTerm is a graphical terminal for Windows, macOS, and Linux.'
+        themes  = 'Choose from nine built-in themes and switch between them from the command line.'
+        look    = 'Theme files support wallpaper, sidebar pictures, opacity, blur, and rounded corners.'
+        ask     = 'Describe what you need, and the model puts a command on the input line for review.'
+        sources = 'Connect a hosted model, a local model server, or an existing agent CLI.'
+        lists   = 'Register an OpenCLI list to see Git subcommands and descriptions without a model.'
+        fix     = 'Mistyped commands can be corrected using the registered command list.'
+        explain = 'Explain each word of a listed command locally, without calling a model.'
+        tabbar  = 'Hide the tab bar with a shortcut, then move the pointer to the top edge to show it again.'
+        shortcuts = 'Customize the keyboard shortcuts for ten window actions in settings.'
+        end     = 'Get UnifyTerm 0.6.2. Visit the website for installation and GitHub for the source code.'
+    }
+} } else { [ordered]@{
     zh = @{
         voice = 'zh-CN-XiaoxiaoNeural'
         title = '这个终端在 Windows、macOS 和 Linux 上都能用。'
@@ -86,7 +136,7 @@ $narration = [ordered]@{
         s10   = 'When a new version is available, the tab bar tells you how to update.'
         end   = "The website has installation instructions. You'll find the link on screen and in the description."
     }
-}
+} }
 # Each part's least length in seconds: its longest spoken line, a little before it and after it. None without -Narrate.
 $least = @{}
 if ($Narrate) {
@@ -94,9 +144,15 @@ if ($Narrate) {
         $lines = $narration[$language]
         foreach ($part in $lines.Keys | Where-Object { $_ -ne 'voice' }) {
             $mp3 = Join-Path $work "say-$language-$part.mp3"
-            uvx edge-tts --voice $lines.voice --text $lines[$part] --write-media $mp3 2>&1 | Out-Null
-            if (-not (Test-Path $mp3)) { throw "promo: edge-tts said nothing for $language $part" }
-            $seconds = [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $mp3) + 0.9
+            # The speech service is over the network: a file cut short has no length ffprobe can read; ask again.
+            $spoken = 0
+            for ($try = 1; $try -le 3 -and $spoken -le 0; $try++) {
+                Remove-Item $mp3 -ErrorAction SilentlyContinue
+                uvx edge-tts --voice $lines.voice --text $lines[$part] --write-media $mp3 2>&1 | Out-Null
+                if (Test-Path $mp3) { $spoken = [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $mp3 2>$null) }
+            }
+            if ($spoken -le 0) { throw "promo: edge-tts said nothing for $language $part" }
+            $seconds = $spoken + 0.9
             $least[$part] = [math]::Max($seconds, ($least[$part] ?? 0))
         }
     }
@@ -196,8 +252,12 @@ function Join-Card([string]$card, [double]$seconds, [string]$name, [string]$part
 
 $clips = @()
 # 1. The name and what it is.
-$title = Save-Card 'title' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px'><div style='width:200px;height:200px'>$mark</div><div style='font-size:76px;font-weight:700;letter-spacing:-2px;color:#e6e9f5'>Unify<b>Term</b></div><div style='font-size:30px;opacity:.9'>$($caption.subtitle)</div><div style='font-size:21px;opacity:.6'>$($caption.points)</div></div>"
-$clips += Join-Card $title 3.2 'c-title' 'title'
+if (-not $Only) {
+    $title = Save-Card 'title' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px'><div style='width:200px;height:200px'>$mark</div><div style='font-size:76px;font-weight:700;letter-spacing:-2px;color:#e6e9f5'>Unify<b>Term</b></div><div style='font-size:30px;opacity:.9'>$($caption.subtitle)</div><div style='font-size:21px;opacity:.6'>$($caption.points)</div></div>"
+    $clips += Join-Card $title 3.2 'c-title' 'title'
+}
+
+if ($Cut -eq 'first') {
 
 # 2. The same commands on Windows.
 $script:frame = 0
@@ -300,17 +360,106 @@ if ($Stills) {
     finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item "${drive}:\config.toml" -ErrorAction SilentlyContinue }
     Save-Still 'ss' 'settings' 620
 }
+} else {
+# The second video. Each scene reads a settings file on the demo drive, so what `ut theme` and
+# `ut setting` print names no path of this machine; and with colors, for the themes' samples.
+function Wanted([string]$scene) { -not $Only -or $Only -contains $scene }
+function Record-Second([string]$scene, [string]$toml, [string]$keys, [hashtable]$data = @{}) {
+    $config = "${drive}:\settings.toml"
+    $noColor = $env:NO_COLOR; Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+    try { Record $scene $toml $keys $data $config }
+    finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item $config -ErrorAction SilentlyContinue }
+}
+function Theme([string]$name) { "[theme]`nname = `"$name`"`n" }
+$fixture = (Join-Path $root 'crates/unifyterm/tests/fixtures/agents.json') -replace '\\', '/'
+$ut = (Join-Path (Split-Path $Exe) 'ut.exe') -replace '\\', '/'
+$agents = "[agents]`ncommand = ['$ut', 'cat', '$fixture']`n"
+
+# 2. The themes: the list with each one's colors, then two of them put to use.
+if (Wanted 'themes') {
+    $script:frame = 0
+    $keys = (Typed 'themes' 'ut theme') + '{ENTER}' + (Shots 'themes' 14) + (Typed 'themes' 'ut theme aurora') + '{ENTER}' + (Shots 'themes' 16) + (Typed 'themes' 'ut theme paper') + '{ENTER}' + (Shots 'themes' 18)
+    Record-Second 'themes' '' $keys
+    $clips += Join-Scene 'themes' (Save-Backdrop 'b-themes' $caption.themes) 1.2
+}
+
+# 3. A wallpaper, the sidebar with the theme's picture at its foot, the list as you type.
+if (Wanted 'look') {
+    $script:frame = 0
+    $seed = '{WAIT:300}git --version{ENTER}{WAIT:900}git log --oneline -3{ENTER}{WAIT:900}git status --short{ENTER}{WAIT:900}cls{ENTER}{WAIT:700}'
+    $keys = $seed + (Shots 'look' 4 200) + (Typed 'look' 'git') + (Shots 'look' 6) + '{KEY:CTRL+N}' + (Shots 'look' 8) + '{ESC}{BACKSPACE}{BACKSPACE}{BACKSPACE}' + (Shots 'look' 2) + (Typed 'look' 'cat notes.md | head -6') + '{ENTER}' + (Shots 'look' 12)
+    Record-Second 'look' ((Theme 'aurora') + "wallpaper = `"aurora.png`"`nwallpaper_opacity = 0.35`n" + $agents + "sidebar = true`n") $keys
+    $clips += Join-Scene 'look' (Save-Backdrop 'b-look' $caption.look) 1.4
+}
+
+# 4. A command for a sentence (a model on this machine: tools/fake-model.ps1 with the command it gives).
+if (Wanted 'ask') {
+    $script:frame = 0
+    $port = 8767
+    $asked = Join-Path $work 'asked.json'
+    [IO.File]::WriteAllText($asked, (@{ 'the five largest files here' = @{ command = 'ls -lhS | head -n 6'; note = 'ls -S puts the largest first; head keeps the first six lines' } } | ConvertTo-Json))
+    $model = Start-Process pwsh -ArgumentList "-NoProfile -File `"$PSScriptRoot\fake-model.ps1`" -Port $port -Log `"$(Join-Path $work 'model-ask.jsonl')`" -DelaySeconds 1 -Asked `"$asked`"" -PassThru -WindowStyle Hidden
+    Start-Sleep 2
+    try {
+        $env:UNIFYTERM_PROMO_KEY = 'promo'
+        $ai = (Theme 'eclipse') + "[history]`ncandidates = false`n[ai]`nprovider = `"anthropic`"`nmodel = `"claude-haiku-5-5`"`nbase_url = `"http://localhost:$port`"`napi_key_env = `"UNIFYTERM_PROMO_KEY`"`nsuggest = false`n"
+        $keys = (Typed 'ask' '# the five largest files here') + (Shots 'ask' 4) + '{ENTER}' + (Shots 'ask' 18 100) + '{ENTER}' + (Shots 'ask' 14)
+        Record-Second 'ask' $ai $keys @{ 'ai-consent' = "Anthropic claude-haiku-5-5 http://localhost:$port" }
+    } finally { Stop-Process -Id $model.Id -Force -ErrorAction SilentlyContinue; Remove-Item Env:UNIFYTERM_PROMO_KEY -ErrorAction SilentlyContinue }
+    $clips += Join-Scene 'ask' (Save-Backdrop 'b-ask' $caption.ask) 1.4
+}
+
+# 5. Where the model is: the list `ut setting` offers for ai.provider.
+if (Wanted 'sources') {
+    $script:frame = 0
+    $keys = (Typed 'sources' 'ut setting') + '{ENTER}' + (Shots 'sources' 6 150) + '/' + (Typed 'sources' 'provider') + (Shots 'sources' 4 150) + '{ENTER}' + (Shots 'sources' 4 150) + '{ENTER}' + (Shots 'sources' 6 150) + '{DOWN}' + (Shots 'sources' 3 150) + '{DOWN}' + (Shots 'sources' 3 150) + '{DOWN}' + (Shots 'sources' 6 150)
+    Record-Second 'sources' (Theme 'day') $keys
+    $clips += Join-Scene 'sources' (Save-Backdrop 'b-sources' $caption.sources) 1.2
+}
+
+# 6 to 8. A command list (git's, from the OpenCLI project's examples): its words as you type, a
+# correction, an explanation, all in one window and without a model.
+if ((Wanted 'lists') -or (Wanted 'fix') -or (Wanted 'explain')) {
+    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/spectreconsole/open-cli/main/examples/git.json' -OutFile "${drive}:\git.json"
+    $script:frame = 0
+    $keys = (Typed 'lists' 'ut program add git.json') + '{ENTER}' + (Shots 'lists' 8) + (Typed 'lists' 'git st') + (Shots 'lists' 16) + '{ESC}' + ('{BACKSPACE}' * 6) +
+        (Typed 'fix' 'git comit -m x') + '{ENTER}' + (Shots 'fix' 20 100) + '{ESC}{WAIT:300}' +
+        (Typed 'explain' 'git log --oneline -n 3') + (Shots 'explain' 3) + '{KEY:CTRL+SHIFT+E}' + (Shots 'explain' 20 100)
+    try { Record-Second 'lists' (Theme 'phosphor') $keys }
+    finally { Remove-Item "${drive}:\git.json" -ErrorAction SilentlyContinue }
+    foreach ($scene in 'lists', 'fix', 'explain') { if (Wanted $scene) { $clips += Join-Scene $scene (Save-Backdrop "b-$scene" $caption[$scene]) 1.2 } }
+}
+
+# 9. The row of tabs out of the way, and back with the pointer at the top edge.
+if (Wanted 'tabbar') {
+    $script:frame = 0
+    $keys = (Typed 'tabbar' 'ls') + '{ENTER}' + (Shots 'tabbar' 6) + '{KEY:CTRL+SHIFT+B}' + (Shots 'tabbar' 18 120) + '{MOVE:480,2}' + (Shots 'tabbar' 22 150)
+    Record-Second 'tabbar' (Theme 'night') $keys
+    $clips += Join-Scene 'tabbar' (Save-Backdrop 'b-tabbar' $caption.tabbar) 1.2
+}
+
+# 10. A key of your own for the sidebar, used at once.
+if (Wanted 'shortcuts') {
+    $script:frame = 0
+    $keys = (Typed 'shortcuts' 'ut setting set keys.agents ctrl-alt-a') + '{ENTER}' + (Shots 'shortcuts' 8) + '{KEY:CTRL+ALT+A}' + (Shots 'shortcuts' 16 150)
+    Record-Second 'shortcuts' ((Theme 'paper-dark') + $agents) $keys
+    $clips += Join-Scene 'shortcuts' (Save-Backdrop 'b-shortcuts' $caption.shortcuts) 1.4
+}
+}
 
 # 7. How to get it.
-$end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#e6e9f5'>Unify<b>Term</b></div></div><div style='font-size:28px'>$($caption.install)</div><div style='font-size:26px;line-height:1.7;text-align:center'><b>https://dfine.tech/unifyterm/</b><br>https://github.com/newdee/unifyterm</div></div>"
-$clips += Join-Card $end 3.4 'c-end' 'end'
+if (-not $Only) {
+    $end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#e6e9f5'>Unify<b>Term</b></div></div><div style='font-size:28px'>$($caption.install)</div><div style='font-size:26px;line-height:1.7;text-align:center'><b>https://dfine.tech/unifyterm/</b><br>https://github.com/newdee/unifyterm</div></div>"
+    $clips += Join-Card $end 3.4 'c-end' 'end'
+}
 
 # All of it, then the GIF.
+$name = if ($Only) { 'unifyterm-promo-try' } elseif ($Cut -eq 'second') { 'unifyterm-promo-2' } else { 'unifyterm-promo' }
 $list = Join-Path $work 'all.txt'
 [IO.File]::WriteAllLines($list, @($clips | ForEach-Object { "file '$($_ -replace '\\', '/')'" }))
-$mp4 = Join-Path $Out 'unifyterm-promo.mp4'
+$mp4 = Join-Path $Out "$name.mp4"
 ffmpeg -v error -y -f concat -safe 0 -i $list -c:v libx264 -preset slow -crf 20 -pix_fmt yuv420p -movflags +faststart $mp4
-$gif = Join-Path $Out 'unifyterm-promo.gif'
+$gif = Join-Path $Out "$name.gif"
 ffmpeg -v error -y -i $mp4 -vf "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" $gif
 # Each language's voice over the same pictures: a part's line starts 0.3 s into its clip, silence fills the rest.
 if ($Narrate) {
@@ -325,7 +474,7 @@ if ($Narrate) {
         $voiceList = Join-Path $work "voice-$language.txt"; [IO.File]::WriteAllLines($voiceList, @($pieces))
         $voice = Join-Path $work "voice-$language.wav"
         ffmpeg -v error -y -f concat -safe 0 -i $voiceList -c copy $voice
-        $spoken = Join-Path $Out "unifyterm-promo-$language.mp4"
+        $spoken = Join-Path $Out "$name-$language.mp4"
         ffmpeg -v error -y -i $mp4 -i $voice -map 0:v -map 1:a -c:v copy -c:a aac -b:a 160k -shortest -movflags +faststart $spoken
         "promo: {0} ({1:N1} s)" -f $spoken, [double](ffprobe -v error -show_entries format=duration -of csv=p=0 $spoken)
     }
