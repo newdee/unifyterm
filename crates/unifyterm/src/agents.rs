@@ -39,6 +39,10 @@ pub(crate) struct Agent {
     pub(crate) model: String,
     /// In dollars, when known.
     pub(crate) cost: Option<f64>,
+    /// Some of its tokens are of a model keepane has no price for: the
+    /// real cost is more than [`Self::cost`].
+    #[serde(deserialize_with = "or_empty")]
+    pub(crate) cost_partial: bool,
     /// How full its context is, in percent, when known.
     pub(crate) context_pct: Option<u32>,
     /// Percent of one processor.
@@ -68,11 +72,13 @@ impl Agent {
     }
 
     /// The card's third line: cost, context, processor, memory, turns. A
-    /// cost or a context's share that is not known is left out.
+    /// cost or a context's share that is not known is left out; a cost that
+    /// is only part of it has a `+`, as keepane writes it (`$2.10+`).
     pub(crate) fn figures(&self) -> String {
         let mut parts = Vec::new();
         if let Some(cost) = self.cost {
-            parts.push(format!("${cost:.2}"));
+            let more = if self.cost_partial { "+" } else { "" };
+            parts.push(format!("${cost:.2}{more}"));
         }
         if let Some(percent) = self.context_pct {
             parts.push(format!("context {percent}%"));
@@ -417,10 +423,34 @@ mod tests {
         assert_eq!(agents[0].figures(), "context 41% · CPU 12% · 512 MiB · 37 turns", "no cost: left out");
         assert_eq!(agents[1].figures(), "$0.00 · CPU 0% · 128 MiB · 0 turns", "a cost of nothing is a cost");
         // Every field as null: an agent all the same, with its empty values.
-        let nulls = br#"[{"pane":null,"target":null,"agent":null,"model":null,"cost":null,
+        let nulls = br#"[{"pane":null,"target":null,"agent":null,"model":null,"cost":null,"cost_partial":null,
             "context_pct":null,"cpu":null,"mem":null,"turns":null}]"#;
         assert_eq!(all_read(nulls), [Agent::default()]);
         assert_eq!(Agent::default().title(), "agent");
+    }
+
+    /// keepane's `cost_partial`: some tokens had no price, so the cost is less than the real
+    /// one. The card says so with a `+`, as keepane does; with no cost known there is nothing to mark.
+    #[test]
+    fn a_cost_that_is_only_part_of_it_has_a_plus() {
+        let partial = FIXTURE.replacen("\"cost_partial\":false", "\"cost_partial\":true", 1);
+        assert_ne!(partial, FIXTURE, "the fixture has that field");
+        let agents = all_read(partial.as_bytes());
+        assert_eq!(agents[0].figures(), "$3.25+ · context 41% · CPU 12% · 512 MiB · 37 turns");
+        assert_eq!(agents[1].figures(), "$0.00 · CPU 0% · 128 MiB · 0 turns", "the other card: no +");
+        let cases: [(&[u8], &str); 4] = [
+            (br#"[{"cost":0.0,"cost_partial":true}]"#, "$0.00+ · "),
+            (br#"[{"cost":null,"cost_partial":true}]"#, "CPU 0%"),
+            (br#"[{"cost":2.1,"cost_partial":null}]"#, "$2.10 · "),
+            (br#"[{"cost":2.1}]"#, "$2.10 · "),
+        ];
+        for (list, starts) in cases {
+            let figures = all_read(list)[0].figures();
+            assert!(figures.starts_with(starts), "{}: {figures}", String::from_utf8_lossy(list));
+        }
+        assert!(
+            matches!(parse(br#"[{"cost":1.0,"cost_partial":"yes"}]"#), Agents::Listed { unread, .. } if unread.len() == 1)
+        );
     }
 
     /// An entry of another shape than an agent's: named, and the others are shown.

@@ -1,5 +1,25 @@
 # 验收记录
 
+## 2026-11-25 · 0.6.2：只算了一部分的花费带 `+`
+
+keepane 一侧的建议：`cost_partial` 为 true 时，cost 只是有价格的那部分 token 的花费，真实花费更高。keepane 自己显示成 `$2.10+`（`Stats::cost_text`，已核对它的代码）。侧栏原来不读这个字段，显示 `$2.10`。
+
+改法：`Agent` 读 `cost_partial`（`null` 和没给都当 false）；卡片上花费后面加 `+`。花费不知道时没有花费，也就没有 `+`，和 keepane 一样。
+
+定性：边界遗漏，只此一处。别的读 keepane 数据的地方没有花费。
+
+会不会引入新问题：`cost_partial` 为 false、没给、`null` 时卡片文字和 0.6.1 相同（单元测试逐字断言）。字段类型不对（`"yes"`）时那一条读不了，按 0.6.1 的逐条规则处理，其余卡片照常。
+
+验收轮（按用户的话只测改动影响的范围）：
+
+| 轮 | 视角 | 做了什么 | 结果 |
+|---|---|---|---|
+| 1 | 机制通路存活 | `cargo test -p unifyterm agents::`；clippy（`unifyterm`） | 8 通过（新加 1 个；第 9 个只在 Unix 上跑）；clippy 0 |
+| 2 | 实机看样子；静态一致性 | 窗口里两张 `cost_partial: true` 的卡片截图；`docs-check`、`site-check`、`notices -Check` | 截图显示 `$3.25+`、`$0.00+`；三项检查 0 失败 |
+| 3 | 原行为不变 | 实机检查 agents 一段；`unifyterm` 全部单元测试 | 16 通过；141 通过 0 失败 |
+
+没跑的：实机检查的其余 9 段、其余 crate 的测试、Linux 上的 `ut`。交给 CI。
+
 ## 2026-11-25 · 0.6.1：别的程序写的 JSON 里的 `null`
 
 现象（keepane 一侧报告，用户转来）：keepane 的窗格里运行一个 keepane 没有价格表的 agent 时，侧栏的卡片全部消失，只剩一行 "keepane's answer could not be read: see the log."。
