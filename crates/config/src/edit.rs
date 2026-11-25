@@ -387,7 +387,7 @@ mod tests {
             ("theme.corners", "pointed", "one of round, small, square"),
             ("keys.agents", "ctrl-shft-g", "'shft' is not ctrl, alt, shift or cmd"),
             ("keys.agents", "g", "the shell needs that key"),
-            ("keys.agents", "ctrl-shift-t", "keys.new_tab and keys.agents both have"),
+            ("keys.agents", "ctrl-tab", "keys.next_tab and keys.agents both have"),
             ("theme.ansi", "#000000, #111111", "has 2 colors"),
             ("font.family", " ", "font.family is empty"),
             // Right for its kind, wrong for the settings as a whole: a provider needs a model.

@@ -330,6 +330,35 @@ struct Bar {
     asked: Option<config::TabBar>,
 }
 
+/// Where the pointer is, for a row of tabs that keeps out of the way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pointer {
+    /// In the window, within `BAR_EDGE` of its top: it calls the row.
+    AtTheEdge,
+    /// In the window, on the row or within `BAR_LEAVE` under it: it keeps the row.
+    OnTheRow,
+    /// Lower in the window, or not in the window at all: the row may go.
+    Elsewhere,
+}
+
+impl Pointer {
+    /// Where a pointer at `at` is in a window of `size`. A pointer outside
+    /// the window is elsewhere, above the window too: the system still says
+    /// where it is (a negative height), and that is not on the row.
+    fn at(at: Point<Pixels>, size: gpui::Size<Pixels>) -> Self {
+        let inside = at.x >= px(0.) && at.x < size.width && at.y >= px(0.) && at.y < size.height;
+        if !inside {
+            Self::Elsewhere
+        } else if at.y <= px(BAR_EDGE) {
+            Self::AtTheEdge
+        } else if at.y <= px(TAB_BAR_HEIGHT + BAR_LEAVE) {
+            Self::OnTheRow
+        } else {
+            Self::Elsewhere
+        }
+    }
+}
+
 /// Whether what is behind the window shows through it, and how.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Behind {
@@ -715,7 +744,7 @@ impl Workspace {
             cx.background_executor().timer(BAR_PEEK).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 // The pointer on the row keeps it: it goes when the pointer leaves (see `pointer_moved`).
-                let on_the_row = window.mouse_position().y <= px(TAB_BAR_HEIGHT + BAR_LEAVE);
+                let on_the_row = Pointer::at(window.mouse_position(), window.viewport_size()) == Pointer::OnTheRow;
                 if this.bar.peeks == peek && !on_the_row {
                     this.bar.shown = false;
                     cx.notify();
@@ -732,8 +761,9 @@ impl Workspace {
         if !self.bar_keeps_away() {
             return;
         }
+        let pointer = Pointer::at(at, window.viewport_size());
         if !self.bar.shown {
-            if at.y > px(BAR_EDGE) || self.bar.coming {
+            if pointer != Pointer::AtTheEdge || self.bar.coming {
                 return;
             }
             // A pointer on its way out of the window crosses the edge too: only one that stays there calls the row.
@@ -742,7 +772,7 @@ impl Workspace {
                 cx.background_executor().timer(BAR_DWELL).await;
                 let _ = this.update_in(cx, |this, window, cx| {
                     this.bar.coming = false;
-                    if window.mouse_position().y <= px(BAR_EDGE) {
+                    if Pointer::at(window.mouse_position(), window.viewport_size()) == Pointer::AtTheEdge {
                         this.bar.shown = true;
                         this.bar.kept_until = None;
                         cx.notify();
@@ -753,7 +783,7 @@ impl Workspace {
             return;
         }
         let kept = self.bar.kept_until.is_some_and(|until| std::time::Instant::now() < until);
-        if at.y > px(TAB_BAR_HEIGHT + BAR_LEAVE) && !kept {
+        if pointer == Pointer::Elsewhere && !kept {
             self.bar.shown = false;
             cx.notify();
         }
@@ -1459,6 +1489,22 @@ mod tests {
         let wanted: &[&str] =
             if cfg!(target_os = "macos") { &["cmd-enter", "ctrl-cmd-f"] } else { &["f11", "alt-enter"] };
         assert_eq!(keys_of(&bindings, &ToggleFullScreen), wanted);
+    }
+
+    #[test]
+    fn a_pointer_calls_or_keeps_the_row_of_tabs_only_from_inside_the_window() {
+        let window = size(px(960.), px(620.));
+        let at = |x: f32, y: f32| Pointer::at(point(px(x), px(y)), window);
+        assert_eq!(at(300., 0.), Pointer::AtTheEdge);
+        assert_eq!(at(300., 10.), Pointer::AtTheEdge);
+        assert_eq!(at(300., 11.), Pointer::OnTheRow);
+        assert_eq!(at(300., 58.), Pointer::OnTheRow, "the row and 12 pixels under it");
+        assert_eq!(at(300., 59.), Pointer::Elsewhere);
+        assert_eq!(at(300., 400.), Pointer::Elsewhere);
+        // Outside the window, above it too: the row is neither called nor kept.
+        for (x, y) in [(300., -1.), (300., -400.), (-5., 5.), (960., 5.), (300., 620.), (2000., 30.)] {
+            assert_eq!(at(x, y), Pointer::Elsewhere, "({x}, {y})");
+        }
     }
 
     #[test]
