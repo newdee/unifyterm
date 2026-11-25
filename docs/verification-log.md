@@ -50,6 +50,20 @@
 | 窗口，`window.tab_bar = "auto-hide"`，窗口模式 | 8 秒后还在；设置被采用；日志："asked to be Hidden; hidden now: 3 of 3" |
 | 窗口，`"always"` | 8 秒后还在；没有动三个按钮 |
 
+发版（2026-11-25）：
+
+| 步骤 | 结果 |
+|---|---|
+| CI，提交 `3374c2e` | Windows、macOS、Ubuntu 三个平台通过（macOS 这次第一遍就分到了运行机器） |
+| 网页发布 | 通过 |
+| 标签 `v0.6.0`，`release.yml` | 4 个构建任务通过；Release 18 个文件 |
+| 包清单 | 工作流自己提交 `cb5a427` |
+| Scoop bucket | 0.6.0；哈希与 Release 的 zip 相同 |
+| Homebrew formula | 0.6.0；3 个哈希都是 Release 里的 |
+| 网页 | 线上显示 0.6.0、350、177、61 个设置项 |
+
+用户的 Mac 上的收尾：临时文件（仓库副本、构建目录 8.9 GB、数据目录）已删；这次开的窗格和 11 月 23 日留下的 `ut-repeat`、`ut-repeat-2` 都已关闭。会话 `DFINE` 关空后在 Mac 上留成"已保存"，删它的命令被权限判定拦住，已请用户在 Mac 上运行 `keepane delete-saved DFINE`。
+
 没验证的：
 
 - macOS 全屏时左边不再留空：没法在那台 Mac 上模拟全屏按键，只有代码和 CI。
