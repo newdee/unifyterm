@@ -449,8 +449,7 @@ public static class Screen2 {
             $seen.Count
         } finally { $opened | ForEach-Object { if (-not $_.HasExited) { $_.Kill() } }; Start-Sleep -Milliseconds 300 }
     }
-    $sharp = ThroughStripes 'false'; $blurred = ThroughStripes 'true'
-    Report 'theme.blur: what shows through is blurred' ($sharp -le 4 -and $blurred -ge 8) "colors on a line of 300 pixels of the screen, stripes behind: $sharp without blur (the two mixes), $blurred with it"
+
     # theme.corners: the window's own corners, read from the screen (Windows 11 cuts them). A red
     # window behind, larger all round; the window in front has a blue row of tabs. Down the
     # diagonal from the corner of its outline, the pixels before its own blue: one (the system's
@@ -480,15 +479,36 @@ public static class Screen2 {
             $cut
         } finally { $opened | ForEach-Object { if (-not $_.HasExited) { $_.Kill() } }; Start-Sleep -Milliseconds 300 }
     }
-    if ([Environment]::OSVersion.Version.Build -ge 22000) {
-        $square = CornerCut 'square'; $small = CornerCut 'small'; $round = CornerCut 'round'
-        Report 'theme.corners: the window''s own corners are square, small or round' ($square -le 1 -and $small -gt $square -and $round -gt $small) "pixels cut off down the corner's diagonal, read from the screen: square $square, small $small, round $round"
-    } else {
-        "SKIP  theme.corners: this Windows (build $([Environment]::OSVersion.Version.Build)) does not let a program choose its window's corners"
+    # What is read from the screen itself is only as good as the screen: a layer another program
+    # puts over it (a screenshot tool's dimming) changes every color. So an opaque blue window is
+    # read first and last: it must be blue both times, or the readings between are thrown away
+    # and taken again a little later, three times at most. (Seen once: opaque blue read as
+    # #00008d and the even mix as #470046, both 0.55 of what they are; read again, both right.)
+    $canChoose = [Environment]::OSVersion.Version.Build -ge 22000
+    $clear = $false
+    for ($try = 1; $try -le 3 -and -not $clear; $try++) {
+        if ($try -gt 1) { Start-Sleep -Seconds 20 }
+        $whole = SeenThrough 1
+        if ($whole -ne '#0000ff') { continue }
+        $half = SeenThrough 0.5
+        $sharp = ThroughStripes 'false'; $blurred = ThroughStripes 'true'
+        if ($canChoose) { $square = CornerCut 'square'; $small = CornerCut 'small'; $round = CornerCut 'round' }
+        $clear = (SeenThrough 1) -eq '#0000ff'
     }
-    $whole = SeenThrough 1; $half = SeenThrough 0.5
-    $mixed = $half -match '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -and [Math]::Abs([Convert]::ToInt32($Matches[1], 16) - 0x80) -le 8 -and [Convert]::ToInt32($Matches[2], 16) -le 8 -and [Math]::Abs([Convert]::ToInt32($Matches[3], 16) - 0x80) -le 8
-    Report 'theme.opacity: what is behind shows through, by that much' ($whole -eq '#0000ff' -and $mixed) "on the screen, a blue window over a red one: opacity 1 gives $whole (#0000ff), 0.5 gives $half (an even mix is #80007f)"
+    $tries = $try - 1
+    if (-not $clear) {
+        Report 'the screen shows a window as it is' $false "an opaque blue window, read from the screen, was $whole and not #0000ff in $tries tries: something lies over the screen, and what shows through a window cannot be read"
+    } else {
+        $read = "read from the screen at try $tries of 3"
+        Report 'theme.blur: what shows through is blurred' ($sharp -le 4 -and $blurred -ge 8) "colors on a line of 300 pixels, stripes behind: $sharp without blur (the two mixes), $blurred with it; $read"
+        if ($canChoose) {
+            Report 'theme.corners: the window''s own corners are square, small or round' ($square -le 1 -and $small -gt $square -and $round -gt $small) "pixels cut off down the corner's diagonal: square $square, small $small, round $round; $read"
+        } else {
+            "SKIP  theme.corners: this Windows (build $([Environment]::OSVersion.Version.Build)) does not let a program choose its window's corners"
+        }
+        $mixed = $half -match '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -and [Math]::Abs([Convert]::ToInt32($Matches[1], 16) - 0x80) -le 8 -and [Convert]::ToInt32($Matches[2], 16) -le 8 -and [Math]::Abs([Convert]::ToInt32($Matches[3], 16) - 0x80) -le 8
+        Report 'theme.opacity: what is behind shows through, by that much' $mixed "a blue window over a red one: opacity 1 gives $whole, before and after; 0.5 gives $half (an even mix is #80007f); $read"
+    }
 }
 if ($Section -in 'all', 'edges') {
     "--- edges ---"
