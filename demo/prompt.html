@@ -32,6 +32,15 @@ main { padding: 28px; display: grid; gap: 18px; align-content: start; }
 .thin { display: inline-block; width: 1ch; align-self: stretch; position: relative; }
 .thin::after { content: ""; position: absolute; inset: 0; background: currentColor; clip-path: polygon(0 0, 14% 0, 100% 50%, 14% 100%, 0 100%, 86% 50%); opacity: .55; }
 .cursor { display: inline-block; width: 1ch; }
+/* The light over the newest prompt: the terminal draws it, over the rows its marks say the prompt is in. */
+.latest { position: relative; overflow: hidden; }
+.latest .shine { position: absolute; top: 0; bottom: 0; left: 0; width: 22%; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(90deg, transparent, var(--shine) 50%, transparent); transform: translateX(-120%); }
+.latest .shine.once { animation: sweep 1.1s cubic-bezier(.3,.1,.3,1) .15s 1 both; }
+.latest .shine.loop { animation: sweep-loop 4s cubic-bezier(.3,.1,.3,1) .15s infinite both; }
+@keyframes sweep { from { transform: translateX(-120%); } to { transform: translateX(560%); } }
+@keyframes sweep-loop { 0% { transform: translateX(-120%); } 28% { transform: translateX(560%); } 100% { transform: translateX(560%); } }
+@media (prefers-reduced-motion: reduce) { .latest .shine { animation: none !important; } }
 .out { opacity: .92; }
 .note { font-size: 13px; line-height: 1.6; color: #a3adbd; max-width: 920px; margin: 0; }
 .note b { color: #e8ecf3; font-weight: 600; }
@@ -85,6 +94,17 @@ pre.toml { background: #141922; border-radius: 8px; padding: 12px; font-family: 
     <label class="check"><input type="checkbox" data-seg="venv" checked> Python 虚拟环境</label>
     <label class="check"><input type="checkbox" data-seg="time"> 时间</label>
   </fieldset>
+  <fieldset><legend>渐变</legend><div class="choices" id="gradients">
+    <button type="button" data-v="off" aria-pressed="false">不用</button>
+    <button type="button" data-v="segments" aria-pressed="true">每段从自己的色到下一段</button>
+    <button type="button" data-v="whole" aria-pressed="false">整条一组色</button>
+  </div></fieldset>
+  <fieldset><legend>光效（最新的提示符上，从左到右）</legend><div class="choices" id="shines">
+    <button type="button" data-v="off" aria-pressed="false">不用</button>
+    <button type="button" data-v="once" aria-pressed="true">每次新提示符划一次</button>
+    <button type="button" data-v="loop" aria-pressed="false">每 4 秒一次</button>
+  </div>
+  <div class="choices" style="margin-top:8px"><button type="button" id="again">模拟一个新提示符</button></div></fieldset>
   <label class="check"><input type="checkbox" id="transient"> 旧提示符收成一个 ❯（transient）</label>
   <pre class="toml" id="toml"></pre>
 </aside>
@@ -94,9 +114,9 @@ const THEMES = {
   aurora: { fg: "#e6faf5", bg: "#0c1c24", bar: "#16303b", muted: "#a6c5ca", ansi: ["#07161c","#ff9eb6","#7bf2ae","#efdb91","#95c6ff","#c0acff","#70e5ed","#a6c5ca","#7b969c"] },
   eclipse: { fg: "#ffeee3", bg: "#21151b", bar: "#36232b", muted: "#dcbabe", ansi: ["#190e13","#ff949a","#c6dc96","#ffc178","#aac4fa","#dbb0eb","#93d7d2","#dcbabe","#a88c90"] },
   "paper-dark": { fg: "#cecabe", bg: "#171716", bar: "#262624", muted: "#87837b", ansi: ["#393a34","#dc696c","#2b9870","#efca4b","#4f95cf","#ec60a1","#38aebe","#dbd7ca","#818181"] },
-  paper: { fg: "#33302a", bg: "#f0e7d2", bar: "#e3d8bf", muted: "#635b4e", ansi: ["#e3d8bf","#a6363d","#046641","#815501","#035fa0","#b50165","#036470","#5a5346","#5e584d"] },
+  paper: { light: true, fg: "#33302a", bg: "#f0e7d2", bar: "#e3d8bf", muted: "#635b4e", ansi: ["#e3d8bf","#a6363d","#046641","#815501","#035fa0","#b50165","#036470","#5a5346","#5e584d"] },
 };
-const state = { theme: "tokyo-night", style: "lean", sep: "sharp", lines: 2, transient: false,
+const state = { theme: "tokyo-night", style: "lean", sep: "sharp", lines: 2, transient: false, gradient: "segments", shine: "once",
   segs: { dir: true, git: true, status: true, duration: true, venv: true, time: false } };
 
 // What each segment says at each of the four prompts on the screen, and its color (an ANSI number of the theme).
@@ -122,31 +142,72 @@ function segments(ctx, t) {
 const el = (tag, style, text) => { const n = document.createElement(tag); if (style) Object.assign(n.style, style); if (text != null) n.textContent = text; return n; };
 
 // One side's segments in the chosen style. `side` is "l" (left, arrows pointing right) or "r".
+// Colors as the prompt writes them: one 24-bit color a cell, so a gradient changes from cell to cell.
+const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+const mix = (a, b, f) => "#" + hex(a).map((x, i) => Math.round(x + (hex(b)[i] - x) * f).toString(16).padStart(2, "0")).join("");
+function along(stops, f) {
+  if (stops.length === 1) return stops[0];
+  const at = Math.min(stops.length - 1.000001, Math.max(0, f) * (stops.length - 1));
+  return mix(stops[Math.floor(at)], stops[Math.floor(at) + 1], at - Math.floor(at));
+}
+// The colors after a segment's own, when the gradient runs on into the next: the theme's colors in this order.
+const NEXT = { 4: 5, 5: 6, 6: 2, 2: 3, 3: 1, 1: 5, 8: 7 };
+// Each segment's text, a cell at a time, and the color of each cell.
+function paint(segs, t, padded) {
+  const texts = segs.map((s) => (padded ? ` ${s.text} ` : s.text));
+  const total = texts.reduce((n, x) => n + [...x].length, 0);
+  // "whole": one set of colors over the whole side, from the theme's cyan through blue to magenta.
+  const whole = [t.ansi[6], t.ansi[4], t.ansi[5]];
+  let seen = 0;
+  return segs.map((s, i) => {
+    const cells = [...texts[i]];
+    const own = t.ansi[s.color];
+    const to = segs[i + 1] ? t.ansi[segs[i + 1].color] : t.ansi[NEXT[s.color] ?? s.color];
+    const cols = cells.map((_, k) => {
+      const f = cells.length > 1 ? k / (cells.length - 1) : 0;
+      if (state.gradient === "segments") return mix(own, to, f);
+      if (state.gradient === "whole") return along(whole, (seen + k) / Math.max(1, total - 1));
+      return own;
+    });
+    seen += cells.length;
+    return { cells, cols };
+  });
+}
+
+// One side's segments in the chosen style. `side` is "l" (left, arrows pointing right) or "r".
 function drawSide(segs, t, side) {
   const out = document.createDocumentFragment();
   const style = state.style;
-  if (style === "lean" || style === "plain") {
-    segs.forEach((s, i) => {
+  const flat = style === "lean" || style === "plain";
+  const painted = paint(segs, t, !flat);
+  const cellsOf = (p, cell) => p.cells.map((ch, k) => el("span", cell(p.cols[k]), ch));
+  if (flat) {
+    painted.forEach((p, i) => {
       if (i) out.append(el("span", null, " "));
-      out.append(el("span", { color: t.ansi[s.color] }, s.text));
+      cellsOf(p, (c) => ({ color: c })).forEach((n) => out.append(n));
     });
     return out;
   }
-  const bgOf = (s) => (style === "rainbow" ? t.ansi[s.color] : t.bar);
-  const fgOf = (s) => (style === "rainbow" ? t.bg : t.ansi[s.color]);
-  const sep = (color, behind, dir) => el("span", { background: color, boxShadow: `inset 0 0 0 100vmax ${behind}` }, null);
-  segs.forEach((s, i) => {
+  const rainbow = style === "rainbow";
+  const cell = (c) => (rainbow ? { background: c, color: t.bg } : { background: t.bar, color: c });
+  const first = (p) => (rainbow ? p.cols[0] : t.bar);
+  const last = (p) => (rainbow ? p.cols[p.cols.length - 1] : t.bar);
+  const arrow = (color, behind, kind) => {
+    const w = el("span", { background: behind, display: "inline-flex", alignSelf: "stretch" });
+    const x = el("span", { background: color }); x.className = `sep ${state.sep}-${kind}`;
+    w.append(x); return w;
+  };
+  const thin = () => Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" });
+  painted.forEach((p, i) => {
     if (side === "r") {
-      // Into the first segment from the background, and between segments.
-      const before = i === 0 ? null : bgOf(segs[i - 1]);
-      if (style === "classic" && i > 0) { out.append(Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" })); }
-      else { const w = el("span", { background: before || "transparent" }); w.className = "sepwrap"; const x = el("span", { background: bgOf(s) }); x.className = `sep ${state.sep}-l`; w.style.display = "inline-flex"; w.style.alignSelf = "stretch"; w.append(x); out.append(w); }
+      if (!rainbow && i > 0) out.append(thin());
+      else out.append(arrow(first(p), i === 0 ? "transparent" : last(painted[i - 1]), "l"));
     }
-    out.append(el("span", { background: bgOf(s), color: fgOf(s), padding: "0 1ch" }, s.text));
+    cellsOf(p, cell).forEach((n) => out.append(n));
     if (side === "l") {
-      const next = segs[i + 1];
-      if (style === "classic" && next) { out.append(Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" })); }
-      else { const w = el("span", { background: next ? bgOf(next) : "transparent" }); w.style.display = "inline-flex"; w.style.alignSelf = "stretch"; const x = el("span", { background: bgOf(s) }); x.className = `sep ${state.sep}-r`; w.append(x); out.append(w); }
+      const next = painted[i + 1];
+      if (!rainbow && next) out.append(thin());
+      else out.append(arrow(last(p), next ? first(next) : "transparent", "r"));
     }
   });
   return out;
@@ -198,7 +259,21 @@ function render() {
     const input = lines[lines.length - 1].querySelector(".input") || lines[lines.length - 1];
     if (p.cmd) input.append(el("span", null, p.cmd));
     else input.append(Object.assign(el("span", { background: t.fg }, " "), { className: "cursor" }));
-    lines.forEach((l) => screen.append(l));
+    if (last) {
+      // The newest prompt: its rows in one box, and the light that crosses them.
+      const box = el("div");
+      box.style.setProperty("--shine", t.light ? "rgb(255 255 255 / .75)" : "rgb(255 255 255 / .30)");
+      box.className = "latest";
+      lines.forEach((l) => box.append(l));
+      if (state.shine !== "off") {
+        const s = el("div"); s.className = `shine ${state.shine}`; if (t.light) s.style.mixBlendMode = "normal";
+        // For pictures: ?shineAt=0.5 holds the light at that part of its way.
+        const at = new URLSearchParams(location.search).get("shineAt");
+        if (at) s.style.animation = `sweep 1s linear -${Number(at)}s 1 paused both`;
+        box.append(s);
+      }
+      screen.append(box);
+    } else lines.forEach((l) => screen.append(l));
     p.out.forEach((o) => screen.append(Object.assign(el("div", null, o), { className: "out" })));
     if (!last) screen.append(el("div", { height: ".35em" }));
   });
@@ -221,8 +296,12 @@ lines = ${state.lines}
 left = [${segList.filter((s) => !rightNames.includes(s.slice(1, -1))).join(", ")}]
 right = [${segList.filter((s) => rightNames.includes(s.slice(1, -1))).join(", ")}]
 transient = ${state.transient}
-# 某一段的颜色也能改：
-# git.color = 3          # ANSI 色号，或 "#rrggbb"
+gradient = "${state.gradient}"${state.gradient === "whole" ? `\ncolors = [6, 4, 5]       # 整条的一组色：ANSI 色号或 "#rrggbb"` : ""}
+shine = "${state.shine}"           # 光效由终端画："off"、"once"、"loop"
+# 某一段的颜色也能改，给两个就是这一段自己的渐变：
+# git.color = 3
+# dir.color = ["#7aa2f7", "#bb9af7"]`;
+  document.getElementById("toml").textContent = document.getElementById("toml").textContent + `
 
 # 设置文件里（config.toml）：开关在这里
 [prompt]
@@ -242,11 +321,13 @@ function group(id, key, parse = (v) => v) {
   });
 }
 group("themes", "theme"); group("styles", "style"); group("seps", "sep"); group("lines", "lines", Number);
+group("gradients", "gradient"); group("shines", "shine");
+document.getElementById("again").addEventListener("click", render);
 document.querySelectorAll("[data-seg]").forEach((c) => c.addEventListener("change", () => { state.segs[c.dataset.seg] = c.checked; render(); }));
 document.getElementById("transient").addEventListener("change", (e) => { state.transient = e.target.checked; render(); });
 // A state in the address, for pictures: ?theme=aurora&style=rainbow&sep=round&lines=1&transient=1
 const q = new URLSearchParams(location.search);
-for (const [key, id, parse] of [["theme", "themes"], ["style", "styles"], ["sep", "seps"], ["lines", "lines", Number]]) {
+for (const [key, id, parse] of [["theme", "themes"], ["style", "styles"], ["sep", "seps"], ["lines", "lines", Number], ["gradient", "gradients"], ["shine", "shines"]]) {
   const v = q.get(key); if (!v) continue;
   const b = [...document.getElementById(id).querySelectorAll("button")].find((x) => x.dataset.v === v); if (b) b.click();
 }
