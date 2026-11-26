@@ -3,13 +3,13 @@
 # pictures of the window. Each check prints PASS or FAIL with the numbers it
 # measured; the exit code is how many failed.
 #
-#   pwsh tools/verify.ps1 [-Section all|input|settings|themes|edges|commands|history|ai|programs|graphics|agents] [-Exe path]
+#   pwsh tools/verify.ps1 [-Section all|input|settings|themes|edges|commands|history|ai|programs|graphics|agents|prompt] [-Exe path]
 #
 # It needs a desktop session (a window opens for each check, a few seconds
 # each) but not the foreground: input and pictures go through the window's
 # own handle.
 param(
-    [ValidateSet('all', 'input', 'settings', 'themes', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents')][string]$Section = 'all',
+    [ValidateSet('all', 'input', 'settings', 'themes', 'edges', 'commands', 'history', 'ai', 'programs', 'graphics', 'agents', 'prompt')][string]$Section = 'all',
     [string]$Exe = "$PSScriptRoot\..\target\debug\unifyterm.exe"
 )
 $ErrorActionPreference = 'Stop'
@@ -1273,6 +1273,28 @@ if ($Section -in 'all', 'agents') {
     $none = @(Ask-Mcp @('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"history_recent","arguments":{}}}') $empty)
     $left = @(Get-ChildItem $empty -Force).Count
     Report 'ut mcp with no history: an empty list, and no file made' ($none.Count -eq 1 -and $none[0].result.content[0].text -eq '[]' -and $left -eq 0) "answer: $($none[0].result.content[0].text); files made: $left"
+}
+
+if ($Section -in 'all', 'prompt') {
+    "--- prompt ---"
+    # The prompt UnifyTerm writes (prompt.enabled): ut prompt, run by PowerShell's hook at every prompt.
+    $keys = "cmd /c exit 3{ENTER}{WAIT:1500}Start-Sleep 3{ENTER}{WAIT:4500}echo prompt-probe{ENTER}{WAIT:1500}"
+    $on = Run 'prompt-on' $keys "[prompt]`nenabled = true`n" -after 1
+    $marks = Count $on '❯'
+    Report 'prompt on: ut writes it, with what went wrong' ($marks -ge 4 -and (Count $on '✘ 3') -ge 1 -and (Count $on '3s') -ge 1 -and (Count $on 'prompt-probe') -ge 2) "marks: $marks; '✘ 3': $(Count $on '✘ 3'); '3s': $(Count $on '3s'); the probe: $(Count $on 'prompt-probe')"
+    $off = Run 'prompt-off' "echo prompt-probe{ENTER}{WAIT:1500}" '' -after 1
+    Report 'prompt off: the shell keeps its own' ((Count $off '❯') -eq 0 -and (Count $off 'PS ') -ge 2 -and (Count $off 'prompt-probe') -ge 2) "marks: $(Count $off '❯'); 'PS ': $(Count $off 'PS ')"
+
+    # The light (prompt.shine): pictures a tenth of a second apart. The older prompt is on the first
+    # row; after `echo` and its line, the newest is on the fourth (rows of 19 pixels).
+    $frames = (1..8 | ForEach-Object { "{WAIT:100}{SHOT:shine-$_}" }) -join ''
+    $null = Run 'shine' "echo hi{ENTER}{WAIT:1500}$frames" "[prompt]`nenabled = true`nshine = `"loop`"`nshine_every = 1`n" -after 0.5
+    $rowY = { param($n) $Row.Y + 19 * $n }
+    $newest = (2..8 | ForEach-Object { PixelDiff 'shine-1' "shine-$_" 10 (& $rowY 3) 420 18 } | Measure-Object -Maximum).Maximum
+    $older = (2..8 | ForEach-Object { PixelDiff 'shine-1' "shine-$_" 10 (& $rowY 0) 420 18 } | Measure-Object -Maximum).Maximum
+    $blank = (2..8 | ForEach-Object { PixelDiff 'shine-1' "shine-$_" 600 (& $rowY 3) 300 18 } | Measure-Object -Maximum).Maximum
+    Report 'the light: the newest prompt''s words change' ($newest -gt 50) "most pixels changed between two pictures: $newest"
+    Report 'the light: the older prompt and blank cells do not' ($older -eq 0 -and $blank -eq 0) "older prompt: $older; blank cells right of the newest: $blank"
 }
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 "$script:failed failed"
