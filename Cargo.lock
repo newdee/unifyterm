@@ -8000,6 +8000,7 @@ version = "0.6.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "crossterm",
  "diffutils",
  "dirs 6.0.0",
@@ -8020,6 +8021,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "terminal_size",
+ "toml 0.9.12+spec-1.1.0",
  "unicode-width 0.2.3",
  "unifyterm-config",
  "unifyterm-history",
