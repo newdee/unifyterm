@@ -33,14 +33,8 @@ main { padding: 28px; display: grid; gap: 18px; align-content: start; }
 .thin::after { content: ""; position: absolute; inset: 0; background: currentColor; clip-path: polygon(0 0, 14% 0, 100% 50%, 14% 100%, 0 100%, 86% 50%); opacity: .55; }
 .cursor { display: inline-block; width: 1ch; }
 /* The light over the newest prompt: the terminal draws it, over the rows its marks say the prompt is in. */
-.latest { position: relative; overflow: hidden; }
-.latest .shine { position: absolute; top: 0; bottom: 0; left: 0; width: 22%; pointer-events: none; mix-blend-mode: screen;
-  background: linear-gradient(90deg, transparent, var(--shine) 50%, transparent); transform: translateX(-120%); }
-.latest .shine.once { animation: sweep 1.1s cubic-bezier(.3,.1,.3,1) .15s 1 both; }
-.latest .shine.loop { animation: sweep-loop 4s cubic-bezier(.3,.1,.3,1) .15s infinite both; }
-@keyframes sweep { from { transform: translateX(-120%); } to { transform: translateX(560%); } }
-@keyframes sweep-loop { 0% { transform: translateX(-120%); } 28% { transform: translateX(560%); } 100% { transform: translateX(560%); } }
-@media (prefers-reduced-motion: reduce) { .latest .shine { animation: none !important; } }
+/* The light over the newest prompt lights its cells that have something in them, one by one; blank cells stay as they are. */
+.latest { position: relative; }
 .out { opacity: .92; }
 .note { font-size: 13px; line-height: 1.6; color: #a3adbd; max-width: 920px; margin: 0; }
 .note b { color: #e8ecf3; font-weight: 600; }
@@ -180,7 +174,12 @@ function drawSide(segs, t, side) {
   const style = state.style;
   const flat = style === "lean" || style === "plain";
   const painted = paint(segs, t, !flat);
-  const cellsOf = (p, cell) => p.cells.map((ch, k) => el("span", cell(p.cols[k]), ch));
+  // A cell with a character, or with a segment's color behind it, is one the light crosses.
+  const cellsOf = (p, cell) => p.cells.map((ch, k) => {
+    const n = el("span", cell(p.cols[k]), ch);
+    if (ch !== " " || !flat) n.classList.add("lit");
+    return n;
+  });
   if (flat) {
     painted.forEach((p, i) => {
       if (i) out.append(el("span", null, " "));
@@ -194,10 +193,10 @@ function drawSide(segs, t, side) {
   const last = (p) => (rainbow ? p.cols[p.cols.length - 1] : t.bar);
   const arrow = (color, behind, kind) => {
     const w = el("span", { background: behind, display: "inline-flex", alignSelf: "stretch" });
-    const x = el("span", { background: color }); x.className = `sep ${state.sep}-${kind}`;
+    const x = el("span", { background: color }); x.className = `sep ${state.sep}-${kind} lit`;
     w.append(x); return w;
   };
-  const thin = () => Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" });
+  const thin = () => Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin lit" });
   painted.forEach((p, i) => {
     if (side === "r") {
       if (!rainbow && i > 0) out.append(thin());
@@ -225,19 +224,60 @@ function promptLines(ctx, t, current) {
     l1.append(Object.assign(el("span"), { className: "fill" }));
     l1.append(drawSide(right, t, "r"));
     const l2 = el("div"); l2.className = "line";
-    l2.append(el("span", { color: charColor }, char + " "));
+    l2.append(Object.assign(el("span", { color: charColor }, char), { className: "lit" }), el("span", null, " "));
     lines.push(l1, l2);
   } else {
     const l1 = el("div"); l1.className = "line";
     l1.append(drawSide(left, t, "l"));
     l1.append(el("span", null, " "));
-    l1.append(el("span", { color: charColor }, char + " "));
+    l1.append(Object.assign(el("span", { color: charColor }, char), { className: "lit" }), el("span", null, " "));
     l1.append(Object.assign(el("span"), { className: "input" }));
     lines.push(l1);
     // A one-line prompt has its right side only where the shell draws one (zsh, fish): shown here dimmed.
     if (right.length) { const r = el("span", { opacity: .55 }); r.append(drawSide(right, t, "r")); l1.append(Object.assign(el("span"), { className: "fill" })); l1.append(r); l1.dataset.right = "1"; }
   }
   return lines;
+}
+
+// The light: a soft band, a few cells wide, goes from the first lit cell to the last; each lit cell
+// grows brighter as the band passes it. Blank cells are not touched. Once is 1.1 s; "loop" again every 4 s.
+let shineFrame = 0;
+function shine(box, t) {
+  cancelAnimationFrame(shineFrame);
+  if (state.shine === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cells = [...box.querySelectorAll(".lit")];
+  if (!cells.length) return;
+  const origin = box.getBoundingClientRect().left;
+  const cell = cells[0].getBoundingClientRect().width || 9;
+  // Where each lit cell is along the light's way: its column, with every blank stretch wider than
+  // two cells closed up to two, so the light does not spend time over nothing.
+  const x = cells.map((c) => { const r = c.getBoundingClientRect(); return (r.left + r.right) / 2 - origin; });
+  const columns = [...new Set(x.map((v) => Math.round(v)))].sort((a, b) => a - b);
+  const way = new Map();
+  columns.forEach((v, i) => way.set(v, i === 0 ? v : way.get(columns[i - 1]) + Math.min(v - columns[i - 1], 2 * cell)));
+  const at = x.map((v) => way.get(Math.round(v)));
+  const width = 3.5 * cell, from = Math.min(...at) - 2 * width, to = Math.max(...at) + 2 * width;
+  const light = (f) => {
+    const x = from + (to - from) * f;
+    cells.forEach((c, i) => {
+      const g = Math.exp(-(((at[i] - x) / width) ** 2));
+      c.style.filter = g < 0.02 ? "" : t.light
+        ? `brightness(${1 + 0.35 * g}) drop-shadow(0 0 ${4 * g}px rgb(255 255 255 / ${g}))`
+        : `brightness(${1 + 0.8 * g}) drop-shadow(0 0 ${3 * g}px rgb(255 255 255 / ${0.45 * g}))`;
+    });
+  };
+  // For pictures: ?shineAt=0.4 holds the light at that part of its way.
+  const held = new URLSearchParams(location.search).get("shineAt");
+  if (held) { light(Number(held)); return; }
+  const sweep = 1100, every = state.shine === "loop" ? 4000 : Infinity;
+  const start = performance.now() + 150;
+  const step = (now) => {
+    const since = now - start;
+    const f = since < 0 ? -1 : (since % every) / sweep;
+    light(f >= 0 && f <= 1 ? 1 - (1 - f) ** 2 : 2);
+    if (since < sweep || every !== Infinity) shineFrame = requestAnimationFrame(step);
+  };
+  shineFrame = requestAnimationFrame(step);
 }
 
 function render() {
@@ -262,17 +302,10 @@ function render() {
     if (last) {
       // The newest prompt: its rows in one box, and the light that crosses them.
       const box = el("div");
-      box.style.setProperty("--shine", t.light ? "rgb(255 255 255 / .75)" : "rgb(255 255 255 / .30)");
       box.className = "latest";
       lines.forEach((l) => box.append(l));
-      if (state.shine !== "off") {
-        const s = el("div"); s.className = `shine ${state.shine}`; if (t.light) s.style.mixBlendMode = "normal";
-        // For pictures: ?shineAt=0.5 holds the light at that part of its way.
-        const at = new URLSearchParams(location.search).get("shineAt");
-        if (at) s.style.animation = `sweep 1s linear -${Number(at)}s 1 paused both`;
-        box.append(s);
-      }
       screen.append(box);
+      shine(box, t);
     } else lines.forEach((l) => screen.append(l));
     p.out.forEach((o) => screen.append(Object.assign(el("div", null, o), { className: "out" })));
     if (!last) screen.append(el("div", { height: ".35em" }));
