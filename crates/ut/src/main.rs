@@ -280,6 +280,7 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut shell enable|disable|status    these commands in every shell, not only in UnifyTerm's tabs
        ut program [add FILE]             the programs whose commands UnifyTerm knows ('ut program --help')
        ut theme [NAME]                   the themes there are; with a name, use that one ('ut theme --help')
+       ut prompt preview                 the prompt UnifyTerm writes, with these settings ('ut prompt --help')
        ut mcp                            an MCP server for agents: the history, these commands' help
        ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/unifyterm/SKILL.md
        ut --version

@@ -92,6 +92,6 @@ __unifyterm_wrap() {
 
 # When a command starts: 133;C, and (in an arithmetic expansion, which runs in this shell) the
 # second it started at, for how long it took.
-PS0="$(printf '\033]133;C\007')"'${__unifyterm_none[__unifyterm_started=SECONDS]}'"${PS0}"
+PS0="$(printf '\033]133;C\007')"'${__unifyterm_none[__unifyterm_started=SECONDS]-}'"${PS0}"
 PROMPT_COMMAND="__unifyterm_status;${PROMPT_COMMAND:+$PROMPT_COMMAND;}__unifyterm_wrap"
 printf '\e]633;P;Shell=bash\e\\'

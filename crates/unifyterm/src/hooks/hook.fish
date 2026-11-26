@@ -23,7 +23,10 @@ function __unifyterm_escape
 end
 
 function __unifyterm_preexec --on-event fish_preexec
-    printf '\e]633;E;%s\e\\\e]133;C\e\\' (__unifyterm_escape "$argv[1]")
+    # Two printfs: in fish's single quotes \\ is one backslash, and one in the middle of a
+    # format would take the character after it (it printed "e]133;C\" on the screen).
+    printf '\e]633;E;%s\e\\' (__unifyterm_escape "$argv[1]")
+    printf '\e]133;C\e\\'
 end
 
 function __unifyterm_postexec --on-event fish_postexec
@@ -46,13 +49,17 @@ if set -q UNIFYTERM_PROMPT
             set -e __unifyterm_ran
         end
         set -l out ("$UNIFYTERM_PROMPT" $arguments 2>/dev/null | string collect)
+        # Each mark printed by itself: in fish's single quotes \\ is one backslash, which
+        # would take the character after it (%s) away from printf.
+        printf '\e]133;A\e\\'
         if test -z "$out"
-            printf '\e]133;A\e\\> \e]133;B\e\\'
-            return
+            printf '> '
+        else
+            set -l parts (string split \x1e -- $out)
+            set -g __unifyterm_right $parts[2]
+            printf '%s' $parts[1]
         end
-        set -l parts (string split \x1e -- $out)
-        set -g __unifyterm_right $parts[2]
-        printf '\e]133;A\e\\%s\e]133;B\e\\' $parts[1]
+        printf '\e]133;B\e\\'
     end
     function fish_right_prompt
         printf '%s' $__unifyterm_right

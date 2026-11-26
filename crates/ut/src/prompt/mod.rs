@@ -39,6 +39,8 @@ enum Ask {
     Write { shell: Shell, status: Option<i32>, took: Option<Duration>, width: Option<usize>, cwd: Option<PathBuf> },
     /// A person's look at it.
     Preview,
+    /// What the command takes.
+    Help,
 }
 
 /// The value after an option.
@@ -54,6 +56,7 @@ fn parse(args: &[OsString]) -> Result<(Option<PathBuf>, Ask)> {
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("preview") => preview = true,
+            Some("--help" | "-h") => return Ok((config, Ask::Help)),
             Some("--config") => config = Some(PathBuf::from(value(&mut args, "--config")?)),
             Some("--shell") => {
                 let name = value(&mut args, "--shell")?;
@@ -156,6 +159,10 @@ pub(crate) fn main(args: &[OsString]) -> i32 {
     };
     let mut out = io::stdout().lock();
     match ask {
+        Ask::Help => {
+            let _ = writeln!(out, "{USAGE}");
+            0
+        }
         Ask::Preview => match look(config).and_then(|(prompt, palette)| preview(&prompt, &palette, &mut out)) {
             Ok(()) => 0,
             Err(problem) => {
