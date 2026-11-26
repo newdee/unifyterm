@@ -105,6 +105,15 @@ pub(crate) fn takes(kind: Kind) -> String {
         Kind::Color => "#rrggbb; empty: the built-in color".into(),
         Kind::Colors => "16 colors as #rrggbb with commas between them; empty: the built-in ones".into(),
         Kind::Keys => "keys as ctrl-shift-t, with commas between them; empty: no key".into(),
+        Kind::Segments => {
+            let names: Vec<&str> =
+                unifyterm_config::prompt::Segment::ALL.iter().map(|segment| segment.name()).collect();
+            format!("segments with commas between them: {}; empty: none", names.join(", "))
+        }
+        Kind::Paints { least, most } => {
+            let count = if least == most { least.to_string() } else { format!("{least} to {most}") };
+            format!("{count} colors: the theme's by name (red, bright-blue) or #rrggbb; empty: the theme's")
+        }
     }
 }
 

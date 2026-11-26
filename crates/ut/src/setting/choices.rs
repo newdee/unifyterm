@@ -48,6 +48,16 @@ pub(crate) fn for_key(key: &Key) -> Option<Choices> {
         "commands.system" => (crate::commands().into_iter().map(|(name, _)| Choice::plain(name)).collect(), Pick::Many),
         _ => match key.kind {
             Kind::OneOf(choices) => (choices.iter().map(|choice| Choice::plain(choice)).collect(), Pick::One),
+            // The prompt's segments, marked in the order they are shown.
+            Kind::Segments => {
+                let segments = unifyterm_config::prompt::Segment::ALL;
+                (segments.iter().map(|segment| Choice::plain(segment.name())).collect(), Pick::Many)
+            }
+            // A segment's colors: the theme's sixteen by name; one of its own is typed (`e`).
+            Kind::Paints { .. } => {
+                let names = unifyterm_config::prompt::Ansi::NAMES;
+                (names.iter().map(|name| Choice::plain(name)).collect(), Pick::Many)
+            }
             _ => return None,
         },
     };

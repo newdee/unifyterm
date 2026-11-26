@@ -15,12 +15,14 @@ use serde::{Deserialize, Serialize};
 pub mod chord;
 mod edit;
 mod keys;
+pub mod prompt;
 pub mod providers;
 pub mod shell;
 pub mod themes;
 
 pub use edit::{File, default_of};
 pub use keys::{Applies, KEYS, Key, Kind, key};
+pub use prompt::PromptConfig;
 
 const FONT_SIZES: std::ops::RangeInclusive<f32> = 6.0..=72.0;
 const LINE_HEIGHTS: std::ops::RangeInclusive<f32> = 1.0..=2.0;
@@ -57,6 +59,7 @@ pub struct Config {
     pub window: WindowConfig,
     pub keys: KeysConfig,
     pub theme: ThemeConfig,
+    pub prompt: PromptConfig,
     pub commands: CommandsConfig,
     pub history: HistoryConfig,
     pub ai: AiConfig,
@@ -473,6 +476,8 @@ pub struct Look {
     pub picture: Option<themes::Picture>,
     /// The wallpaper, where it was found to be.
     pub wallpaper: Option<themes::Picture>,
+    /// The prompt: the settings' `[prompt]` over the theme's over the defaults.
+    pub prompt: prompt::Prompt,
 }
 
 impl ThemeConfig {
@@ -641,6 +646,7 @@ impl Config {
         config.check_model()?;
         config.keys.check()?;
         config.theme.check()?;
+        config.prompt.check(prompt::Layer::Settings)?;
         Ok(config)
     }
 
@@ -652,16 +658,16 @@ impl Config {
     /// A picture is looked for beside the file that names it: the settings
     /// file for the settings' own, the theme's file for the theme's.
     pub fn look(&self, themes: Option<&Path>) -> Result<Look> {
-        let (under, theme_folder) = match &self.theme.name {
+        let (under, their_prompt, theme_folder) = match &self.theme.name {
             Some(name) => {
-                let (under, source) = themes::found(name, themes)?;
+                let (under, their_prompt, source) = themes::found_whole(name, themes)?;
                 let folder = match source {
                     themes::Source::File(file) => file.parent().map(Path::to_path_buf),
                     themes::Source::BuiltIn => None,
                 };
-                (Some(under), folder)
+                (Some(under), their_prompt, folder)
             }
-            None => (None, None),
+            None => (None, PromptConfig::default(), None),
         };
         // A picture's file: the settings' own goes first, looked for beside the settings file;
         // else the theme's, beside the theme's file.
@@ -677,7 +683,8 @@ impl Config {
             Some(under) => self.theme.clone().over(under),
             None => self.theme.clone(),
         };
-        Ok(Look { colors, picture, wallpaper })
+        let prompt = self.prompt.clone().over(their_prompt).resolved();
+        Ok(Look { colors, picture, wallpaper, prompt })
     }
 
     /// What the provider named needs is there: a model, an address, a key's variable, a program.

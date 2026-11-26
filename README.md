@@ -99,7 +99,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 
 `ut setting`, in a tab, shows every setting and changes it from the keyboard. ↑↓ move; Enter changes the one the cursor is on: a switch turns, and a font, a shell, the fallback fonts, the commands to leave to the system and the model's provider open a list to pick from (type to narrow it; Space marks several, in order). ←→ make a number smaller or larger, `e` types any value (a font the list lacks), `d` puts the default back, `u` takes the last change back, `/` narrows the settings, `q` leaves. A value UnifyTerm would refuse is not written, and the line says why. The comments in your file stay. For a script: `ut setting list`, `ut setting get font.size`, `ut setting set font.size 16`, `ut setting reset font.size`, `ut setting path`.
 
-UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the theme and everything in `[theme]`, the keys in `[keys]`, the padding, `window.tab_bar` and the list of earlier commands change at once. `shell.*` and `terminal.scrollback` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.system_title_bar`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
+UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the theme and everything in `[theme]`, the keys in `[keys]`, the padding, `window.tab_bar` and the list of earlier commands change at once. The rest of `[prompt]` is used at the next prompt. `shell.*`, `terminal.scrollback` and `prompt.enabled` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.system_title_bar`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
 
 | Key | Default | What it is |
 |---|---|---|
@@ -145,6 +145,23 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `theme.corners` | the theme's | The window's own corners: `"round"`, `"small"` or `"square"`. Windows 11 only; not set, they are as the system makes them |
 | `theme.wallpaper` | the theme's | A picture's file, drawn behind the text over the whole window. It is made as large as the window, and follows the window's size; what goes past the window's sides is cut off. Found as `picture` is. `""`: none |
 | `theme.wallpaper_opacity` | the theme's, else `0.25` | How much of the wallpaper shows over the color behind the text, 0 to 1 |
+| `prompt.enabled` | `false` | UnifyTerm writes the prompt, the line left of the cursor, in new tabs (PowerShell, bash, zsh, fish). Off: your shell's own prompt, as before. See [The prompt](#the-prompt) |
+| `prompt.style` | the theme's, else `"lean"` | `"lean"`: colored words. `"classic"`: the segments on one band of the bar color, thin lines between them. `"rainbow"`: a color behind each segment, arrows between them. `"plain"`: ASCII only |
+| `prompt.separator` | the theme's, else `"sharp"` | The shape between segments of classic and rainbow: `"sharp"`, `"round"` or `"slant"`. UnifyTerm draws it: no font needs to have it |
+| `prompt.lines` | the theme's, else `2` | `1`: the input after the segments. `2`: the segments on one line, the input on the next |
+| `prompt.left` | the theme's, else `["dir", "git"]` | The segments on the left, in order: `dir`, `git`, `status`, `duration`, `venv`, `time` |
+| `prompt.right` | the theme's, else `["status", "duration", "venv"]` | The segments on the right: at the end of the first line with two lines; at the line's end in zsh and fish with one (PowerShell and bash have no place for them then). A segment on the left is not shown again here |
+| `prompt.gradient` | the theme's, else `"off"` | `"off"`: each segment in its color. `"segments"`: each from its color to the next one's. `"whole"`: `prompt.colors` over the whole side |
+| `prompt.colors` | the theme's, else `["cyan", "blue", "magenta"]` | The colors of the `"whole"` gradient, left to right: 2 to 8 |
+| `prompt.dir_color` | the theme's, else `["blue"]` | The directory's color: one, or two for a gradient of its own. A color is one of the theme's 16 by its name (`red`, `bright-blue`, ...) or `#rrggbb` |
+| `prompt.git_color` | the theme's, else `["green"]` | Git's color when there are no changes |
+| `prompt.git_dirty_color` | the theme's, else `["yellow"]` | Git's color when there are changes |
+| `prompt.status_color` | the theme's, else `["red"]` | The color of a failed command's exit code |
+| `prompt.duration_color` | the theme's, else `["yellow"]` | The color of how long the last command took |
+| `prompt.venv_color` | the theme's, else `["cyan"]` | The Python environment's color |
+| `prompt.time_color` | the theme's, else `["bright-black"]` | The time's color |
+| `prompt.shine` | the theme's, else `"off"` | A light crosses the words of the newest prompt: `"once"` for each new prompt, `"loop"` again every `prompt.shine_every` seconds. Blank cells are not lit |
+| `prompt.shine_every` | the theme's, else `4` | Seconds between two lights with `"loop"`, 1 to 600 |
 | `commands.builtin` | `true` | Put UnifyTerm's commands before the system's in each shell's `PATH` |
 | `commands.system` | `[]` | Commands that stay the system's although `builtin` is on, as `["find", "sort"]` |
 | `history.enabled` | `true` | Keep the commands shells run. Off: no shell hook, no history file |

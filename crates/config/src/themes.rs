@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 
 use crate::ThemeConfig;
+use crate::prompt::{Layer, PromptConfig};
 
 /// The theme in use when the settings name none.
 pub const DEFAULT: &str = "tokyo-night";
@@ -100,6 +101,8 @@ fn table(text: &str) -> Result<toml::Table> {
 /// added, is still a theme here ([`passed_over`] names them, for who checks
 /// a file). A known key with a wrong value is an error.
 pub fn read(text: &str) -> Result<ThemeConfig> {
+    // A theme with a `[prompt]` that is wrong is not a theme to use: checked here with the colors.
+    prompt(text)?;
     let known: toml::Table =
         table(text)?.into_iter().filter(|(key, _)| ThemeConfig::KEYS.contains(&key.as_str())).collect();
     let theme: ThemeConfig = known.try_into().context("in [theme]")?;
@@ -116,6 +119,23 @@ pub fn read(text: &str) -> Result<ThemeConfig> {
         bail!("the theme has no '{key}': a theme gives foreground, background and ansi itself");
     }
     Ok(whole(theme))
+}
+
+/// What a theme file's `[prompt]` gives; nothing when it has none. As in
+/// `[theme]`, a key this version does not know is passed over; `enabled` is
+/// refused: it is the settings file's.
+pub fn prompt(text: &str) -> Result<PromptConfig> {
+    let whole: toml::Table = toml::from_str(text).context("a theme file is TOML")?;
+    let Some(given) = whole.get("prompt") else { return Ok(PromptConfig::default()) };
+    let toml::Value::Table(given) = given else { bail!("prompt in a theme file is a table: [prompt]") };
+    if given.contains_key("enabled") {
+        bail!("prompt.enabled is for the settings file: a theme does not turn the prompt on");
+    }
+    let known: toml::Table =
+        given.clone().into_iter().filter(|(key, _)| PromptConfig::KEYS.contains(&key.as_str())).collect();
+    let prompt: PromptConfig = known.try_into().context("in [prompt]")?;
+    prompt.check(Layer::Theme)?;
+    Ok(prompt)
 }
 
 /// The selection, when a theme does not give one, is this share of the way
@@ -170,9 +190,14 @@ pub fn contrast_of(one: [u8; 3], other: [u8; 3]) -> f64 {
 #[must_use]
 pub fn passed_over(text: &str) -> Vec<String> {
     let Ok(whole) = toml::from_str::<toml::Table>(text) else { return Vec::new() };
-    let mut names: Vec<String> = whole.keys().filter(|key| *key != "theme").map(|key| format!("[{key}]")).collect();
+    let mut names: Vec<String> =
+        whole.keys().filter(|key| *key != "theme" && *key != "prompt").map(|key| format!("[{key}]")).collect();
     if let Some(toml::Value::Table(table)) = whole.get("theme") {
         names.extend(table.keys().filter(|key| !ThemeConfig::KEYS.contains(&key.as_str())).cloned());
+    }
+    if let Some(toml::Value::Table(table)) = whole.get("prompt") {
+        let unknown = table.keys().filter(|key| !PromptConfig::KEYS.contains(&key.as_str()));
+        names.extend(unknown.map(|key| format!("prompt.{key}")));
     }
     names
 }
@@ -240,6 +265,19 @@ pub fn found(name: &str, directory: Option<&Path>) -> Result<(ThemeConfig, Sourc
         Source::File(file) => format!("in {}", file.display()),
     })?;
     Ok((theme, source))
+}
+
+/// What the theme `name` gives for the window and for the prompt, and where
+/// the theme is (see [`text`]).
+pub fn found_whole(name: &str, directory: Option<&Path>) -> Result<(ThemeConfig, PromptConfig, Source)> {
+    let (text, source) = text(name, directory)?;
+    let within = || match &source {
+        Source::BuiltIn => format!("in the built-in theme {name}"),
+        Source::File(file) => format!("in {}", file.display()),
+    };
+    let theme = read(&text).with_context(within)?;
+    let their_prompt = prompt(&text).with_context(within)?;
+    Ok((theme, their_prompt, source))
 }
 
 /// What the theme `name` gives (see [`found`]).
@@ -407,6 +445,40 @@ mod tests {
         for (name, text) in BUILT_IN {
             assert!(passed_over(text).is_empty(), "{name}: every key is known");
         }
+    }
+
+    #[test]
+    fn a_theme_gives_a_prompt_and_the_settings_go_over_it() {
+        use crate::prompt::{Gradient, Segment, Style};
+        let folder = tempfile::tempdir().expect("a folder");
+        let with = format!("{OWN}\n[prompt]\nstyle = \"rainbow\"\ngradient = \"segments\"\nright = [\"time\"]\n");
+        std::fs::write(file_of("mine", folder.path()), &with).expect("write");
+        let given = prompt(&with).expect("a prompt");
+        assert_eq!((given.style, given.gradient), (Some(Style::Rainbow), Some(Gradient::Segments)));
+        assert_eq!(prompt(OWN).expect("none"), PromptConfig::default(), "a theme without one");
+        let look = |settings: &str| {
+            Config::parse(settings).expect("settings").look(Some(folder.path())).expect("a look").prompt
+        };
+        let theirs = look("[theme]\nname = \"mine\"");
+        assert_eq!(
+            (theirs.style, theirs.right.as_slice(), theirs.enabled),
+            (Style::Rainbow, &[Segment::Time][..], false)
+        );
+        let over = look("[theme]\nname = \"mine\"\n[prompt]\nenabled = true\nstyle = \"plain\"");
+        assert_eq!((over.style, over.gradient, over.enabled), (Style::Plain, Gradient::Segments, true));
+        assert_eq!(look("").style, Style::Lean, "no theme named: the defaults");
+
+        let said = |text: &str| format!("{:#}", read(text).expect_err("not a theme"));
+        assert!(
+            said(&format!("{OWN}\n[prompt]\nenabled = true\n")).contains("prompt.enabled is for the settings file")
+        );
+        assert!(said(&format!("{OWN}\n[prompt]\nstyle = \"fancy\"\n")).contains("in [prompt]"), "a known key, wrong");
+        assert!(said(&format!("{OWN}\n[prompt]\nlines = 5\n")).contains("prompt.lines is 5"));
+        assert!(said(&format!("prompt = 1\n{OWN}")).contains("[prompt]"), "a key before any table is the file's");
+        // A key a later UnifyTerm adds to [prompt] is passed over and named.
+        let later = format!("{OWN}\n[prompt]\nstyle = \"lean\"\nicons = \"nerd\"\n");
+        assert_eq!(prompt(&later).expect("still read").style, Some(Style::Lean));
+        assert_eq!(passed_over(&later), ["prompt.icons"]);
     }
 
     #[test]

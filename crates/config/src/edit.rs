@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, anyhow, bail};
 use toml_edit::{Array, DocumentMut, Item, Table, Value};
 
+use crate::prompt::{Paint, Segment};
 use crate::{ANSI_COLORS, Config, Key, Kind, parse_color};
 
 /// A settings file, open to be changed.
@@ -179,7 +180,7 @@ fn parse(key: &Key, input: &str) -> Result<Option<Value>> {
     let text = input.trim();
     let name = key.name;
     // Left empty, a setting that may be left out is taken out of the file.
-    if text.is_empty() && matches!(key.kind, Kind::OptionalText | Kind::Color | Kind::Colors) {
+    if text.is_empty() && matches!(key.kind, Kind::OptionalText | Kind::Color | Kind::Colors | Kind::Paints { .. }) {
         return Ok(None);
     }
     Ok(Some(match key.kind {
@@ -238,6 +239,24 @@ fn parse(key: &Key, input: &str) -> Result<Option<Value>> {
             }
             Value::Array(colors)
         }
+        Kind::Segments => {
+            let segments = words(name, text)?;
+            if let Some(bad) = segments.iter().filter_map(Value::as_str).find(|word| Segment::named(word).is_none()) {
+                let known: Vec<&str> = Segment::ALL.iter().map(|segment| segment.name()).collect();
+                bail!("{name} has \"{bad}\": a segment is one of {}", known.join(", "));
+            }
+            Value::Array(segments)
+        }
+        Kind::Paints { least, most } => {
+            let paints = words(name, text)?;
+            if !(least..=most).contains(&paints.len()) {
+                bail!("{name} has {} colors: it must have from {least} to {most}", paints.len());
+            }
+            for paint in paints.iter().filter_map(Value::as_str) {
+                Paint::try_from(paint.to_owned()).map_err(|why| anyhow!("{name}: {why}"))?;
+            }
+            Value::Array(paints)
+        }
     }))
 }
 
@@ -290,6 +309,8 @@ mod tests {
                 Kind::Colors => vec!["#102030"; ANSI_COLORS].join(", "),
                 // A key no command has by default.
                 Kind::Keys => "ctrl-alt-f9".to_owned(),
+                Kind::Segments => "dir".to_owned(),
+                Kind::Paints { least, .. } => vec!["blue"; least].join(", "),
             };
             file.set(key, &sample).unwrap_or_else(|error| panic!("{}: {error:#}", key.name));
             assert!(file.value(key).is_some(), "{} is in the file", key.name);
@@ -307,7 +328,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (40, 21), "40 with a default written, 21 that are not set");
+        assert_eq!((written.len(), unset_by_default), (41, 37), "41 with a default written, 37 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -321,7 +342,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (40, 3, 2, 16)
+            (56, 4, 2, 16)
         );
     }
 
@@ -359,6 +380,15 @@ mod tests {
             ("keys.agents", "Ctrl+Shift+G", "ctrl-shift-g"),
             ("keys.paste", "ctrl-shift-v, Shift-Insert", "ctrl-shift-v, shift-insert"),
             ("keys.explain", "", ""),
+            ("prompt.enabled", "on", "true"),
+            ("prompt.style", "rainbow", "rainbow"),
+            ("prompt.lines", "1", "1"),
+            ("prompt.left", "dir,  git", "dir, git"),
+            ("prompt.right", "", ""),
+            ("prompt.colors", "cyan, #7aa2f7, bright-magenta", "cyan, #7aa2f7, bright-magenta"),
+            ("prompt.dir_color", "blue, magenta", "blue, magenta"),
+            ("prompt.shine", "loop", "loop"),
+            ("prompt.shine_every", "2.5", "2.5"),
         ] {
             file.set(named(name), typed).unwrap();
             assert_eq!(file.value(named(name)).as_deref(), Some(kept), "{name}");
@@ -371,7 +401,7 @@ mod tests {
 
     #[test]
     fn a_wrong_value_changes_nothing_and_says_why() {
-        let (_directory, mut file) = opened("[font]\nsize = 15\n");
+        let (_directory, mut file) = opened("[font]\nsize = 15\n\n[prompt]\nleft = [\"dir\", \"git\"]\n");
         let before = file.text();
         for (name, typed, says) in [
             ("font.size", "200", "from 6 to 72"),
@@ -396,6 +426,15 @@ mod tests {
             // Right for its kind, wrong for the settings as a whole: a provider needs a model.
             ("ai.provider", "anthropic", "ai.model is empty"),
             ("agents.command", "", "agents.command is empty"),
+            ("prompt.left", "dir, weather", "prompt.left has \"weather\": a segment is one of dir, git"),
+            ("prompt.colors", "red", "prompt.colors has 1 colors: it must have from 2 to 8"),
+            ("prompt.dir_color", "purple", "\"purple\" is not a color"),
+            ("prompt.git_color", "red, green, blue", "has 3 colors"),
+            ("prompt.style", "fancy", "one of lean, classic, rainbow, plain"),
+            ("prompt.lines", "3", "from 1 to 2"),
+            ("prompt.shine_every", "0", "from 1 to 600"),
+            // Each side alone is fine; together they name git twice.
+            ("prompt.right", "git", "prompt.right has git, which is there already"),
         ] {
             let error = format!("{:#}", file.set(named(name), typed).unwrap_err());
             assert!(error.contains(says), "{name} = {typed}: {error}");

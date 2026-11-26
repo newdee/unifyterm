@@ -28,6 +28,11 @@ pub enum Kind {
     Colors,
     /// Keys, each with the keys held with it (`ctrl-shift-t`); none: no key.
     Keys,
+    /// The prompt's segments, in order: `dir`, `git`, ... ([`crate::prompt::Segment`]); none: an empty side.
+    Segments,
+    /// From `least` to `most` colors, each one of the theme's 16 by its name or `#rrggbb`
+    /// ([`crate::prompt::Paint`]), or nothing: the theme's.
+    Paints { least: usize, most: usize },
 }
 
 /// When a running UnifyTerm uses a setting that was changed. It reads the
@@ -85,12 +90,14 @@ impl Key {
     #[must_use]
     pub fn applies(&self) -> Applies {
         match (self.section(), self.field()) {
-            ("font" | "theme" | "keys", _)
+            // A tab's shell is told when it starts whether UnifyTerm writes its prompt; how the
+            // prompt looks is read again at every prompt (below).
+            ("shell", _) | ("terminal", "scrollback") | ("prompt", "enabled") => Applies::NextTab,
+            ("font" | "theme" | "keys" | "prompt", _)
             | ("terminal", "padding")
             | ("window", "tab_bar")
             | ("history", "candidates" | "limit")
             | ("agents", "focus") => Applies::AtOnce,
-            ("shell", _) | ("terminal", "scrollback") => Applies::NextTab,
             ("agents", "poll_ms" | "command") => Applies::SidebarShown,
             _ => Applies::NextStart,
         }
@@ -107,8 +114,11 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
     Key { name, kind, says }
 }
 
+/// A segment's colors: one, or two for a gradient of its own.
+const SEGMENT_PAINTS: Kind = Kind::Paints { least: 1, most: 2 };
+
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 61] = [
+pub const KEYS: [Key; 78] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -205,6 +215,63 @@ pub const KEYS: [Key; 61] = [
         "theme.wallpaper_opacity",
         Kind::Number { least: 0.0, most: 1.0 },
         "How much of the wallpaper shows over the color behind the text: 0 nothing, 1 all of it. Not set: 0.25.",
+    ),
+    setting(
+        "prompt.enabled",
+        Kind::Switch,
+        "UnifyTerm writes the prompt (the line left of the cursor) in new tabs: PowerShell, bash, zsh, fish. Off: your own.",
+    ),
+    setting(
+        "prompt.style",
+        Kind::OneOf(&["lean", "classic", "rainbow", "plain"]),
+        "lean: colored words; classic: one band, thin lines; rainbow: a color for each segment; plain: ASCII only. Not set: the theme's, else lean.",
+    ),
+    setting(
+        "prompt.separator",
+        Kind::OneOf(&["sharp", "round", "slant"]),
+        "The shape between segments of classic and rainbow. UnifyTerm draws it: no font needs it.",
+    ),
+    setting(
+        "prompt.lines",
+        Kind::Whole { least: 1, most: 2 },
+        "1: the input after the segments. 2: the segments above, the input below. Not set: 2.",
+    ),
+    setting(
+        "prompt.left",
+        Kind::Segments,
+        "The segments on the left, in order: dir, git, status, duration, venv, time.",
+    ),
+    setting(
+        "prompt.right",
+        Kind::Segments,
+        "The segments on the right: at the end of the first line with 2 lines; at the line's end in zsh and fish with 1.",
+    ),
+    setting(
+        "prompt.gradient",
+        Kind::OneOf(&["off", "segments", "whole"]),
+        "off: each segment in its color; segments: each to the next one's color; whole: prompt.colors over the whole side.",
+    ),
+    setting(
+        "prompt.colors",
+        Kind::Paints { least: 2, most: 8 },
+        "The colors of gradient whole, left to right: the theme's by name (cyan, bright-blue) or #rrggbb.",
+    ),
+    setting("prompt.dir_color", SEGMENT_PAINTS, "The directory's color; two: a gradient of its own. Not set: blue."),
+    setting("prompt.git_color", SEGMENT_PAINTS, "Git's color with no changes. Not set: green."),
+    setting("prompt.git_dirty_color", SEGMENT_PAINTS, "Git's color with changes. Not set: yellow."),
+    setting("prompt.status_color", SEGMENT_PAINTS, "The color of a failed command's exit code. Not set: red."),
+    setting("prompt.duration_color", SEGMENT_PAINTS, "The color of how long the command took. Not set: yellow."),
+    setting("prompt.venv_color", SEGMENT_PAINTS, "The Python environment's color. Not set: cyan."),
+    setting("prompt.time_color", SEGMENT_PAINTS, "The time's color. Not set: bright-black."),
+    setting(
+        "prompt.shine",
+        Kind::OneOf(&["off", "once", "loop"]),
+        "A light crosses the newest prompt's words: once for each new prompt, or again every prompt.shine_every seconds.",
+    ),
+    setting(
+        "prompt.shine_every",
+        Kind::Number { least: 1.0, most: 600.0 },
+        "Seconds between two lights, with shine loop. Not set: 4.",
     ),
     setting("commands.builtin", Kind::Switch, "Put UnifyTerm's commands before the system's in each shell's PATH."),
     setting("commands.system", Kind::Words, "Commands that stay the system's although builtin is on: find, sort."),

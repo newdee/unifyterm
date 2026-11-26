@@ -16,8 +16,9 @@ function Compare-Sets([string]$what, [string[]]$code, [string[]]$documented) {
         $(if ($missing) { "; not in the README: $($missing -join ', ')" }), $(if ($extra) { "; not in the code: $($extra -join ', ')" })
 }
 
-# Settings: each `pub(crate) key:` of each `...Config` section in config.rs.
-$config = & $read 'crates/config/src/lib.rs'
+# Settings: each `pub key:` of each `...Config` section in the settings library (lib.rs, and
+# prompt.rs for [prompt]).
+$config = (& $read 'crates/config/src/lib.rs') + "`n" + (& $read 'crates/config/src/prompt.rs')
 $settings = foreach ($section in [regex]::Matches($config, '(?s)pub struct (\w+)Config \{(.*?)\n\}')) {
     if ($section.Groups[1].Value -eq '') { continue }
     foreach ($key in [regex]::Matches($section.Groups[2].Value, 'pub (\w+):')) { "$($section.Groups[1].Value.ToLower()).$($key.Groups[1].Value)" }
