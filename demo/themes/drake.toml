@@ -1,0 +1,33 @@
+# 龙龙 · UnifyTerm
+# unifyterm --config demo/themes/drake.toml
+[theme]
+foreground = "#e8f5ef"
+background = "#0b1a17"
+cursor = "#4fe3a0"
+selection = "#1d3d34"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#0f211d"
+panel = "#152a25"
+well = "#1c352e"
+rule = "#25433b"
+edge = "#3a6155"
+muted = "#9cc2b4"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "drake.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "drake.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#06110e", "#ff7d86", "#4fe3a0", "#f5d27a", "#7fb0ff", "#c9a2ff", "#5fd8cf", "#b3cdc3",
+  # Bright variants in the same order
+  "#5a7a70", "#ff9ca3", "#7debbb", "#f8df9f", "#a0c4ff", "#d8bdff", "#86e3dc", "#e8f5ef",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "classic"
+separator = "round"
+dir_color = ["#4fe3a0"]
+git_color = ["#f5d27a"]

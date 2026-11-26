@@ -1,9 +1,9 @@
 //! The picture at the foot of the sidebar: the one the look in use names.
 //!
-//! A theme (or the settings) names a picture's file. UnifyTerm brings 13
+//! A theme (or the settings) names a picture's file. UnifyTerm brings 14
 //! pictures of its own: one for each of its themes with a preview page
 //! (`demo/appearance.html`), and one for each theme with a character
-//! (`whale`, `clay`, `mint`, `twin`, `void`, `lyre`, `prism`); they are in
+//! (`whale`, `clay`, `mint`, `twin`, `void`, `lyre`, `prism`, `drake`); they are in
 //! the program, and a theme names one the same way it names a file of the
 //! user's own.
 //!
@@ -34,7 +34,7 @@ macro_rules! own {
 }
 
 /// UnifyTerm's own pictures by their files' names: the ones `unifyterm-config` lists.
-const OWN: [(&str, &[u8]); 13] = [
+const OWN: [(&str, &[u8]); 14] = [
     own!("aurora.png"),
     own!("eclipse.png"),
     own!("phosphor.png"),
@@ -48,6 +48,7 @@ const OWN: [(&str, &[u8]); 13] = [
     own!("void.png"),
     own!("lyre.png"),
     own!("prism.png"),
+    own!("drake.png"),
 ];
 
 /// A picture's file is not read past this: a picture for a strip 268 pixels wide is far below it.
