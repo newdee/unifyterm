@@ -31,7 +31,7 @@ macro_rules! built_in {
 }
 
 /// The themes UnifyTerm brings, in the order they are listed: each one's name and its file.
-pub const BUILT_IN: [(&str, &str); 9] = [
+pub const BUILT_IN: [(&str, &str); 10] = [
     built_in!("tokyo-night"),
     built_in!("aurora"),
     built_in!("eclipse"),
@@ -41,6 +41,7 @@ pub const BUILT_IN: [(&str, &str); 9] = [
     built_in!("day"),
     built_in!("paper-dark"),
     built_in!("paper"),
+    built_in!("whale"),
 ];
 
 /// Where a theme is.
@@ -202,9 +203,10 @@ pub fn passed_over(text: &str) -> Vec<String> {
     names
 }
 
-/// The files of UnifyTerm's own pictures: one for each built-in theme but
-/// the default. The window has the pictures themselves.
-pub const PICTURES: [&str; 6] = ["aurora.png", "eclipse.png", "phosphor.png", "riso.png", "night.png", "day.png"];
+/// The files of UnifyTerm's own pictures: one for each built-in theme that
+/// has one, by the theme's name. The window has the pictures themselves.
+pub const PICTURES: [&str; 7] =
+    ["aurora.png", "eclipse.png", "phosphor.png", "riso.png", "night.png", "day.png", "whale.png"];
 
 /// Where a picture is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -545,7 +547,7 @@ mod tests {
         );
         let elsewhere = folder.path().join("elsewhere.png");
         assert_eq!(picture(&elsewhere.display().to_string(), here), Some(Picture::File(elsewhere)), "a whole path");
-        // The six themes of the preview page each name their picture; the others have none.
+        // The themes with a picture each name their own; the others have none.
         let pictured: Vec<&str> = PICTURES.iter().map(|file| file.trim_end_matches(".png")).collect();
         for name in &pictured {
             let named = find(name, None).expect("built in").picture.expect("it has one");
@@ -585,6 +587,7 @@ mod tests {
             ("day", false),
             ("paper-dark", true),
             ("paper", true),
+            ("whale", true),
             ("mine", false),
         ];
         assert_eq!(names, wanted.map(|(name, built_in)| (name.to_owned(), built_in)));
@@ -598,7 +601,7 @@ mod tests {
         let said = |name: &str| format!("{:#}", find(name, Some(folder.path())).expect_err("refused"));
         assert_eq!(
             said("nosuch"),
-            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper"
+            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper, whale"
         );
         assert!(said("../day").contains("is not a theme's name"), "a name never leaves the folder");
         std::fs::write(file_of("broken", folder.path()), "[theme]\nforeground = 1").expect("write");

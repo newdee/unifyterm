@@ -1,11 +1,15 @@
 //! The picture at the foot of the sidebar: the one the look in use names.
 //!
-//! A theme (or the settings) names a picture's file. UnifyTerm brings six
-//! pictures of its own, one for each of its themes with a preview page
-//! (`demo/appearance.html`); they are in the program, and a theme names one
-//! the same way it names a file of the user's own.
+//! A theme (or the settings) names a picture's file. UnifyTerm brings seven
+//! pictures of its own: one for each of its themes with a preview page
+//! (`demo/appearance.html`), and `whale.png`; they are in the program, and a
+//! theme names one the same way it names a file of the user's own.
 //!
-//! UnifyTerm's own are what the preview page draws, made by that page's own
+//! `whale.png` is a drawing of an original character, made for UnifyTerm with
+//! an image model and cut to the same 960 by 496 pixels, the character in the
+//! middle and low, where the sidebar's strip shows it.
+//!
+//! The other six are what the preview page draws, made by that page's own
 //! drawing code at twice the page's size (960 by 496 pixels) and saved as
 //! PNG, which loses nothing. The sidebar shows a picture 268 pixels wide: it
 //! is made smaller on every screen up to 276 % scaling. Drawn again here
@@ -28,13 +32,14 @@ macro_rules! own {
 }
 
 /// UnifyTerm's own pictures by their files' names: the ones `unifyterm-config` lists.
-const OWN: [(&str, &[u8]); 6] = [
+const OWN: [(&str, &[u8]); 7] = [
     own!("aurora.png"),
     own!("eclipse.png"),
     own!("phosphor.png"),
     own!("riso.png"),
     own!("night.png"),
     own!("day.png"),
+    own!("whale.png"),
 ];
 
 /// A picture's file is not read past this: a picture for a strip 268 pixels wide is far below it.

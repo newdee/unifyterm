@@ -1,0 +1,30 @@
+# 哦鲸鲸 · UnifyTerm
+# unifyterm --config demo/themes/whale.toml
+[theme]
+foreground = "#e4ebff"
+background = "#0b1530"
+cursor = "#6fe3ff"
+selection = "#263a7a"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#0f1b3a"
+panel = "#15244a"
+well = "#1d2f5c"
+rule = "#263a6b"
+edge = "#3d5591"
+muted = "#9fb0d9"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "whale.png"
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#08102a", "#ff7b93", "#6fe0b0", "#ffd27a", "#6b8cff", "#b49bff", "#5fd8ff", "#a9b8e0",
+  # Bright variants in the same order
+  "#5a6c9e", "#ff9aad", "#8eeac4", "#ffdf9c", "#8fa8ff", "#c8b6ff", "#8ae4ff", "#e4ebff",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "rainbow"
+separator = "round"
+gradient = "whole"
+colors = ["#4d6bfe", "#5fd8ff"]
