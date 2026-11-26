@@ -20,7 +20,8 @@ use crate::keys::{self, Mods, MouseAction};
 use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
 use crate::theme::{Rgb, Theme};
-use crate::{Copy, Explain, Paste, boxdraw, powerline};
+use crate::{Copy, Explain, Paste, boxdraw, powerline, shine};
+use std::time::{Duration, Instant};
 
 /// What is behind a tab's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +39,8 @@ pub(crate) struct Settings {
     pub(crate) config: Config,
     pub(crate) theme: Theme,
     pub(crate) backdrop: Backdrop,
+    /// The prompt's look, put together from the settings and the theme: the window reads its light.
+    pub(crate) prompt: crate::config::Prompt,
 }
 
 /// What a tab tells the window that holds it.
@@ -120,6 +123,10 @@ pub(crate) struct TerminalView {
     suggested_for: Option<String>,
     /// This tab's last commands, newest first.
     recent: Vec<String>,
+    /// The light over the newest prompt (`prompt.shine`), when it is on.
+    sweep: Option<shine::Sweep>,
+    /// A wake-up is asked for, for the next pass of a light that comes again.
+    sweep_waiting: bool,
 }
 
 /// What may be sent once the user agrees.
@@ -166,6 +173,8 @@ const SENTENCE: char = '#';
 
 /// How long typing must pause before the model is asked for a suggestion.
 const SUGGEST_PAUSE: std::time::Duration = std::time::Duration::from_millis(300);
+/// A light that sets out within this is waited for frame by frame, not with a wake-up.
+const LIGHT_SOON: Duration = Duration::from_millis(250);
 /// How many of a tab's last commands are kept for the model's context.
 const RECENT: usize = 5;
 
@@ -312,7 +321,45 @@ impl TerminalView {
             suggestion: None,
             suggested_for: None,
             recent: Vec::new(),
+            sweep: None,
+            sweep_waiting: false,
         }
+    }
+
+    /// Follows the newest prompt with the light the settings ask for: a new
+    /// light for a new prompt, none when the setting is off.
+    fn follow_prompt(&mut self, now: Instant) {
+        let prompt = &self.settings.prompt;
+        let newest = self.session.newest_prompt();
+        if prompt.shine == unifyterm_config::prompt::Shine::Off || newest.is_none() {
+            self.sweep = None;
+            return;
+        }
+        if newest != self.sweep.map(|sweep| sweep.span)
+            && let Some(span) = newest
+        {
+            self.sweep = shine::Sweep::new(span, prompt.shine, prompt.shine_every, now);
+        }
+    }
+
+    /// Asks to be woken for the next pass of a light that comes again, while
+    /// none is under way: no frame is drawn in between.
+    fn wake_for_light(&mut self, cx: &mut Context<'_, Self>) {
+        let now = Instant::now();
+        let Some(sweep) = self.sweep else { return };
+        if self.sweep_waiting || sweep.progress(now).is_some() {
+            return;
+        }
+        let Some(wait) = sweep.until_next(now).filter(|wait| !wait.is_zero()) else { return };
+        self.sweep_waiting = true;
+        cx.spawn(async move |this, cx| {
+            smol::Timer::after(wait).await;
+            let _ = this.update(cx, |view, cx| {
+                view.sweep_waiting = false;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The title the program set; `None` when it set none or an empty one.
@@ -756,7 +803,18 @@ impl TerminalView {
         let has_keyboard = self.focus.is_focused(window) && window.is_window_active();
         let focus = if has_keyboard { Focus::Focused } else { Focus::Unfocused };
         logged(self.session.focus(focus));
-        let frame = frame::layout(&self.session.snapshot(), &self.settings.theme, focus);
+        let snapshot = self.session.snapshot();
+        let now = Instant::now();
+        self.follow_prompt(now);
+        let glow = self.sweep.map_or_else(shine::Glow::default, |sweep| shine::glow(&snapshot, &sweep, now));
+        // While the light is on the prompt, or about to set out, every frame is drawn; between
+        // passes, none (see `wake_for_light`).
+        if self.sweep.is_some_and(|sweep| {
+            sweep.progress(now).is_some() || sweep.until_next(now).is_some_and(|wait| wait <= LIGHT_SOON)
+        }) {
+            window.request_animation_frame();
+        }
+        let frame = frame::layout_lit(&snapshot, &self.settings.theme, focus, &glow);
         (self.origin, self.view_origin, self.cell) = (origin, bounds.origin, cell);
         if let Some(cursor) = &frame.cursor {
             self.cursor_cell = (cursor.line, cursor.column);
@@ -1179,6 +1237,7 @@ impl InputHandler for TerminalInput {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        self.wake_for_light(cx);
         let (view, painted) = (cx.entity(), cx.entity());
         let (settings, focus) = (Arc::clone(&self.settings), self.focus.clone());
         let fonts = self.fonts();

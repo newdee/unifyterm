@@ -48,10 +48,21 @@ pub(crate) struct Finished {
     pub(crate) output: String,
 }
 
+/// Where a prompt is on the screen: from its start (`133;A`) to where the input begins (`133;B`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PromptSpan {
+    pub(crate) start: Place,
+    pub(crate) input: Place,
+}
+
 /// One session's shell, as its marks tell it.
 #[derive(Debug)]
 pub(crate) struct Prompt {
     phase: Phase,
+    /// Where the prompt being printed began.
+    began: Option<Place>,
+    /// The newest prompt that was printed whole.
+    newest: Option<PromptSpan>,
     cwd: Option<String>,
     shell: Option<String>,
     /// The command's text from `633;E`.
@@ -65,7 +76,17 @@ pub(crate) struct Prompt {
 
 impl Default for Prompt {
     fn default() -> Self {
-        Self { phase: Phase::Unknown, cwd: None, shell: None, said: None, typed: None, started: None, line: None }
+        Self {
+            phase: Phase::Unknown,
+            began: None,
+            newest: None,
+            cwd: None,
+            shell: None,
+            said: None,
+            typed: None,
+            started: None,
+            line: None,
+        }
     }
 }
 
@@ -82,6 +103,11 @@ impl Prompt {
         self.shell.as_deref()
     }
 
+    /// The newest prompt printed whole: where it began and where its input begins.
+    pub(crate) fn newest(&self) -> Option<PromptSpan> {
+        self.newest
+    }
+
     /// A mark arrived; `cursor` is where the cursor was just after it.
     /// A command that ended with it is returned.
     pub(crate) fn mark(&mut self, mark: Mark, cursor: Place, now: Instant) -> Option<Finished> {
@@ -90,10 +116,14 @@ impl Prompt {
                 // A shell that never says a command ended (cmd.exe): it ended now.
                 let ended = if self.phase == Phase::Running { self.finish(None, now) } else { None };
                 self.phase = Phase::Prompt;
+                self.began = Some(cursor);
                 return ended;
             }
             Mark::InputStart => {
                 self.phase = Phase::Input(cursor);
+                // A prompt whose start was not marked: from the start of the input's line.
+                let start = self.began.take().unwrap_or((cursor.0, 0));
+                self.newest = Some(PromptSpan { start, input: cursor });
                 self.said = None;
                 self.typed = None;
                 self.started = None;
@@ -146,6 +176,22 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn the_newest_prompt_is_from_its_start_to_its_input() {
+        let now = Instant::now();
+        let mut prompt = Prompt::default();
+        assert_eq!(prompt.newest(), None, "no prompt yet");
+        prompt.mark(Mark::PromptStart, (40, 0), now);
+        assert_eq!(prompt.newest(), None, "not printed whole yet");
+        prompt.mark(Mark::InputStart, (41, 2), now);
+        assert_eq!(prompt.newest(), Some(PromptSpan { start: (40, 0), input: (41, 2) }), "a prompt of two lines");
+        prompt.mark(Mark::CommandStart, (41, 9), now);
+        assert_eq!(prompt.newest(), Some(PromptSpan { start: (40, 0), input: (41, 2) }), "kept while a command runs");
+        // A shell that marks only where the input begins: the prompt is that line's start to it.
+        prompt.mark(Mark::InputStart, (44, 8), now);
+        assert_eq!(prompt.newest(), Some(PromptSpan { start: (44, 0), input: (44, 8) }));
+    }
 
     const AT: Place = (3, 10);
 

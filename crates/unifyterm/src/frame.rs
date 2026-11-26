@@ -2,9 +2,10 @@
 //! to draw out, all in cells. No window and no font is needed, so tests
 //! check the result directly; the view turns cells into pixels.
 
-use crate::session::{Cell, Color, CursorShape, Focus, Snapshot, attr};
-use crate::theme::{Rgb, Theme};
 use crate::graphics;
+use crate::session::{Cell, Color, CursorShape, Focus, Snapshot, attr};
+use crate::shine::Glow;
+use crate::theme::{Rgb, Theme};
 
 /// How far a dim color is moved toward its background.
 const DIM_AMOUNT: f32 = 0.4;
@@ -201,7 +202,18 @@ fn extend<T>(items: &mut Vec<T>, next: T, continues: impl Fn(&T, &T) -> bool, gr
 
 /// The frame for `snapshot`. Without the keyboard's focus the cursor is a
 /// hollow box.
+#[cfg(test)]
 pub(crate) fn layout(snapshot: &Snapshot, theme: &Theme, focus: Focus) -> Frame {
+    layout_lit(snapshot, theme, focus, &Glow::default())
+}
+
+/// How far toward white a cell's colors go at the brightest of the light (`prompt.shine`).
+const LIGHT_LIFT: f32 = 0.55;
+const WHITE: Rgb = Rgb(255, 255, 255);
+
+/// The frame for `snapshot`, with the cells `glow` lights made brighter.
+/// Without the keyboard's focus the cursor is a hollow box.
+pub(crate) fn layout_lit(snapshot: &Snapshot, theme: &Theme, focus: Focus, glow: &Glow) -> Frame {
     let mut frame = Frame::default();
     for line in 0..snapshot.lines {
         // The text being collected, and the spaces seen since its last character.
@@ -223,7 +235,15 @@ pub(crate) fn layout(snapshot: &Snapshot, theme: &Theme, focus: Focus) -> Frame 
                 continue;
             }
             left = None;
-            let (fg, bg) = colors(cell, theme);
+            let (mut fg, mut bg) = colors(cell, theme);
+            let light = glow.at(line, column);
+            if light > 0.0 {
+                fg = fg.toward(WHITE, light * LIGHT_LIFT);
+                // The screen's own color behind a lit character stays: only a band's color is lit.
+                if bg != theme.background {
+                    bg = bg.toward(WHITE, light * LIGHT_LIFT);
+                }
+            }
             let cells = if cell.has(attr::WIDE) { 2 } else { 1 };
             if bg != theme.background {
                 let fill = Fill { line, column, cells, color: bg };

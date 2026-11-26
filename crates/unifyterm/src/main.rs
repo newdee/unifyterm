@@ -25,6 +25,7 @@ mod prompt;
 mod recorder;
 mod session;
 mod shell;
+mod shine;
 mod terminal;
 mod theme;
 mod update;
@@ -465,6 +466,7 @@ impl Workspace {
                 config: settings.config.clone(),
                 theme: settings.theme.clone(),
                 backdrop: Backdrop::Wallpaper,
+                prompt: settings.prompt.clone(),
             })
         } else {
             settings
@@ -631,9 +633,9 @@ impl Workspace {
     /// A theme that is not there, or whose file is wrong, changes no color:
     /// the colors in use stay, and the log says why.
     fn use_settings(&mut self, config: Config, cx: &mut Context<'_, Self>) {
-        let (theme, pictures_at) = config::theme(&config, self.themes.as_deref()).unwrap_or_else(|error| {
+        let (theme, pictures_at, prompt) = config::theme(&config, self.themes.as_deref()).unwrap_or_else(|error| {
             log::warn!("theme: the colors in use stay: {error:#}");
-            (self.settings.theme.clone(), self.pictures_at.clone())
+            (self.settings.theme.clone(), self.pictures_at.clone(), self.settings.prompt.clone())
         });
         let picture = self.pictures.of(pictures_at.picture.as_ref());
         let wallpaper = self.wallpapers.of(pictures_at.wallpaper.as_ref());
@@ -657,7 +659,7 @@ impl Workspace {
         if config.window.tab_bar != self.settings.config.window.tab_bar {
             self.bar.asked = None;
         }
-        self.settings = Arc::new(Settings { config, theme, backdrop });
+        self.settings = Arc::new(Settings { config, theme, backdrop, prompt });
         for tab in &self.tabs {
             let settings = Arc::clone(&self.settings);
             tab.view.update(cx, |view, cx| view.use_settings(settings, cx));
@@ -1485,9 +1487,9 @@ fn main() {
         None => (Config::default(), Vec::new()),
     };
     let themes = file.as_ref().map(|file| unifyterm_config::themes::directory(&file.path));
-    let (theme, pictures) = config::theme(&config, themes.as_deref()).unwrap_or_else(|error| {
+    let (theme, pictures, prompt) = config::theme(&config, themes.as_deref()).unwrap_or_else(|error| {
         notices.push(format!("theme not used: {error:#}"));
-        (config::own_colors(&config), config::Pictures::default())
+        (config::own_colors(&config), config::Pictures::default(), config::own_prompt(&config))
     });
     let (commands, told) = Commands::prepare(&config.commands);
     notices.extend(told);
@@ -1508,7 +1510,7 @@ fn main() {
     let (helper, told) = helper::Helper::new(&config.ai, ut, commands.as_ref().map(Commands::directory));
     notices.extend(told);
     // What is behind the text is settled when the window opens: it reads the wallpaper then.
-    let settings = Arc::new(Settings { config, theme, backdrop: Backdrop::Color });
+    let settings = Arc::new(Settings { config, theme, backdrop: Backdrop::Color, prompt });
     let helper = Arc::new(helper);
     let start = Start {
         settings,

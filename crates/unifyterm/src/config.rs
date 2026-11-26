@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use unifyterm_config::ThemeConfig;
+pub(crate) use unifyterm_config::prompt::Prompt;
 pub(crate) use unifyterm_config::themes::Picture;
 pub(crate) use unifyterm_config::{
     AiConfig, AskEnter, CommandsConfig, Config, KeysConfig, Provider, TabBar, WindowConfig,
@@ -17,10 +18,15 @@ use crate::theme::{Rgb, Theme};
 /// give themselves over it. An error when the named theme is not there or
 /// is wrong: the caller keeps the colors it has.
 ///
-/// With it, where the look's pictures are, when it has them.
-pub(crate) fn theme(config: &Config, themes: Option<&Path>) -> anyhow::Result<(Theme, Pictures)> {
+/// With it, where the look's pictures are, when it has them, and the prompt.
+pub(crate) fn theme(config: &Config, themes: Option<&Path>) -> anyhow::Result<(Theme, Pictures, Prompt)> {
     let look = config.look(themes)?;
-    Ok((laid(&look.colors), Pictures { picture: look.picture, wallpaper: look.wallpaper }))
+    Ok((laid(&look.colors), Pictures { picture: look.picture, wallpaper: look.wallpaper }, look.prompt))
+}
+
+/// The prompt the settings give alone, without the theme they name: for when that theme could not be read.
+pub(crate) fn own_prompt(config: &Config) -> Prompt {
+    config.prompt.resolved()
 }
 
 /// Where a look's two pictures are: the one at the foot of the sidebar, and
@@ -149,7 +155,7 @@ mod tests {
             "the default theme has no picture"
         );
         let walled = Config::parse("[theme]\nwallpaper = \"night.png\"\nwallpaper_opacity = 0.6").expect("settings");
-        let (theme_of, pictures) = theme(&walled, None).expect("a theme");
+        let (theme_of, pictures, _) = theme(&walled, None).expect("a theme");
         assert_eq!((theme_of.wallpaper_opacity, pictures.wallpaper), (0.6, Some(Picture::BuiltIn("night.png"))));
         assert_eq!(
             (plain.wallpaper_opacity, plain.blur),

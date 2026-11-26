@@ -139,6 +139,10 @@ pub(crate) struct Snapshot {
     pub(crate) cursor: Option<Cursor>,
     /// How many lines of history the view is scrolled back by.
     pub(crate) scrolled: usize,
+    /// How many lines of history are above the screen. A place counted from
+    /// the top of the history (as the shell's marks are) is on view row
+    /// `line + scrolled - history`.
+    pub(crate) history: usize,
 }
 
 impl Snapshot {
@@ -589,6 +593,11 @@ impl Screen {
         self.prompt.shell()
     }
 
+    /// Where the newest prompt is, if the shell's hook marked one.
+    pub(crate) fn newest_prompt(&self) -> Option<crate::prompt::PromptSpan> {
+        self.prompt.newest()
+    }
+
     /// The user pressed Enter: what was on the input line is the command.
     pub(crate) fn enter(&mut self) {
         let typed = self.input().map(|input| input.text);
@@ -790,7 +799,7 @@ impl Screen {
             let line = view_line(content.cursor.point.line)?;
             Some(Cursor { line, column: content.cursor.point.column.0, shape })
         });
-        Snapshot { columns, lines, cells, cursor, scrolled }
+        Snapshot { columns, lines, cells, cursor, scrolled, history: self.term.grid().history_size() }
     }
 
     /// The screen's text, one string per line, top first, each as wide as the screen.

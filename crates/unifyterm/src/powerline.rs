@@ -148,7 +148,8 @@ mod tests {
         for &current in polygon {
             let crosses = (current[1] > point[1]) != (previous[1] > point[1]);
             if crosses {
-                let x = previous[0] + (point[1] - previous[1]) / (current[1] - previous[1]) * (current[0] - previous[0]);
+                let x =
+                    previous[0] + (point[1] - previous[1]) / (current[1] - previous[1]) * (current[0] - previous[0]);
                 if point[0] < x {
                     inside = !inside;
                 }
@@ -206,7 +207,10 @@ mod tests {
     #[test]
     fn lines_are_lines_and_wedges_fill_their_corner() {
         assert!(filled('\u{E0B1}', [0.5, 0.5]) && !filled('\u{E0B1}', [0.5, H / 2.0]), "a chevron's middle is empty");
-        assert!(filled('\u{E0B5}', [W - 0.5, H / 2.0]) && !filled('\u{E0B5}', [1.0, H / 2.0]), "an arc's inside is empty");
+        assert!(
+            filled('\u{E0B5}', [W - 0.5, H / 2.0]) && !filled('\u{E0B5}', [1.0, H / 2.0]),
+            "an arc's inside is empty"
+        );
         assert!(filled('\u{E0BC}', [0.5, 0.5]) && !filled('\u{E0BC}', [W - 0.5, H - 0.5]), "upper left");
         assert!(filled('\u{E0BA}', [W - 0.5, H - 0.5]) && !filled('\u{E0BA}', [0.5, 0.5]), "lower right");
         assert!(filled('\u{E0B8}', [0.5, H - 0.5]) && filled('\u{E0BE}', [W - 0.5, 0.5]));
