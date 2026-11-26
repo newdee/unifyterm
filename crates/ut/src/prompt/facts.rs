@@ -178,12 +178,20 @@ fn status_of(folder: &Path) -> Option<Changes> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // What git prints is read while it runs: a status larger than the pipe holds (thousands of
+    // files) would otherwise leave git waiting to write, and never ending.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut out = String::new();
+        stdout.read_to_string(&mut out).map(|_| out)
+    });
     let deadline = Instant::now() + GIT_STATUS_LIMIT;
     loop {
         match child.try_wait() {
             Ok(Some(ended)) if ended.success() => break,
             Ok(Some(_)) | Err(_) => return None,
             Ok(None) if Instant::now() >= deadline => {
+                // Stopped, its pipe closes and the reader ends: nothing is left behind.
                 let _ = child.kill();
                 let _ = child.wait();
                 return None;
@@ -191,8 +199,7 @@ fn status_of(folder: &Path) -> Option<Changes> {
             Ok(None) => std::thread::sleep(GIT_STATUS_POLL),
         }
     }
-    let mut out = String::new();
-    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    let out = reader.join().ok()?.ok()?;
     Some(changes(&out))
 }
 

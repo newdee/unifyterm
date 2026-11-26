@@ -187,6 +187,18 @@ fn light(sweep: &Sweep, now: Instant, way: f32, length: f32) -> f32
 6. 光效：按最新提示符的位置，按格调亮，空白格不动；`once` 在新提示符出现时扫一次，`loop` 每 `shine_every` 秒一次；系统设了减少动画时不扫。
 7. README、`docs-check`、网页；三轮验收；发版 0.7.0。
 
+## 实现时改动的决定
+
+| 计划里写的 | 实际 | 原因 |
+|---|---|---|
+| 颜色由 `ut prompt` 自己从主题算 | 新数据结构 `Palette` 放在 `crates/config`，窗口算 bar 色的比例 `BAR_AMOUNT` 和两色相混 `toward` 也搬过去，窗口和 `ut` 读同一处 | 主题没给 bar 时由前景和背景算出；两处各算一遍迟早不一样 |
+| 每段的颜色写成 `dir.color` | 写成 `prompt.dir_color` 等 7 个平的键 | `ut setting` 的键是"表.键"两层；三层的键它不认 |
+| `Segments`、`Paints` 当作普通文字 | `ut setting` 多两种值的类型，逐个检查名字，并给出可选列表 | 写错的段名、颜色名在设置界面里就被拒绝 |
+| git 状态的预算 ≤ 80 ms | 本机这个仓库里约 90 ms（不读 git 时 18 ms，`git status` 本身约 57 ms） | 超了约 10 ms；仍在 300 ms 的上限内。以后可以把 git 状态按 `.git/index` 的修改时间缓存 |
+| 光效在提示符出现后一直可以扫 | 只在 shell 停在提示符时扫（`Session::at_prompt`：有输入标记，没有命令在跑，不是全屏程序） | 第一轮 review：命令运行时，全屏程序的字、或历史满了之后标记的行号移动，会让光扫到别的字上 |
+| 钩子只改 PowerShell | fish 原有的 `preexec` 一行一起修了 | 同一个写法（fish 单引号里 `\\` 是一个反斜杠，放在格式中间会吃掉后一个字符）从 fish 钩子写成起就在屏幕上印出 `e]133;C\`，新的提示符行也印出 `%s` |
+| 在真实窗口里看效果 | 加了 `verify.ps1` 的 `prompt` 一节（4 项） | 以后每轮都实机检查提示符开、关和光效 |
+
 ## 这一版不做
 
 - transient（旧提示符收成一个 ❯）：PowerShell、zsh、fish 的做法各不相同，bash 做不到。等这一版用过再做。

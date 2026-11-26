@@ -150,6 +150,12 @@ fn text(segment: Segment, facts: &Facts, style: Style) -> Option<String> {
     }
 }
 
+/// `text` with each control character (a line break in a folder's name, an escape) shown as `?`:
+/// written into the prompt as they are, they would break its lines or be taken as sequences.
+fn printable(text: &str) -> String {
+    text.chars().map(|c| if c.is_control() { '?' } else { c }).collect()
+}
+
 /// The segments of one side that have something to say, each with its own colors.
 fn pieces(segments: &[Segment], prompt: &Prompt, palette: &Palette, facts: &Facts) -> Vec<Piece> {
     let worktree = match facts.repo.as_ref().and_then(|repo| repo.changes) {
@@ -159,7 +165,7 @@ fn pieces(segments: &[Segment], prompt: &Prompt, palette: &Palette, facts: &Fact
     segments
         .iter()
         .filter_map(|segment| {
-            let text = text(*segment, facts, prompt.style)?;
+            let text = printable(&text(*segment, facts, prompt.style)?);
             let paints = prompt.paints.of(*segment, worktree).iter().map(|paint| paint.rgb(&palette.ansi)).collect();
             Some(Piece { text, paints })
         })
@@ -316,7 +322,9 @@ pub(crate) fn render(prompt: &Prompt, palette: &Palette, facts: &Facts) -> Rende
                 first.extend(std::iter::repeat_n(Cell::blank(), gap));
                 first.extend(right);
             }
-            Rendered { lines: vec![first, input.to_vec()], right: Vec::new() }
+            // No segment has anything to say: no empty line above the input.
+            let lines = if first.is_empty() { vec![input.to_vec()] } else { vec![first, input.to_vec()] };
+            Rendered { lines, right: Vec::new() }
         }
         Lines::One => {
             let mut line = left;
@@ -497,6 +505,28 @@ mod tests {
         assert_eq!(line(&render(&prompt(""), &palette(), &facts).lines[0]), "~", "the home itself");
         facts.cwd = PathBuf::from("/srv/data");
         assert_eq!(line(&render(&prompt(""), &palette(), &facts).lines[0]), "/srv/data", "outside the home");
+    }
+
+    #[test]
+    fn with_no_segments_the_prompt_is_the_mark_alone() {
+        let rendered = render(&prompt("left = []\nright = []"), &palette(), &facts());
+        assert_eq!(
+            rendered.lines.iter().map(|cells| line(cells)).collect::<Vec<_>>(),
+            ["❯ "],
+            "no empty line above it"
+        );
+        let one = render(&prompt("left = []\nright = []\nlines = 1"), &palette(), &facts());
+        assert_eq!(one.lines.iter().map(|cells| line(cells)).collect::<Vec<_>>(), ["❯ "]);
+    }
+
+    #[test]
+    fn a_control_character_in_a_name_is_shown_and_breaks_nothing() {
+        let mut facts = facts();
+        facts.cwd = PathBuf::from("/home/me/two\nlines\u{1b}[31m");
+        facts.repo = Some(Repo { head: Head::Branch("bad\rname".into()), changes: None });
+        let rendered = render(&prompt(""), &palette(), &facts);
+        assert_eq!(line(&rendered.lines[0]), "~/two?lines?[31m bad?name");
+        assert_eq!(rendered.lines.len(), 2, "still the segments' line and the input's");
     }
 
     #[test]
