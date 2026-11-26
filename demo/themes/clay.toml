@@ -1,0 +1,33 @@
+# 陶陶 · UnifyTerm
+# unifyterm --config demo/themes/clay.toml
+[theme]
+foreground = "#2d2621"
+background = "#f5f1e8"
+cursor = "#c8603f"
+selection = "#ecd3c2"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#ece5d7"
+panel = "#f0eadf"
+well = "#e4dbc9"
+rule = "#d6cbb6"
+edge = "#b3a58f"
+muted = "#6b5f53"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "clay.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "clay.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#2d2621", "#b5452a", "#4f7340", "#9a6512", "#3a64a0", "#954a80", "#2a7880", "#d6cbb6",
+  # Bright variants in the same order
+  "#7d7065", "#c8603f", "#638a52", "#b37a20", "#5079b8", "#ab6198", "#3f8f96", "#f5f1e8",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "rainbow"
+separator = "round"
+gradient = "whole"
+colors = ["#c8603f", "#d98c5f"]

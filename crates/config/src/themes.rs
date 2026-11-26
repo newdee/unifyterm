@@ -31,7 +31,7 @@ macro_rules! built_in {
 }
 
 /// The themes UnifyTerm brings, in the order they are listed: each one's name and its file.
-pub const BUILT_IN: [(&str, &str); 10] = [
+pub const BUILT_IN: [(&str, &str); 16] = [
     built_in!("tokyo-night"),
     built_in!("aurora"),
     built_in!("eclipse"),
@@ -42,6 +42,12 @@ pub const BUILT_IN: [(&str, &str); 10] = [
     built_in!("paper-dark"),
     built_in!("paper"),
     built_in!("whale"),
+    built_in!("clay"),
+    built_in!("mint"),
+    built_in!("twin"),
+    built_in!("void"),
+    built_in!("lyre"),
+    built_in!("prism"),
 ];
 
 /// Where a theme is.
@@ -205,8 +211,21 @@ pub fn passed_over(text: &str) -> Vec<String> {
 
 /// The files of UnifyTerm's own pictures: one for each built-in theme that
 /// has one, by the theme's name. The window has the pictures themselves.
-pub const PICTURES: [&str; 7] =
-    ["aurora.png", "eclipse.png", "phosphor.png", "riso.png", "night.png", "day.png", "whale.png"];
+pub const PICTURES: [&str; 13] = [
+    "aurora.png",
+    "eclipse.png",
+    "phosphor.png",
+    "riso.png",
+    "night.png",
+    "day.png",
+    "whale.png",
+    "clay.png",
+    "mint.png",
+    "twin.png",
+    "void.png",
+    "lyre.png",
+    "prism.png",
+];
 
 /// Where a picture is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -560,6 +579,15 @@ mod tests {
         for (name, _) in BUILT_IN.iter().filter(|(name, _)| !pictured.contains(name)) {
             assert_eq!(find(name, None).expect("built in").picture, None, "{name}");
         }
+        // A theme with a character shows it behind the text too; the preview page's six do not.
+        for name in ["whale", "clay", "mint", "twin", "void", "lyre", "prism"] {
+            let theme = find(name, None).expect("built in");
+            assert_eq!(theme.wallpaper.as_deref(), Some(format!("{name}.png").as_str()), "{name}");
+            assert_eq!(theme.wallpaper_opacity, Some(0.3), "{name}");
+        }
+        for name in ["aurora", "eclipse", "phosphor", "riso", "night", "day"] {
+            assert_eq!(find(name, None).expect("built in").wallpaper, None, "{name}");
+        }
     }
 
     #[test]
@@ -588,6 +616,12 @@ mod tests {
             ("paper-dark", true),
             ("paper", true),
             ("whale", true),
+            ("clay", true),
+            ("mint", true),
+            ("twin", true),
+            ("void", true),
+            ("lyre", true),
+            ("prism", true),
             ("mine", false),
         ];
         assert_eq!(names, wanted.map(|(name, built_in)| (name.to_owned(), built_in)));
@@ -601,7 +635,7 @@ mod tests {
         let said = |name: &str| format!("{:#}", find(name, Some(folder.path())).expect_err("refused"));
         assert_eq!(
             said("nosuch"),
-            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper, whale"
+            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper, whale, clay, mint, twin, void, lyre, prism"
         );
         assert!(said("../day").contains("is not a theme's name"), "a name never leaves the folder");
         std::fs::write(file_of("broken", folder.path()), "[theme]\nforeground = 1").expect("write");

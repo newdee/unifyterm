@@ -1,0 +1,31 @@
+# 虚空 · UnifyTerm
+# unifyterm --config demo/themes/void.toml
+[theme]
+foreground = "#ececec"
+background = "#0a0a0a"
+cursor = "#ffffff"
+selection = "#333333"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#111111"
+panel = "#171717"
+well = "#1f1f1f"
+rule = "#2a2a2a"
+edge = "#444444"
+muted = "#a3a3a3"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "void.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "void.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#000000", "#ff6b6b", "#8fd18f", "#e6d27a", "#8fb3ff", "#c7a1ff", "#8fd8e0", "#bdbdbd",
+  # Bright variants in the same order
+  "#6b6b6b", "#ff8f8f", "#aee0ae", "#efe19c", "#adc7ff", "#d6bbff", "#aee3ea", "#ffffff",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "classic"
+separator = "sharp"

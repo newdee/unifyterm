@@ -1,0 +1,33 @@
+# 谱谱 · UnifyTerm
+# unifyterm --config demo/themes/prism.toml
+[theme]
+foreground = "#e7eaff"
+background = "#0e1124"
+cursor = "#5ce1e6"
+selection = "#262c5e"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#121630"
+panel = "#181d3d"
+well = "#20264d"
+rule = "#2a315e"
+edge = "#434c8c"
+muted = "#a2a9d4"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "prism.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "prism.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#090b19", "#ff7b8a", "#74e0a8", "#ffd479", "#6f7dff", "#b38cff", "#5ce1e6", "#aeb4da",
+  # Bright variants in the same order
+  "#5a6196", "#ff9ca7", "#98e9bf", "#ffe09d", "#959fff", "#c9adff", "#8aeaee", "#e7eaff",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "rainbow"
+separator = "sharp"
+gradient = "whole"
+colors = ["#4f5bff", "#5ce1e6", "#74e0a8", "#ffd479"]

@@ -1,0 +1,32 @@
+# 薄荷 · UnifyTerm
+# unifyterm --config demo/themes/mint.toml
+[theme]
+foreground = "#e6f2ec"
+background = "#0f1412"
+cursor = "#3fd6a8"
+selection = "#1f3a31"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#131a17"
+panel = "#18221e"
+well = "#1f2c27"
+rule = "#2a3933"
+edge = "#3e554c"
+muted = "#9db5aa"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "mint.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "mint.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#0a0e0c", "#ff7d7d", "#3fd6a8", "#f2cf73", "#7aa7ff", "#c69cff", "#5ad1d1", "#b6c8c0",
+  # Bright variants in the same order
+  "#5f736b", "#ff9a9a", "#6fe3bf", "#f6dc96", "#9bbcff", "#d6b6ff", "#82dede", "#e6f2ec",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "lean"
+gradient = "whole"
+colors = ["#10a37f", "#7fe7c4"]

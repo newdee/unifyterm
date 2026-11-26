@@ -1,0 +1,33 @@
+# 缪缪 · UnifyTerm
+# unifyterm --config demo/themes/lyre.toml
+[theme]
+foreground = "#e6eeff"
+background = "#0a0f1f"
+cursor = "#f2c14e"
+selection = "#1d2f5e"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#0e1428"
+panel = "#141c36"
+well = "#1b2545"
+rule = "#243055"
+edge = "#3a4a7e"
+muted = "#9fb0d6"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "lyre.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "lyre.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#060a16", "#ff7f8f", "#7fdcae", "#f2c14e", "#4aa8ff", "#a98bff", "#5fd0f0", "#aab6d3",
+  # Bright variants in the same order
+  "#56627f", "#ff9eab", "#a0e6c3", "#f6d47f", "#7cc0ff", "#c0a9ff", "#8adcf4", "#e6eeff",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "classic"
+separator = "slant"
+dir_color = ["#4aa8ff"]
+git_color = ["#f2c14e"]

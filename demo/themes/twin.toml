@@ -1,0 +1,33 @@
+# 双子 · UnifyTerm
+# unifyterm --config demo/themes/twin.toml
+[theme]
+foreground = "#e8e8ff"
+background = "#11132a"
+cursor = "#c79bff"
+selection = "#2e2f63"
+# Around the text: the row of tabs, panels, lines, dimmed words.
+# Left out, each is worked out from the foreground and the background.
+bar = "#15183a"
+panel = "#1c1f45"
+well = "#252858"
+rule = "#2f3366"
+edge = "#4a4f8f"
+muted = "#a5a8d6"
+# The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
+picture = "twin.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "twin.png"
+wallpaper_opacity = 0.3
+ansi = [
+  # Black, red, green, yellow, blue, magenta, cyan, white
+  "#0b0c1f", "#ff7a9a", "#7be0b5", "#ffd27f", "#6ea0ff", "#b98cff", "#6fd0ff", "#b0b3dc",
+  # Bright variants in the same order
+  "#5d6198", "#ff9db4", "#9ee9c8", "#ffe0a1", "#93b8ff", "#cdaaff", "#95ddff", "#e8e8ff",
+]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "rainbow"
+separator = "round"
+gradient = "whole"
+colors = ["#4285f4", "#9b72cb", "#d96570"]

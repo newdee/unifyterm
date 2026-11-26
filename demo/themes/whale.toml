@@ -15,6 +15,9 @@ edge = "#3d5591"
 muted = "#9fb0d9"
 # The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
 picture = "whale.png"
+# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
+wallpaper = "whale.png"
+wallpaper_opacity = 0.3
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white
   "#08102a", "#ff7b93", "#6fe0b0", "#ffd27a", "#6b8cff", "#b49bff", "#5fd8ff", "#a9b8e0",
