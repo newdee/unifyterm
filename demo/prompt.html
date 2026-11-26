@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnifyTerm · 提示符预览</title>
+<style>
+:root {
+  --mono: "Cascadia Code", "SFMono-Regular", Menlo, Consolas, "Microsoft YaHei UI", monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: #0e1116; color: #d7dde8; font-family: var(--ui); display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 100vh; }
+@media (max-width: 960px) { body { grid-template-columns: minmax(0, 1fr); } }
+main { padding: 28px; display: grid; gap: 18px; align-content: start; }
+.term { border-radius: 10px; overflow: hidden; box-shadow: 0 18px 50px rgb(0 0 0 / .45); border: 1px solid rgb(255 255 255 / .08); }
+.term .bar { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; }
+.term .bar .tab { padding: 4px 12px; border-radius: 6px; }
+.term .screen { padding: 10px 12px 14px; font-family: var(--mono); font-size: 15px; line-height: 1.35; white-space: pre; overflow: hidden; }
+.line { display: flex; min-height: 1.35em; align-items: stretch; }
+.line .fill { flex: 1; }
+.seg { display: inline-flex; align-items: center; }
+/* The separators are drawn, as the terminal would draw U+E0B0 to U+E0B7 itself: no font needs to have them. */
+.sep { display: inline-block; width: 1ch; align-self: stretch; }
+.sep.sharp-r { clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.sep.sharp-l { clip-path: polygon(100% 0, 0 50%, 100% 100%); }
+.sep.round-r { border-radius: 0 999px 999px 0 / 0 50% 50% 0; }
+.sep.round-l { border-radius: 999px 0 0 999px / 50% 0 0 50%; }
+.sep.slant-r { clip-path: polygon(0 0, 100% 0, 0 100%); }
+.sep.slant-l { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.thin { display: inline-block; width: 1ch; align-self: stretch; position: relative; }
+.thin::after { content: ""; position: absolute; inset: 0; background: currentColor; clip-path: polygon(0 0, 14% 0, 100% 50%, 14% 100%, 0 100%, 86% 50%); opacity: .55; }
+.cursor { display: inline-block; width: 1ch; }
+.out { opacity: .92; }
+.note { font-size: 13px; line-height: 1.6; color: #a3adbd; max-width: 920px; margin: 0; }
+.note b { color: #e8ecf3; font-weight: 600; }
+
+aside { padding: 20px 20px 28px; border-left: 1px solid #1f2630; }
+@media (max-width: 960px) { aside { border-left: 0; border-top: 1px solid #1f2630; } }
+h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+.lead { margin: 0 0 18px; font-size: 13px; color: #8c96a8; line-height: 1.55; }
+fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+legend { font-size: 12px; color: #8c96a8; margin-bottom: 6px; padding: 0; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choices button { font: inherit; font-size: 13px; color: #d7dde8; background: #171c24; border: 1px solid #2a3240; border-radius: 7px; padding: 6px 10px; cursor: pointer; min-height: 32px; }
+.choices button[aria-pressed="true"] { background: #24324a; border-color: #5b7bb5; color: #fff; }
+label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 5px 0; cursor: pointer; }
+pre.toml { background: #141922; border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; color: #c9d1de; white-space: pre-wrap; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="term" id="term">
+    <div class="bar" id="bar"><span class="tab" id="tab">›_ pwsh</span><span style="opacity:.6">+</span></div>
+    <div class="screen" id="screen"></div>
+  </div>
+  <p class="note" id="note"></p>
+</main>
+<aside>
+  <h1>提示符预览</h1>
+  <p class="lead">光标左边那一行。样式名借 Powerlevel10k 的。颜色都来自主题：换主题，提示符跟着换。分隔符由终端自己画，不要求字体里有。</p>
+
+  <fieldset><legend>主题</legend><div class="choices" id="themes"></div></fieldset>
+  <fieldset><legend>样式</legend><div class="choices" id="styles">
+    <button type="button" data-v="lean" aria-pressed="true">lean</button>
+    <button type="button" data-v="classic" aria-pressed="false">classic</button>
+    <button type="button" data-v="rainbow" aria-pressed="false">rainbow</button>
+    <button type="button" data-v="plain" aria-pressed="false">plain</button>
+  </div></fieldset>
+  <fieldset><legend>分隔符（classic、rainbow）</legend><div class="choices" id="seps">
+    <button type="button" data-v="sharp" aria-pressed="true">尖</button>
+    <button type="button" data-v="round" aria-pressed="false">圆</button>
+    <button type="button" data-v="slant" aria-pressed="false">斜</button>
+  </div></fieldset>
+  <fieldset><legend>行数</legend><div class="choices" id="lines">
+    <button type="button" data-v="1" aria-pressed="false">一行</button>
+    <button type="button" data-v="2" aria-pressed="true">两行（右边的段在第一行）</button>
+  </div></fieldset>
+  <fieldset><legend>段</legend>
+    <label class="check"><input type="checkbox" data-seg="dir" checked> 目录（`~` 开头，`/` 分隔）</label>
+    <label class="check"><input type="checkbox" data-seg="git" checked> git 分支和改动</label>
+    <label class="check"><input type="checkbox" data-seg="status" checked> 上一条命令失败时的退出码</label>
+    <label class="check"><input type="checkbox" data-seg="duration" checked> 耗时（超过 2 秒才显示）</label>
+    <label class="check"><input type="checkbox" data-seg="venv" checked> Python 虚拟环境</label>
+    <label class="check"><input type="checkbox" data-seg="time"> 时间</label>
+  </fieldset>
+  <label class="check"><input type="checkbox" id="transient"> 旧提示符收成一个 ❯（transient）</label>
+  <pre class="toml" id="toml"></pre>
+</aside>
+<script>
+const THEMES = {
+  "tokyo-night": { fg: "#c0caf5", bg: "#16161e", bar: "#1f2335", muted: "#565f89", ansi: ["#15161e","#f7768e","#9ece6a","#e0af68","#7aa2f7","#bb9af7","#7dcfff","#a9b1d6","#414868"] },
+  aurora: { fg: "#e6faf5", bg: "#0c1c24", bar: "#16303b", muted: "#a6c5ca", ansi: ["#07161c","#ff9eb6","#7bf2ae","#efdb91","#95c6ff","#c0acff","#70e5ed","#a6c5ca","#7b969c"] },
+  eclipse: { fg: "#ffeee3", bg: "#21151b", bar: "#36232b", muted: "#dcbabe", ansi: ["#190e13","#ff949a","#c6dc96","#ffc178","#aac4fa","#dbb0eb","#93d7d2","#dcbabe","#a88c90"] },
+  "paper-dark": { fg: "#cecabe", bg: "#171716", bar: "#262624", muted: "#87837b", ansi: ["#393a34","#dc696c","#2b9870","#efca4b","#4f95cf","#ec60a1","#38aebe","#dbd7ca","#818181"] },
+  paper: { fg: "#33302a", bg: "#f0e7d2", bar: "#e3d8bf", muted: "#635b4e", ansi: ["#e3d8bf","#a6363d","#046641","#815501","#035fa0","#b50165","#036470","#5a5346","#5e584d"] },
+};
+const state = { theme: "tokyo-night", style: "lean", sep: "sharp", lines: 2, transient: false,
+  segs: { dir: true, git: true, status: true, duration: true, venv: true, time: false } };
+
+// What each segment says at each of the four prompts on the screen, and its color (an ANSI number of the theme).
+const PROMPTS = [
+  { cmd: "git pull", out: ["Already up to date."], ctx: { dir: "~/Documents/uni-term", git: "main", dirty: false, status: 0, duration: null, venv: null } },
+  { cmd: "cargo test -p unifyterm", out: ["test result: ok. 141 passed; 0 failed; 1 ignored"], ctx: { dir: "~/Documents/uni-term", git: "main", dirty: false, status: 0, duration: null, venv: null } },
+  { cmd: "cat missing.txt", out: ["cat: missing.txt: No such file or directory"], ctx: { dir: "~/Documents/uni-term", git: "main", dirty: true, status: 0, duration: "38s", venv: null } },
+  { cmd: null, out: [], ctx: { dir: "~/Documents/uni-term/tools", git: "main", dirty: true, status: 1, duration: null, venv: ".venv" } },
+];
+
+function segments(ctx, t) {
+  const left = [], right = [];
+  const plain = state.style === "plain";
+  if (state.segs.dir) left.push({ text: ctx.dir, color: 4 });
+  if (state.segs.git && ctx.git) left.push({ text: plain ? `(${ctx.git}${ctx.dirty ? "*" : ""})` : `${ctx.git}${ctx.dirty ? " ✚2 ?1" : ""}`, color: ctx.dirty ? 3 : 2 });
+  if (state.segs.status && ctx.status) right.push({ text: plain ? `exit ${ctx.status}` : `✘ ${ctx.status}`, color: 1 });
+  if (state.segs.duration && ctx.duration) right.push({ text: ctx.duration, color: 3 });
+  if (state.segs.venv && ctx.venv) right.push({ text: plain ? ctx.venv : `py ${ctx.venv}`, color: 6 });
+  if (state.segs.time) right.push({ text: "14:05:12", color: 8 });
+  return { left, right };
+}
+
+const el = (tag, style, text) => { const n = document.createElement(tag); if (style) Object.assign(n.style, style); if (text != null) n.textContent = text; return n; };
+
+// One side's segments in the chosen style. `side` is "l" (left, arrows pointing right) or "r".
+function drawSide(segs, t, side) {
+  const out = document.createDocumentFragment();
+  const style = state.style;
+  if (style === "lean" || style === "plain") {
+    segs.forEach((s, i) => {
+      if (i) out.append(el("span", null, " "));
+      out.append(el("span", { color: t.ansi[s.color] }, s.text));
+    });
+    return out;
+  }
+  const bgOf = (s) => (style === "rainbow" ? t.ansi[s.color] : t.bar);
+  const fgOf = (s) => (style === "rainbow" ? t.bg : t.ansi[s.color]);
+  const sep = (color, behind, dir) => el("span", { background: color, boxShadow: `inset 0 0 0 100vmax ${behind}` }, null);
+  segs.forEach((s, i) => {
+    if (side === "r") {
+      // Into the first segment from the background, and between segments.
+      const before = i === 0 ? null : bgOf(segs[i - 1]);
+      if (style === "classic" && i > 0) { out.append(Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" })); }
+      else { const w = el("span", { background: before || "transparent" }); w.className = "sepwrap"; const x = el("span", { background: bgOf(s) }); x.className = `sep ${state.sep}-l`; w.style.display = "inline-flex"; w.style.alignSelf = "stretch"; w.append(x); out.append(w); }
+    }
+    out.append(el("span", { background: bgOf(s), color: fgOf(s), padding: "0 1ch" }, s.text));
+    if (side === "l") {
+      const next = segs[i + 1];
+      if (style === "classic" && next) { out.append(Object.assign(el("span", { background: t.bar, color: t.muted }), { className: "thin" })); }
+      else { const w = el("span", { background: next ? bgOf(next) : "transparent" }); w.style.display = "inline-flex"; w.style.alignSelf = "stretch"; const x = el("span", { background: bgOf(s) }); x.className = `sep ${state.sep}-r`; w.append(x); out.append(w); }
+    }
+  });
+  return out;
+}
+
+function promptLines(ctx, t, current) {
+  const { left, right } = segments(ctx, t);
+  const ok = !ctx.status;
+  const charColor = ok ? t.ansi[2] : t.ansi[1];
+  const char = state.style === "plain" ? (ok ? ">" : "!") : "❯";
+  const lines = [];
+  if (state.lines === 2) {
+    const l1 = el("div"); l1.className = "line";
+    l1.append(drawSide(left, t, "l"));
+    l1.append(Object.assign(el("span"), { className: "fill" }));
+    l1.append(drawSide(right, t, "r"));
+    const l2 = el("div"); l2.className = "line";
+    l2.append(el("span", { color: charColor }, char + " "));
+    lines.push(l1, l2);
+  } else {
+    const l1 = el("div"); l1.className = "line";
+    l1.append(drawSide(left, t, "l"));
+    l1.append(el("span", null, " "));
+    l1.append(el("span", { color: charColor }, char + " "));
+    l1.append(Object.assign(el("span"), { className: "input" }));
+    lines.push(l1);
+    // A one-line prompt has its right side only where the shell draws one (zsh, fish): shown here dimmed.
+    if (right.length) { const r = el("span", { opacity: .55 }); r.append(drawSide(right, t, "r")); l1.append(Object.assign(el("span"), { className: "fill" })); l1.append(r); l1.dataset.right = "1"; }
+  }
+  return lines;
+}
+
+function render() {
+  const t = THEMES[state.theme];
+  const term = document.getElementById("term");
+  term.style.background = t.bg; term.style.color = t.fg;
+  Object.assign(document.getElementById("bar").style, { background: t.bar, color: t.muted });
+  Object.assign(document.getElementById("tab").style, { background: t.bg, color: t.fg });
+  const screen = document.getElementById("screen");
+  screen.innerHTML = "";
+  PROMPTS.forEach((p, i) => {
+    const last = i === PROMPTS.length - 1;
+    let lines;
+    if (state.transient && !last) {
+      const l = el("div"); l.className = "line";
+      l.append(el("span", { color: p.ctx.status ? t.ansi[1] : t.ansi[2] }, state.style === "plain" ? "> " : "❯ "));
+      lines = [l];
+    } else lines = promptLines(p.ctx, t, last);
+    const input = lines[lines.length - 1].querySelector(".input") || lines[lines.length - 1];
+    if (p.cmd) input.append(el("span", null, p.cmd));
+    else input.append(Object.assign(el("span", { background: t.fg }, " "), { className: "cursor" }));
+    lines.forEach((l) => screen.append(l));
+    p.out.forEach((o) => screen.append(Object.assign(el("div", null, o), { className: "out" })));
+    if (!last) screen.append(el("div", { height: ".35em" }));
+  });
+  const notes = {
+    lean: "<b>lean</b>：没有底色，只有带颜色的字，最安静。任何字体都能显示（❯ 在常见字体里都有）。",
+    classic: "<b>classic</b>：所有段放在同一条底色上（主题的 bar 色），段之间是细分隔线。",
+    rainbow: "<b>rainbow</b>：每段一个底色（主题的 ANSI 色），段之间是箭头。最醒目。",
+    plain: "<b>plain</b>：只用 ASCII，没有符号，在任何终端、任何字体里都一样，ssh 到别处也不乱。",
+  };
+  document.getElementById("note").innerHTML = notes[state.style] +
+    (state.lines === 1 ? " 一行时，右边的段只有 zsh 和 fish 能放在行尾（图中变淡的部分）；PowerShell 和 bash 没有右提示符，这些段要么不显示，要么用两行。" : " 两行：第一行左边目录和分支、右边状态；第二行只有 ❯，输入总在同一列开始。") +
+    " 颜色全部来自当前主题：段用主题的 ANSI 色，classic 的底色用 bar 色，rainbow 段上的字用背景色。";
+  const segList = Object.entries(state.segs).filter(([, v]) => v).map(([k]) => `"${k}"`);
+  const rightNames = ["status", "duration", "venv", "time"];
+  document.getElementById("toml").textContent =
+`# 主题文件里（themes/NAME.toml）
+[prompt]
+style = "${state.style}"${state.style === "classic" || state.style === "rainbow" ? `\nseparator = "${state.sep}"` : ""}
+lines = ${state.lines}
+left = [${segList.filter((s) => !rightNames.includes(s.slice(1, -1))).join(", ")}]
+right = [${segList.filter((s) => rightNames.includes(s.slice(1, -1))).join(", ")}]
+transient = ${state.transient}
+# 某一段的颜色也能改：
+# git.color = 3          # ANSI 色号，或 "#rrggbb"
+
+# 设置文件里（config.toml）：开关在这里
+[prompt]
+enabled = true`;
+}
+
+const themes = document.getElementById("themes");
+for (const name of Object.keys(THEMES)) {
+  const b = el("button", null, name); b.type = "button"; b.dataset.v = name; b.setAttribute("aria-pressed", String(name === state.theme)); themes.append(b);
+}
+function group(id, key, parse = (v) => v) {
+  document.getElementById(id).addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    state[key] = parse(b.dataset.v);
+    for (const x of document.getElementById(id).querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+    render();
+  });
+}
+group("themes", "theme"); group("styles", "style"); group("seps", "sep"); group("lines", "lines", Number);
+document.querySelectorAll("[data-seg]").forEach((c) => c.addEventListener("change", () => { state.segs[c.dataset.seg] = c.checked; render(); }));
+document.getElementById("transient").addEventListener("change", (e) => { state.transient = e.target.checked; render(); });
+// A state in the address, for pictures: ?theme=aurora&style=rainbow&sep=round&lines=1&transient=1
+const q = new URLSearchParams(location.search);
+for (const [key, id, parse] of [["theme", "themes"], ["style", "styles"], ["sep", "seps"], ["lines", "lines", Number]]) {
+  const v = q.get(key); if (!v) continue;
+  const b = [...document.getElementById(id).querySelectorAll("button")].find((x) => x.dataset.v === v); if (b) b.click();
+}
+if (q.get("transient")) { document.getElementById("transient").checked = true; state.transient = true; }
+document.fonts.ready.then(render);
+render();
+</script>
+</body>
+</html>
