@@ -598,6 +598,13 @@ impl Screen {
         self.prompt.newest()
     }
 
+    /// Whether the shell waits at its prompt, on the screen of lines: no command runs, no
+    /// program has the whole screen. The newest prompt is then where its marks said: while a
+    /// command prints, a full history moves every line up.
+    pub(crate) fn at_prompt(&self) -> bool {
+        matches!(self.prompt.phase(), Phase::Input(_)) && !self.modes().alt_screen
+    }
+
     /// The user pressed Enter: what was on the input line is the command.
     pub(crate) fn enter(&mut self) {
         let typed = self.input().map(|input| input.text);
@@ -971,6 +978,21 @@ pub(crate) mod tests {
             "the marks were read: the text, how it ended, the last directory said"
         );
         assert_eq!(screen.shell(), Some("pwsh"));
+    }
+
+    #[test]
+    fn the_shell_waits_at_its_prompt_from_its_input_mark_to_its_command() {
+        let mut screen = quiet(40, 5);
+        assert!(!screen.at_prompt(), "nothing marked yet");
+        screen.feed(b"\x1b]133;A\x07~/x main\r\n> \x1b]133;B\x07");
+        assert!(screen.at_prompt());
+        assert_eq!(screen.newest_prompt(), Some(crate::prompt::PromptSpan { start: (0, 0), input: (1, 2) }));
+        screen.feed(b"vim\x1b]133;C\x07");
+        assert!(!screen.at_prompt(), "a command runs");
+        screen.feed(b"\x1b]133;D;0\x07\x1b]133;A\x07> \x1b]133;B\x07");
+        assert!(screen.at_prompt(), "back at a prompt");
+        screen.feed(b"\x1b[?1049h");
+        assert!(!screen.at_prompt(), "a program has the whole screen");
     }
 
     #[test]

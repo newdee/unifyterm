@@ -62,7 +62,8 @@ function global:prompt {
         }
         $text = (& $env:UNIFYTERM_PROMPT @arguments 2>$null) -join "`n"
     }
-    if (-not $text) {
+    # The shell's own prompt, called once, when UnifyTerm writes none (or ut said nothing).
+    if ($null -eq $text -or ($env:UNIFYTERM_PROMPT -and -not $text)) {
         $text = if ($global:__unifyterm_prompt) { & $global:__unifyterm_prompt } else { "PS $location$('>' * ($nestedPromptLevel + 1)) " }
     }
     # The prompt function must not change how the last command ended for whoever asks next.

@@ -806,12 +806,19 @@ impl TerminalView {
         let snapshot = self.session.snapshot();
         let now = Instant::now();
         self.follow_prompt(now);
-        let glow = self.sweep.map_or_else(shine::Glow::default, |sweep| shine::glow(&snapshot, &sweep, now));
+        // The light is on the prompt only while the shell waits at it (see `Session::at_prompt`).
+        let waits = self.session.at_prompt();
+        let glow = match self.sweep {
+            Some(sweep) if waits => shine::glow(&snapshot, &sweep, now),
+            _ => shine::Glow::default(),
+        };
         // While the light is on the prompt, or about to set out, every frame is drawn; between
         // passes, none (see `wake_for_light`).
-        if self.sweep.is_some_and(|sweep| {
-            sweep.progress(now).is_some() || sweep.until_next(now).is_some_and(|wait| wait <= LIGHT_SOON)
-        }) {
+        if waits
+            && self.sweep.is_some_and(|sweep| {
+                sweep.progress(now).is_some() || sweep.until_next(now).is_some_and(|wait| wait <= LIGHT_SOON)
+            })
+        {
             window.request_animation_frame();
         }
         let frame = frame::layout_lit(&snapshot, &self.settings.theme, focus, &glow);

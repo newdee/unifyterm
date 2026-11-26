@@ -29,8 +29,9 @@ A theme is a file with a table, [theme], and the keys of the settings file's
 give cursor, selection, the colors around the text (bar, panel, well, rule,
 edge, muted, symbol), opacity, blur, rounding, corners, picture (a picture's
 file beside the theme's, shown at the foot of the sidebar) and wallpaper (one
-drawn behind the text, as large as the window; wallpaper_opacity). A key this version does not know
-is passed over, and check names it. Your own themes are NAME.toml in the
+drawn behind the text, as large as the window; wallpaper_opacity). It may also have a table [prompt]:
+how the prompt looks when the settings say prompt.enabled (the keys of the settings file's [prompt]
+but enabled; see ut prompt --help). A key this version does not know is passed over, and check names it. Your own themes are NAME.toml in the
 themes folder beside the settings file; one with a built-in theme's name is
 used in its place. --config FILE names the settings file, as for ut setting.";
 
