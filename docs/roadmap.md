@@ -16,6 +16,7 @@
 - 已发布：**0.6.1**，2026-11-25，标签 `v0.6.1`（提交 `fa60508`）：别的程序写的 JSON 里的 `null` 读成"没给"。keepane 不知道花费的 agent（给 `"cost": null`）不再让侧栏的卡片全部消失；列表里读不了的一条不再带走其余的；命令清单和模型的回答同样处理。Release 18 个文件；formula 和 Scoop bucket 都是 0.6.1，4 个哈希和 Release 一致。
 - 已发布：**0.6.2**，2026-11-25，标签 `v0.6.2`（提交 `3e42d9d`）：keepane 只算出一部分的花费（`cost_partial`）在卡片上带 `+`，和 keepane 自己的写法一样。formula 和 Scoop bucket 都是 0.6.2，哈希和 Release 一致。
 - 已发布：**0.7.0**，2026-11-26（M12）：提示符由主题配置。`prompt.enabled` 打开后 UnifyTerm 写 PowerShell、bash、zsh、fish 的提示符（`ut prompt`），四种样式、一行或两行、渐变；终端自己画 powerline 分隔符；最新提示符上的光效（`prompt.shine`、`prompt.shine_every`）。见 `docs/plan-m12.md`。
+- 已发布：**0.7.2**，2026-11-26，标签 `v0.7.2`（提交 `3a459f0`）：八套带角色的主题（whale 哦鲸鲸、clay 陶陶、mint 薄荷、twin 双子、void 虚空、lyre 缪缪、prism 谱谱、drake 龙龙），内置主题共 17 套；角色图默认也是背景图。`v0.7.1` 打过标签但没有发布（发版中途换图，取消了）。Release 18 个文件；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.7.2。X 上回复了第一条推文，配 8 套主题的 GIF。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
