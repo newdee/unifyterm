@@ -20,6 +20,7 @@ mod keys;
 mod lights;
 mod logging;
 mod marks;
+mod powerline;
 mod prompt;
 mod recorder;
 mod session;

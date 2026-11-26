@@ -4,7 +4,7 @@
 
 use crate::session::{Cell, Color, CursorShape, Focus, Snapshot, attr};
 use crate::theme::{Rgb, Theme};
-use crate::{boxdraw, graphics};
+use crate::graphics;
 
 /// How far a dim color is moved toward its background.
 const DIM_AMOUNT: f32 = 0.4;
@@ -38,7 +38,7 @@ pub(crate) struct Run {
     pub(crate) grid: bool,
 }
 
-/// A box-drawing or block character, drawn by `boxdraw` and not a font.
+/// A character the window draws itself and not a font: a box-drawing or block character (`boxdraw`), a powerline separator (`powerline`).
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Drawn {
     pub(crate) line: usize,
@@ -247,7 +247,7 @@ pub(crate) fn layout(snapshot: &Snapshot, theme: &Theme, focus: Focus) -> Frame 
                 continue;
             }
             let (bold, italic) = (cell.has(attr::BOLD), cell.has(attr::ITALIC));
-            if boxdraw::draws(cell.c) {
+            if crate::terminal::drawn_here(cell.c) {
                 frame.runs.extend(open.take().map(|(text, _)| text));
                 frame.drawn.push(Drawn { line, column, c: cell.c, color: fg });
             } else if cells == 2 || cell.combining.is_some() {

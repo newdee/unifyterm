@@ -20,7 +20,7 @@ use crate::keys::{self, Mods, MouseAction};
 use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
 use crate::theme::{Rgb, Theme};
-use crate::{Copy, Explain, Paste, boxdraw};
+use crate::{Copy, Explain, Paste, boxdraw, powerline};
 
 /// What is behind a tab's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1524,8 +1524,38 @@ fn device_pixels(value: Pixels, scale: f32) -> u32 {
     u32::try_from(whole((value / px(1.) * scale).round())).unwrap_or(u32::MAX)
 }
 
-/// Paints a box-drawing or block character into a cell's bounds.
+/// Whether the window draws `c` itself, and no font: box-drawing lines,
+/// block elements, powerline's separators.
+pub(crate) fn drawn_here(c: char) -> bool {
+    boxdraw::draws(c) || powerline::draws(c)
+}
+
+/// Paints a powerline separator into a cell's bounds, as the polygons of its shape.
+fn paint_shape(shape: powerline::Shape, color: Rgb, bounds: Bounds<Pixels>, scale: f32, window: &mut Window) {
+    let (w, h) = (bounds.size.width / px(1.) * scale, bounds.size.height / px(1.) * scale);
+    for polygon in powerline::polygons(shape, w, h) {
+        let at = |[x, y]: powerline::Point| bounds.origin + point(px(x / scale), px(y / scale));
+        let mut path = gpui::PathBuilder::fill();
+        let mut corners = polygon.into_iter();
+        let Some(first) = corners.next() else { continue };
+        path.move_to(at(first));
+        for corner in corners {
+            path.line_to(at(corner));
+        }
+        path.close();
+        match path.build() {
+            Ok(path) => window.paint_path(path, rgb(color.hex())),
+            Err(error) => log::debug!("powerline: a shape was not drawn: {error}"),
+        }
+    }
+}
+
+/// Paints a character the window draws itself ([`drawn_here`]) into a cell's bounds.
 fn paint_drawn(c: char, color: Rgb, bounds: Bounds<Pixels>, scale: f32, window: &mut Window) {
+    if let Some(shape) = powerline::shape(c) {
+        paint_shape(shape, color, bounds, scale, window);
+        return;
+    }
     let (w, h) = (device_pixels(bounds.size.width, scale), device_pixels(bounds.size.height, scale));
     let Some((rects, opacity)) = boxdraw::rects(c, w, h) else { return };
     let color = Rgba { a: opacity, ..rgb(color.hex()) };
@@ -1656,7 +1686,7 @@ impl Painter<'_> {
             CursorShape::Block => {
                 window.paint_quad(fill(bounds, color));
                 let Some(over) = &cursor.over else { return };
-                if let Some(drawn) = over.chars().next().filter(|c| boxdraw::draws(*c)) {
+                if let Some(drawn) = over.chars().next().filter(|c| drawn_here(*c)) {
                     paint_drawn(drawn, cursor.over_color, bounds, scale, window);
                 } else {
                     let font = &self.fonts[0];
