@@ -38,6 +38,28 @@ pub const ANSI_COLORS: usize = 16;
 /// reads, when it is not the default one. `ut setting` then changes that file.
 pub const FILE_VARIABLE: &str = "UNIFYTERM_CONFIG";
 
+/// The bar's color, when a theme leaves it out, is this far from the
+/// background toward the text's color. The window and the prompt both work it
+/// out from here.
+pub const BAR_AMOUNT: f32 = 0.035;
+
+/// `from` moved `amount` (0 to 1) of the way to `to`, each channel rounded and held to 0..=255.
+#[must_use]
+pub fn toward(from: [u8; 3], to: [u8; 3], amount: f32) -> [u8; 3] {
+    [0, 1, 2].map(|at| channel(f32::from(from[at]) + (f32::from(to[at]) - f32::from(from[at])) * amount))
+}
+
+/// A computed channel value as a channel: rounded, and held to 0..=255.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped to a u8's range first, and float-to-int `as` maps NaN to 0"
+)]
+fn channel(value: f32) -> u8 {
+    value.round().clamp(0.0, 255.0) as u8
+}
+
 /// `#rrggbb` (the `#` may be left out) as red, green, blue.
 pub fn parse_color(text: &str) -> Option<[u8; 3]> {
     let hex = text.strip_prefix('#').unwrap_or(text);

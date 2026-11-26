@@ -716,6 +716,14 @@ impl Workspace {
         let mut command =
             shell::command(program, args, self.commands.as_ref(), self.hooks.as_ref(), shell::ShellStart::here())?;
         command.cwd(&self.directory);
+        // UnifyTerm writes the prompt when the settings say so, through the hooks: a shell with
+        // arguments of the user's has none, and keeps its own prompt.
+        if self.settings.config.prompt.enabled && self.hooks.is_some() && args.is_empty() {
+            match shell::Commands::program() {
+                Ok(ut) => shell::prompt_by(&mut command, &ut),
+                Err(error) => log::warn!("prompt: the shell keeps its own: {error:#}"),
+            }
+        }
         // `ut setting`, run in this tab, changes the file this window reads.
         match &self.named_settings {
             Some(file) => command.env(unifyterm_config::FILE_VARIABLE, file),

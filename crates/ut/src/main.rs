@@ -16,6 +16,7 @@ mod links;
 mod mcp;
 mod md;
 mod program;
+mod prompt;
 mod setting;
 mod shell;
 mod slash;
@@ -376,6 +377,7 @@ fn ut(args: &[OsString]) -> i32 {
         Some("shell") => shell::main(&args[1..]),
         Some("program" | "programs") => program::main(&args[1..]),
         Some("theme" | "themes") => theme::main(&args[1..]),
+        Some("prompt") => prompt::main(&args[1..]),
         Some("mcp") => {
             let names = commands().into_iter().map(|(name, _)| name.to_owned()).collect();
             mcp::main(&args[1..], names, help)

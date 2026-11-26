@@ -5,7 +5,8 @@
 # It tells unifyterm, in standard terminal marks, where the prompt starts
 # and ends (OSC 133;A and B), what the last command was and how it ended
 # (OSC 633;E and 133;D) and which directory this is (OSC 633;P;Cwd). Your
-# prompt itself is kept as it is: this wraps it.
+# prompt itself is kept as it is: this wraps it. With prompt.enabled in
+# unifyterm's settings, ut prompt writes the prompt in its place.
 # Adapted from keepane's PowerShell hook (MIT, same author).
 
 # A mark's text: \ is written \\, ; is \x3b, a control character \xHH.
@@ -34,6 +35,7 @@ function global:prompt {
     $e = [char]27
     $marks = ''
     $last = Get-History -Count 1
+    $ran = $false
     if ($global:__unifyterm_first) {
         $global:__unifyterm_first = $false
         $global:__unifyterm_seen = $last.Id
@@ -41,13 +43,28 @@ function global:prompt {
     elseif ($last -and $last.Id -ne $global:__unifyterm_seen) {
         $global:__unifyterm_seen = $last.Id
         $exit = if ($ok) { 0 } elseif ($code) { $code } else { 1 }
+        $ran = $true
         $marks += "$e]633;E;$(__unifyterm_escape $last.CommandLine)$e\$e]133;D;$exit$e\"
     }
     $location = $executionContext.SessionState.Path.CurrentLocation
     if ($location.Provider.Name -eq 'FileSystem') {
         $marks += "$e]633;P;Cwd=$(__unifyterm_escape $location.ProviderPath)$e\"
     }
-    $text = if ($global:__unifyterm_prompt) { & $global:__unifyterm_prompt } else { "PS $location$('>' * ($nestedPromptLevel + 1)) " }
+    # UnifyTerm writes the prompt when its settings say prompt.enabled: ut prompt, told how the
+    # last command went. If it says nothing, the prompt is the shell's own, as below.
+    $text = $null
+    if ($env:UNIFYTERM_PROMPT) {
+        $arguments = @('prompt', '--shell', 'pwsh', '--width', $Host.UI.RawUI.WindowSize.Width)
+        if ($location.Provider.Name -eq 'FileSystem') { $arguments += @('--cwd', $location.ProviderPath) }
+        if ($ran) {
+            $took = [long]($last.EndExecutionTime - $last.StartExecutionTime).TotalMilliseconds
+            $arguments += @('--status', $exit, '--took', $took)
+        }
+        $text = (& $env:UNIFYTERM_PROMPT @arguments 2>$null) -join "`n"
+    }
+    if (-not $text) {
+        $text = if ($global:__unifyterm_prompt) { & $global:__unifyterm_prompt } else { "PS $location$('>' * ($nestedPromptLevel + 1)) " }
+    }
     # The prompt function must not change how the last command ended for whoever asks next.
     $global:LASTEXITCODE = $code
     "$marks$e]133;A$e\$text$e]133;B$e\"

@@ -50,10 +50,13 @@ __unifyterm_seen=$(HISTTIMEFORMAT= history 1 | sed -n 's/^ *\([0-9]*\).*/\1/p')
 
 __unifyterm_status() {
     local code=$? last number text
+    __unifyterm_ran=
     last=$(HISTTIMEFORMAT= history 1)
     number=$(printf '%s' "$last" | sed -n 's/^ *\([0-9]*\).*/\1/p')
     if [ -n "$number" ] && [ "$number" != "$__unifyterm_seen" ]; then
         __unifyterm_seen=$number
+        __unifyterm_ran=1
+        __unifyterm_code=$code
         text=$(printf '%s' "$last" | sed 's/^ *[0-9]* *//')
         printf '\e]633;E;%s\e\\\e]133;D;%s\e\\' "$(__unifyterm_escape "$text")" "$code"
     fi
@@ -61,14 +64,34 @@ __unifyterm_status() {
     return $code
 }
 
+# With prompt.enabled in unifyterm's settings, ut prompt writes the prompt. It is kept in a
+# variable that PS1 names: bash expands it once and does not read it again, so a $ or a
+# backtick in a folder's name is only a character.
+__unifyterm_written() {
+    local arguments=(prompt --shell bash --cwd "$PWD")
+    [ -n "$COLUMNS" ] && arguments+=(--width "$COLUMNS")
+    if [ -n "$__unifyterm_ran" ]; then
+        arguments+=(--status "$__unifyterm_code")
+        [ -n "$__unifyterm_started" ] && arguments+=(--took "$(( (SECONDS - __unifyterm_started) * 1000 ))")
+    fi
+    __unifyterm_started=
+    __unifyterm_ps=$("$UNIFYTERM_PROMPT" "${arguments[@]}" 2>/dev/null)
+    [ -n "$__unifyterm_ps" ] && PS1="\[$(printf '\033]133;A\007')\]"'${__unifyterm_ps}'"\[$(printf '\033]133;B\007')\]"
+}
+
 # Around the prompt, after whatever else sets PS1 (a theme may set it at each prompt).
 __unifyterm_wrap() {
+    if [ -n "$UNIFYTERM_PROMPT" ]; then
+        __unifyterm_written
+    fi
     case "$PS1" in
         *']133;B'*) ;;
         *) PS1="\[$(printf '\033]133;A\007')\]$PS1\[$(printf '\033]133;B\007')\]" ;;
     esac
 }
 
-PS0="$(printf '\033]133;C\007')${PS0}"
+# When a command starts: 133;C, and (in an arithmetic expansion, which runs in this shell) the
+# second it started at, for how long it took.
+PS0="$(printf '\033]133;C\007')"'${__unifyterm_none[__unifyterm_started=SECONDS]}'"${PS0}"
 PROMPT_COMMAND="__unifyterm_status;${PROMPT_COMMAND:+$PROMPT_COMMAND;}__unifyterm_wrap"
 printf '\e]633;P;Shell=bash\e\\'

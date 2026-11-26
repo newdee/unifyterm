@@ -29,16 +29,36 @@ __unifyterm_running=0
 
 __unifyterm_preexec() {
     __unifyterm_running=1
+    __unifyterm_started=$SECONDS
     printf '\e]633;E;%s\e\\\e]133;C\e\\' "$(__unifyterm_escape "$1")"
 }
 
+# With prompt.enabled in unifyterm's settings, ut prompt writes the prompt, and the right part
+# goes in RPROMPT. Both are kept in variables the prompts name (prompt_subst): zsh expands them
+# once and does not read a $ or a backtick in them again.
+__unifyterm_written() {
+    local -a arguments=(prompt --shell zsh --cwd "$PWD" --width "$COLUMNS")
+    if (( $2 )); then
+        arguments+=(--status "$1" --took $(( (SECONDS - __unifyterm_started) * 1000 )))
+    fi
+    local out
+    out="$("$UNIFYTERM_PROMPT" "${arguments[@]}" 2>/dev/null)" || return
+    [[ -n "$out" ]] || return
+    __unifyterm_ps=${out%%$'\x1e'*}
+    __unifyterm_rps=${out#*$'\x1e'}
+    setopt prompt_subst
+    PS1="%{"$'\e]133;A\a'"%}"'${__unifyterm_ps}'"%{"$'\e]133;B\a'"%}"
+    RPS1='${__unifyterm_rps}'
+}
+
 __unifyterm_precmd() {
-    local code=$?
+    local code=$? ran=$__unifyterm_running
     if (( __unifyterm_running )); then
         printf '\e]133;D;%s\e\\' "$code"
         __unifyterm_running=0
     fi
     printf '\e]633;P;Cwd=%s\e\\' "$(__unifyterm_escape "$PWD")"
+    [[ -n "$UNIFYTERM_PROMPT" ]] && __unifyterm_written "$code" "$ran"
     case "$PS1" in
         *$'\e]133;B'*) ;;
         *) PS1="%{"$'\e]133;A\a'"%}$PS1%{"$'\e]133;B\a'"%}" ;;

@@ -28,13 +28,36 @@ end
 
 function __unifyterm_postexec --on-event fish_postexec
     printf '\e]133;D;%s\e\\' $status
+    set -g __unifyterm_ran 1
 end
 
 function __unifyterm_cwd --on-event fish_prompt
     printf '\e]633;P;Cwd=%s\e\\' (__unifyterm_escape "$PWD")
 end
 
-if functions -q fish_prompt
+if set -q UNIFYTERM_PROMPT
+    # With prompt.enabled in unifyterm's settings, ut prompt writes the prompt; the part after
+    # \x1e goes on the right.
+    function fish_prompt
+        set -l code $status
+        set -l arguments prompt --shell fish --cwd $PWD --width $COLUMNS
+        if set -q __unifyterm_ran
+            set -a arguments --status $code --took $CMD_DURATION
+            set -e __unifyterm_ran
+        end
+        set -l out ("$UNIFYTERM_PROMPT" $arguments 2>/dev/null | string collect)
+        if test -z "$out"
+            printf '\e]133;A\e\\> \e]133;B\e\\'
+            return
+        end
+        set -l parts (string split \x1e -- $out)
+        set -g __unifyterm_right $parts[2]
+        printf '\e]133;A\e\\%s\e]133;B\e\\' $parts[1]
+    end
+    function fish_right_prompt
+        printf '%s' $__unifyterm_right
+    end
+else if functions -q fish_prompt
     functions -c fish_prompt __unifyterm_user_prompt
     function fish_prompt
         printf '\e]133;A\e\\'

@@ -12,8 +12,9 @@ impl Rgb {
 
     /// This color moved `amount` (0 to 1) of the way to `other`.
     pub(crate) fn toward(self, other: Self, amount: f32) -> Self {
-        let mix = |a: u8, b: u8| channel(f32::from(a) + (f32::from(b) - f32::from(a)) * amount);
-        Self(mix(self.0, other.0), mix(self.1, other.1), mix(self.2, other.2))
+        let [red, green, blue] =
+            unifyterm_config::toward([self.0, self.1, self.2], [other.0, other.1, other.2], amount);
+        Self(red, green, blue)
     }
 
     /// How far apart this color and `other` are for the eye: WCAG's contrast
@@ -26,17 +27,6 @@ impl Rgb {
     pub(crate) fn hex(self) -> u32 {
         u32::from(self.0) << 16 | u32::from(self.1) << 8 | u32::from(self.2)
     }
-}
-
-/// A computed channel value as a channel: rounded, and held to 0..=255.
-#[expect(
-    clippy::as_conversions,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the value is clamped to a u8's range first, and float-to-int `as` maps NaN to 0"
-)]
-fn channel(value: f32) -> u8 {
-    value.round().clamp(0.0, 255.0) as u8
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -90,7 +80,7 @@ pub(crate) struct Around {
 /// How far from the background toward the foreground each worked-out color
 /// is. The six themes with a preview page give these colors themselves;
 /// measured on them, theirs are about this far along (the middle of the six).
-const BAR_AMOUNT: f32 = 0.035;
+const BAR_AMOUNT: f32 = unifyterm_config::BAR_AMOUNT;
 const PANEL_AMOUNT: f32 = 0.065;
 const WELL_AMOUNT: f32 = 0.11;
 const RULE_AMOUNT: f32 = 0.19;

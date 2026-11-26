@@ -223,6 +223,19 @@ An agent's command line is started once for each question, with its tools off (C
 
 A list is as good as the program made it. A word the list does not have may still be right (a git alias, a plug-in); it is named, never refused. Names in a list that hold a blank or a character a shell reads are left out when the file is read. The OpenCLI project has lists for git, curl, ffmpeg and dotnet among its [examples](https://github.com/spectreconsole/open-cli/tree/main/examples).
 
+### The prompt
+
+With `prompt.enabled = true` (`ut setting set prompt.enabled true`), UnifyTerm writes the prompt in the tabs opened after it: PowerShell, bash, zsh and fish. It is a line of segments, the directory and git's branch on the left, and on the right a failed command's exit code, how long a command took (2 seconds or more) and the Python environment, with `❯` where you type. Off, the prompt is your shell's own, as before: Powerlevel10k, starship or your own `PS1` stay until you turn this on.
+
+How it looks is `[prompt]`, in the settings file or in a theme's file: every built-in theme gives one, and the settings' own keys go over the theme's (see the table above). The colors are the theme's 16 by their names, so the prompt changes with the theme. `ut prompt preview` shows it with the settings and the theme in use.
+
+- The shell's hook runs `ut prompt` at every prompt, told the last command's exit code, how long it ran and the terminal's width. It reads git's branch from the repository's files; the changes need `git status`, and when that takes more than 0.3 seconds the prompt shows the branch alone. Measured on Windows: 18 ms a prompt outside a repository, about 90 ms in one with `git status`.
+- The shapes between segments (U+E0B0 to U+E0BD, powerline's) are drawn by UnifyTerm, so no font needs to have them. In another terminal (`ut shell enable` does not write the prompt there) they need a font that has them.
+- PowerShell and bash have no place at the end of a line for the right side: with `prompt.lines = 1` they show the left side only. zsh puts it in `RPROMPT`, fish in its right prompt.
+- `NO_COLOR` set: PowerShell writes the prompt without its colors.
+- The prompt needs the shell hook: `history.enabled = false` turns both off. cmd.exe, and a shell with arguments of your own in `shell.args`, keep their own prompt.
+- `prompt.shine` lights the words of the newest prompt as a band of light goes across them, once for each new prompt or every `prompt.shine_every` seconds; blank cells are not lit. It works on any prompt the hooks mark, your own too.
+
 A tab starts in your home directory, however UnifyTerm was started: from the Dock, the Start menu, a launcher or another shell. `unifyterm --cwd DIRECTORY` starts the tabs in another one (`unifyterm --cwd .` for the directory you are in).
 
 On macOS a tab's shell is a login shell, as in Terminal.app: zsh and fish get `-l`, PowerShell `-Login`, and bash reads `/etc/profile` and your `~/.bash_profile` (or `~/.bash_login`, `~/.profile`). A program started from the Finder has only the system's short `PATH`; the profile files are where Homebrew's and your own directories come from. On Linux and Windows the shell is started plainly, as other terminals there do.
@@ -270,6 +283,8 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut theme new NAME [--from NAME]` | Begin a theme of your own: a copy of the theme in use, or of the one named |
 | `ut theme check FILE` | Check a theme file only: for who writes one |
 | `ut theme directory` | Print the folder your own themes are in |
+| `ut prompt preview` | The prompt UnifyTerm writes, with the settings and the theme in use (see [The prompt](#the-prompt)) |
+| `ut prompt --shell NAME ...` | The prompt for a shell's hook: what UnifyTerm's tabs run at every prompt |
 
 ## For agents
 

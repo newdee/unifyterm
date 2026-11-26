@@ -20,3 +20,7 @@ ansi = [
   # Bright variants in the same order
   "#5e584d", "#a6363d", "#046641", "#815501", "#035fa0", "#b50165", "#036470", "#33302a",
 ]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "classic"

@@ -458,9 +458,58 @@ impl PromptConfig {
     }
 }
 
+/// The theme's colors a prompt is written in, every one known: the look's,
+/// the built-in theme's where the look gives none (no theme named), and the
+/// bar worked out as the window works it out when the theme leaves it out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Palette {
+    pub ansi: [[u8; 3]; 16],
+    pub foreground: [u8; 3],
+    pub background: [u8; 3],
+    /// Behind classic's band.
+    pub bar: [u8; 3],
+}
+
+impl Palette {
+    /// The colors of `look` (a theme's values with the settings' own over them).
+    #[must_use]
+    pub fn of(look: &crate::ThemeConfig) -> Self {
+        // The built-in theme is a file in the program; a test holds it to be a whole one.
+        let built_in = crate::themes::find(crate::themes::DEFAULT, None).unwrap_or_default();
+        let color = |own: &Option<String>, theirs: &Option<String>| {
+            own.as_deref().or(theirs.as_deref()).and_then(crate::parse_color).unwrap_or_default()
+        };
+        let foreground = color(&look.foreground, &built_in.foreground);
+        let background = color(&look.background, &built_in.background);
+        let sixteen = look.ansi.as_ref().or(built_in.ansi.as_ref());
+        let ansi = std::array::from_fn(|at| {
+            sixteen.and_then(|all| all.get(at)).and_then(|text| crate::parse_color(text)).unwrap_or_default()
+        });
+        let bar = look
+            .bar
+            .as_deref()
+            .and_then(crate::parse_color)
+            .unwrap_or_else(|| crate::toward(background, foreground, crate::BAR_AMOUNT));
+        Self { ansi, foreground, background, bar }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_palette_is_the_looks_with_the_built_in_theme_under_it_and_the_bar_worked_out() {
+        let none = Palette::of(&crate::ThemeConfig::default());
+        assert_eq!((none.foreground, none.background), ([0xc0, 0xca, 0xf5], [0x16, 0x16, 0x1e]), "tokyo-night's");
+        assert_eq!(none.ansi[4], [0x7a, 0xa2, 0xf7], "its blue");
+        assert_eq!(none.bar, [0x1c, 0x1c, 0x26], "worked out: the window's bar for this theme");
+        let aurora = crate::themes::find("aurora", None).expect("built in");
+        let palette = Palette::of(&aurora);
+        assert_eq!((palette.background, palette.bar), ([0x0c, 0x1c, 0x24], [0x10, 0x25, 0x2d]), "the theme's own bar");
+        let mine = crate::ThemeConfig { background: Some("#000000".into()), ..aurora };
+        assert_eq!(Palette::of(&mine).background, [0, 0, 0], "the look's own");
+    }
 
     fn read(text: &str) -> Result<PromptConfig, toml::de::Error> {
         toml::from_str(text)

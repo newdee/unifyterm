@@ -24,3 +24,9 @@ ansi = [
   # Bright variants in the same order
   "#86987d", "#ffc0a9", "#baf8ab", "#e8e6a7", "#d1e2ca", "#e1dbb2", "#c2f1be", "#e4f5d4",
 ]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "lean"
+dir_color = ["green"]
+git_color = ["bright-green"]

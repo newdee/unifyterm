@@ -122,6 +122,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 terminal_size = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false }
 unicode-width = "0.2"
+# The time of day in the prompt: already in the build through uu_date and uu_ls.
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 anyhow = "1"
 # ut mcp: JSON-RPC messages.
 serde_json = "1"
@@ -166,4 +168,5 @@ uu_users = "0.12.0"
 uu_who = "0.12.0"
 
 [dev-dependencies]
+toml = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }

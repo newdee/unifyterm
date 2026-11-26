@@ -27,6 +27,9 @@ const COMMANDS_VARIABLE: &str = "UNIFYTERM_COMMANDS";
 const LOGIN_VARIABLE: &str = "UNIFYTERM_LOGIN";
 /// The `ZDOTDIR` zsh had before UnifyTerm's hook took its place: the hook reads the user's files from it.
 const ZDOTDIR_VARIABLE: &str = "UNIFYTERM_ZDOTDIR";
+/// Set (to `ut`'s path) when UnifyTerm writes the prompt (`prompt.enabled`): the hooks then run
+/// `ut prompt` at every prompt in place of the shell's own.
+const PROMPT_VARIABLE: &str = "UNIFYTERM_PROMPT";
 
 /// UnifyTerm's commands, ready for a shell to use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +226,16 @@ impl Hooks {
     }
 }
 
+/// Tells the shell of `command` to have its prompt written by `ut` (the program at `ut`), when its
+/// hook can: PowerShell, bash, zsh and fish. Other shells keep their own prompt. The hooks must be
+/// in the shell (a tab with arguments of the user's has none).
+pub(crate) fn prompt_by(command: &mut CommandBuilder, ut: &Path) {
+    let kind = command.get_argv().first().map_or(ShellKind::Other, |program| shell_kind(&program.to_string_lossy()));
+    if matches!(kind, ShellKind::PowerShell | ShellKind::Bash | ShellKind::Zsh | ShellKind::Fish) {
+        command.env(PROMPT_VARIABLE, ut);
+    }
+}
+
 /// `PATH` with `first` before everything it already has. An empty entry is
 /// left out: in `PATH` it means the current directory, which must not get
 /// there by accident (an unset `PATH` would otherwise leave one).
@@ -279,7 +292,7 @@ pub(crate) fn command(
     let mut command = session::shell_command(program, args);
     // What a UnifyTerm this one was started from set for its own tab is not this tab's
     // (`commands.builtin` off here, a bash that is no login one): each is set below only where it applies.
-    for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE] {
+    for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE, PROMPT_VARIABLE] {
         command.env_remove(name);
     }
     if let Some(commands) = commands {
@@ -567,12 +580,27 @@ mod tests {
     fn without_commands_the_shell_is_started_as_it_is() {
         let plain = command(Some("pwsh.exe"), &[], None, None, ShellStart::Plain).unwrap();
         assert_eq!(argv(&plain), ["pwsh.exe"]);
-        for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE] {
+        for name in [COMMANDS_VARIABLE, LOGIN_VARIABLE, ZDOTDIR_VARIABLE, PROMPT_VARIABLE] {
             assert_eq!(
                 plain.get_env(name),
                 None,
                 "{name}: none of its own, and none passed on from a UnifyTerm it was started from"
             );
+        }
+    }
+
+    #[test]
+    fn the_prompt_is_written_by_ut_only_in_the_shells_whose_hooks_can() {
+        let ut = Path::new("/opt/unifyterm/ut");
+        for program in ["pwsh.exe", "bash", "/bin/zsh", "fish"] {
+            let mut started = command(Some(program), &[], None, Some(&hooked()), ShellStart::Plain).unwrap();
+            prompt_by(&mut started, ut);
+            assert_eq!(started.get_env(PROMPT_VARIABLE), Some(ut.as_os_str()), "{program}");
+        }
+        for program in ["cmd.exe", "nu"] {
+            let mut started = command(Some(program), &[], None, Some(&hooked()), ShellStart::Plain).unwrap();
+            prompt_by(&mut started, ut);
+            assert_eq!(started.get_env(PROMPT_VARIABLE), None, "{program} keeps its own prompt");
         }
     }
 

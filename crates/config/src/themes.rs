@@ -448,6 +448,21 @@ mod tests {
     }
 
     #[test]
+    fn every_built_in_theme_gives_a_prompt_look_and_turns_nothing_on() {
+        use crate::prompt::Style;
+        let mut styles = Vec::new();
+        for (name, text) in BUILT_IN {
+            let given = prompt(text).unwrap_or_else(|error| panic!("{name}: {error:#}"));
+            assert!(given.style.is_some(), "{name} says how its prompt looks");
+            assert_eq!((given.enabled, given.shine), (false, None), "{name}: on, and the light, are the user's");
+            styles.push(given.style);
+        }
+        for style in [Style::Lean, Style::Classic, Style::Rainbow] {
+            assert!(styles.contains(&Some(style)), "some built-in theme shows {style:?}");
+        }
+    }
+
+    #[test]
     fn a_theme_gives_a_prompt_and_the_settings_go_over_it() {
         use crate::prompt::{Gradient, Segment, Style};
         let folder = tempfile::tempdir().expect("a folder");

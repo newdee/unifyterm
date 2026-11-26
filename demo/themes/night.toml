@@ -21,3 +21,8 @@ ansi = [
   # Bright variants in the same order
   "#6d7b8b", "#fda8ad", "#a6e4bd", "#f3cc8e", "#a1c4f6", "#d1c3f3", "#a5ddf3", "#dce6f1",
 ]
+
+# The prompt UnifyTerm writes when the settings say prompt.enabled = true: how it looks in this theme.
+[prompt]
+style = "lean"
+gradient = "whole"
