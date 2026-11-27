@@ -11,6 +11,14 @@
 //! UnifyTerm with an image model and cut to the same 960 by 496 pixels, the
 //! character in the middle and low, where the sidebar's strip shows it.
 //!
+//! Each theme with a character also has a wallpaper, `<name>-wall.jpg`: the
+//! whole drawing (1536 by 1024) made four times larger by Real-ESRGAN's anime
+//! model and then half as large, 3072 by 2048, cut to a screen's 16 by 9 from
+//! below (3072 by 1728: only empty background above the character goes). A
+//! window of a 2560 by 1440 screen shows it without making it larger, the
+//! character whole; the sidebar's picture would be made almost three times
+//! larger there, and look soft.
+//!
 //! The other six are what the preview page draws, made by that page's own
 //! drawing code at twice the page's size (960 by 496 pixels) and saved as
 //! PNG, which loses nothing. The sidebar shows a picture 268 pixels wide: it
@@ -33,8 +41,9 @@ macro_rules! own {
     };
 }
 
-/// UnifyTerm's own pictures by their files' names: the ones `unifyterm-config` lists.
-const OWN: [(&str, &[u8]); 14] = [
+/// UnifyTerm's own pictures by their files' names: the ones `unifyterm-config`
+/// lists, the sidebar's (`PICTURES`) and then the wallpapers (`WALLPAPERS`).
+const OWN: [(&str, &[u8]); 22] = [
     own!("aurora.png"),
     own!("eclipse.png"),
     own!("phosphor.png"),
@@ -49,6 +58,14 @@ const OWN: [(&str, &[u8]); 14] = [
     own!("lyre.png"),
     own!("prism.png"),
     own!("drake.png"),
+    own!("whale-wall.jpg"),
+    own!("clay-wall.jpg"),
+    own!("mint-wall.jpg"),
+    own!("twin-wall.jpg"),
+    own!("void-wall.jpg"),
+    own!("lyre-wall.jpg"),
+    own!("prism-wall.jpg"),
+    own!("drake-wall.jpg"),
 ];
 
 /// A picture's file is not read past this: a picture for a strip 268 pixels wide is far below it.
@@ -59,7 +76,12 @@ fn own(name: &str) -> Option<Arc<Image>> {
     // Made once: an image is known to GPUI by a number worked out from all its bytes.
     static MADE: OnceLock<Vec<(&'static str, Arc<Image>)>> = OnceLock::new();
     MADE.get_or_init(|| {
-        OWN.iter().map(|(name, bytes)| (*name, Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec())))).collect()
+        // Each is read as its name's ending says (the tests hold that every ending is one known).
+        OWN.iter()
+            .filter_map(|(name, bytes)| {
+                Some((*name, Arc::new(Image::from_bytes(format_of(Path::new(name))?, bytes.to_vec()))))
+            })
+            .collect()
     })
     .iter()
     .find(|(known, _)| *known == name)
@@ -136,16 +158,42 @@ impl Shown {
 mod tests {
     use super::*;
 
+    /// A JPEG's width and height: from its frame's header (a marker 0xFFC0 to 0xFFC2).
+    fn jpeg_size(bytes: &[u8]) -> Option<(u16, u16)> {
+        let mut at = 2;
+        while at + 9 < bytes.len() {
+            let (mark, kind) = (bytes[at], bytes[at + 1]);
+            if mark != 0xff {
+                return None;
+            }
+            let length = usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]));
+            if (0xc0..=0xc2).contains(&kind) {
+                let number = |from: usize| u16::from_be_bytes([bytes[from], bytes[from + 1]]);
+                return Some((number(at + 7), number(at + 5)));
+            }
+            at += 2 + length;
+        }
+        None
+    }
+
     #[test]
     fn unifyterms_own_pictures_are_the_ones_the_settings_library_lists() {
+        use unifyterm_config::themes::{PICTURES, WALLPAPERS};
         let here: Vec<&str> = OWN.iter().map(|(name, _)| *name).collect();
-        assert_eq!(here, unifyterm_config::themes::PICTURES, "each name the library knows has its picture here");
-        for (name, bytes) in OWN {
+        let listed: Vec<&str> = PICTURES.iter().chain(WALLPAPERS.iter()).copied().collect();
+        assert_eq!(here, listed, "each name the library knows has its picture here");
+        for (name, bytes) in &OWN[..PICTURES.len()] {
             // A PNG: its eight-byte mark, then the first chunk, which gives the width and the height.
             assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{name}");
             let number = |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
             assert_eq!((number(16), number(20)), (960, 496), "{name}: twice the page's 480 by 248");
         }
+        for (name, bytes) in &OWN[PICTURES.len()..] {
+            assert_eq!(&bytes[..2], b"\xff\xd8", "{name}: a JPEG");
+            assert_eq!(jpeg_size(bytes), Some((3072, 1728)), "{name}: a 2560 by 1440 screen, not made larger");
+        }
+        assert!(OWN.iter().all(|(name, _)| format_of(Path::new(name)).is_some()), "every one can be read");
+        assert!(own("whale-wall.jpg").is_some() && own("whale.png").is_some());
         let mut shown = Shown::default();
         let first = shown.of(Some(&Picture::BuiltIn("aurora.png"))).expect("there");
         let again = shown.of(Some(&Picture::BuiltIn("aurora.png"))).expect("there");

@@ -15,8 +15,8 @@ edge = "#3e554c"
 muted = "#9db5aa"
 # The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
 picture = "mint.png"
-# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
-wallpaper = "mint.png"
+# The same picture behind the text, faint, large enough for a whole screen. wallpaper = "" in the settings turns it off.
+wallpaper = "mint-wall.jpg"
 wallpaper_opacity = 0.3
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white

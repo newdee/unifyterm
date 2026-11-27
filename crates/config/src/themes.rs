@@ -229,6 +229,21 @@ pub const PICTURES: [&str; 14] = [
     "drake.png",
 ];
 
+/// The wallpapers UnifyTerm brings: for each theme with a character, its
+/// picture again, large enough to fill a screen of 2560 by 1440 without being
+/// made larger (3072 by 1728, a screen's 16 by 9, JPEG). The sidebar's
+/// picture is far smaller.
+pub const WALLPAPERS: [&str; 8] = [
+    "whale-wall.jpg",
+    "clay-wall.jpg",
+    "mint-wall.jpg",
+    "twin-wall.jpg",
+    "void-wall.jpg",
+    "lyre-wall.jpg",
+    "prism-wall.jpg",
+    "drake-wall.jpg",
+];
+
 /// Where a picture is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Picture {
@@ -248,7 +263,7 @@ pub fn picture(named: &str, beside: Option<&Path>) -> Option<Picture> {
         return None;
     }
     let file = beside.map_or_else(|| PathBuf::from(named), |beside| beside.join(named));
-    let own = PICTURES.iter().find(|own| **own == named);
+    let own = PICTURES.iter().chain(WALLPAPERS.iter()).find(|own| **own == named);
     match own {
         Some(own) if !file.is_file() => Some(Picture::BuiltIn(own)),
         _ => Some(Picture::File(file)),
@@ -581,12 +596,17 @@ mod tests {
         for (name, _) in BUILT_IN.iter().filter(|(name, _)| !pictured.contains(name)) {
             assert_eq!(find(name, None).expect("built in").picture, None, "{name}");
         }
-        // A theme with a character shows it behind the text too; the preview page's six do not.
+        // A theme with a character shows it behind the text too, from a picture of its own as
+        // large as a screen, found from every folder; the preview page's six have no wallpaper.
         for name in ["whale", "clay", "mint", "twin", "void", "lyre", "prism", "drake"] {
             let theme = find(name, None).expect("built in");
-            assert_eq!(theme.wallpaper.as_deref(), Some(format!("{name}.png").as_str()), "{name}");
+            let wall = format!("{name}-wall.jpg");
+            assert_eq!(theme.wallpaper.as_deref(), Some(wall.as_str()), "{name}");
             assert_eq!(theme.wallpaper_opacity, Some(0.3), "{name}");
+            let own = WALLPAPERS.iter().find(|own| **own == wall).expect("one of UnifyTerm's own");
+            assert_eq!(picture(&wall, here), Some(Picture::BuiltIn(own)), "{name}");
         }
+        assert_eq!(WALLPAPERS.len(), 8, "one for each theme with a character");
         for name in ["aurora", "eclipse", "phosphor", "riso", "night", "day"] {
             assert_eq!(find(name, None).expect("built in").wallpaper, None, "{name}");
         }

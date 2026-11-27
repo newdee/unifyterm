@@ -15,8 +15,8 @@ edge = "#3a4a7e"
 muted = "#9fb0d6"
 # The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
 picture = "lyre.png"
-# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
-wallpaper = "lyre.png"
+# The same picture behind the text, faint, large enough for a whole screen. wallpaper = "" in the settings turns it off.
+wallpaper = "lyre-wall.jpg"
 wallpaper_opacity = 0.3
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white

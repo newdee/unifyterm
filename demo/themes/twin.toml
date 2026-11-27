@@ -15,8 +15,8 @@ edge = "#4a4f8f"
 muted = "#a5a8d6"
 # The picture at the foot of the sidebar: a file beside this one, or one of UnifyTerm's own.
 picture = "twin.png"
-# The same picture behind the text, faint. wallpaper = "" in the settings turns it off.
-wallpaper = "twin.png"
+# The same picture behind the text, faint, large enough for a whole screen. wallpaper = "" in the settings turns it off.
+wallpaper = "twin-wall.jpg"
 wallpaper_opacity = 0.3
 ansi = [
   # Black, red, green, yellow, blue, magenta, cyan, white
