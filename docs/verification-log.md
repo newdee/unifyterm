@@ -1,5 +1,20 @@
 # 验收记录
 
+## 2026-11-28 · `ut view` 在 keepane 的 pane 里用 kitty 图片（3cfe2ed，未发版）
+
+用户在 keepane 那边定了"改（推荐）"。keepane 0.99 起收下 kitty 图片：和 pane 的文字一起保存，在能显示的终端里显示，不能显示的终端里显示一个标签。图片开着时，pane 里有 `KEEPANE_GRAPHICS=kitty`。原来 `ut view` 在 pane 里看到的是 `TERM_PROGRAM=keepane`，用半块字符画。
+
+做了什么：`choose()` 新增一条规则：`TERM_PROGRAM=keepane` 并且 `KEEPANE_GRAPHICS=kitty` 时选 kitty。kitty 图片关掉时 keepane 不设这个变量，仍用半块字符，和原来一样。只有 keepane 的 pane 才认这个变量：别的程序里出现它，不选 kitty。图片本来就转成 PNG 再发，外层终端只要能显示 kitty 图片就能看到。
+
+定性：边界遗漏（新出现的一种环境），就地补一条规则。新 bug 风险：这条规则排在已知终端之后、Windows Terminal 之前；原来的输入结果都不变，测试里逐条核对过。
+
+验收（第一轮有发现，之后连续三轮干净）：
+
+1. 真 pane（keepane 0.99 开发版，临时 server，cmd）：选了 kitty；`kitty-graphics off` 后选半块字符。发现：`--verbose` 的说明文字括号里又套了括号，`kitty (… (KEEPANE_GRAPHICS=kitty))`。改成 `kitty (a keepane pane, which keeps kitty's pictures: KEEPANE_GRAPHICS=kitty)`。不计数。
+2. 静态 + 测试：fmt、clippy 0；ut 的测试 Windows 118 + 4 + 4 + 3、Linux（WSL）113 + 3 + 4 + 3，全过；文件开头的表和代码一致，别的文档没有列这条规则。
+3. 通路：3 个变异都被测试抓到：去掉这条规则；不读 `KEEPANE_GRAPHICS`；不看 `TERM_PROGRAM`。文件都还原（字节核对）。真 pane 里说明文字是新的，图片下面有 9 行空格子，就是 keepane 收下的图片（capture-pane 把图片的格子当作空格）。
+4. 可复现：`--mode kitty/half/ascii` 的输出各连跑 3 次，逐字节相同（81164、5495、147 字节）；view 测试连跑 3 次，结果相同。
+
 ## 2026-11-27 · 0.9.2：新的应用图标
 
 用户："这个 logo 可以换一下吗？或者让 gpt 画一个手绘版本的"。ChatGPT 网页版画的三个手绘方案（原图手绘、墨水印章、粗笔）用户说"都不好……更简洁一点……配色也不要这么花"；之后我用矢量画了六个简洁方案、反 E 的五个、"看不看得出来是终端"的六个、横 U 的五个，用户定了 U1："横着的 U"：开口朝左、圆弧朝右（UnifyTerm 的 U，也是圆头的 >），后面一条红色下划线光标；暖黑底 `#171716`、米白 `#cecabe`、红 `#dd625e`，即默认主题 paper-dark 的颜色。
