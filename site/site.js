@@ -39,7 +39,7 @@
     "nav.install": "安装",
     "theme.label": "切换浅色和深色",
     "hero.alt": "Windows 上的 UnifyTerm，PowerShell 里：cat Cargo.toml | grep -n version 输出带行号的三行；echo '[1,2,3]' | jq add 输出 6；ut view unifyterm.png 把 logo 作为图片显示在终端里。",
-    "stamp.seal": "印章：UnifyTerm 0.9.0，三个系统通用",
+    "stamp.seal": "印章：UnifyTerm 0.9.1，三个系统通用",
     "hero.h1": "一个终端，运行在 Windows、macOS 和 Linux 上。",
     "hero.sub": "在不同操作系统上，使用相同的命令和操作习惯。",
     "hero.lede": "UnifyTerm 是一个跨平台终端应用。它保留系统原生 Shell，同时提供一套统一的 Unix 命令工具，包括 <code>cat</code>、<code>grep</code>、<code>sed</code>、<code>jq</code> 等。",
