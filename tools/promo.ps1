@@ -340,8 +340,11 @@ $clips += Join-Fitted 's9' (Save-Backdrop 'b9' $caption.s9) 1.0
 # nothing is asked of GitHub here. The version is one for the picture, after this one.
 $script:frame = 0
 $today = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+# The next minor version after the workspace's: a fixed one stops being newer once a release passes it.
+$current = [version][regex]::Match([IO.File]::ReadAllText((Join-Path $root 'Cargo.toml')), '(?m)^version = "([^"]+)"').Groups[1].Value
+$later = "$($current.Major).$($current.Minor + 1).0"
 $keys = (Shots 's10' 6 200) + (Typed 's10' "ut --version") + "{ENTER}" + (Shots 's10' 10)
-Record 's10' "[updates]`ncheck = true`n" $keys @{ 'update.json' = "{`"checked`": $today, `"latest`": `"0.3.0`", `"dismissed`": null}" }
+Record 's10' "[updates]`ncheck = true`n" $keys @{ 'update.json' = "{`"checked`": $today, `"latest`": `"$later`", `"dismissed`": null}" }
 $clips += Join-Scene 's10' (Save-Backdrop 'b10' $caption.s10) 1.8
 
 # For the site alone: one picture with two commands and a picture in the terminal.
@@ -354,7 +357,7 @@ if ($Stills) {
     # The settings screen, on a file of the demo folder's own (the picture names it: no path of this machine).
     # With colors: this script's own shell may ask for none (NO_COLOR), the picture is of what a person sees.
     $script:frame = 0
-    [IO.File]::WriteAllText("${drive}:\config.toml", "[font]`nsize = 16`n`n[theme]`nbackground = `"#16161e`"`n")
+    [IO.File]::WriteAllText("${drive}:\config.toml", "[font]`nsize = 16`n")
     $noColor = $env:NO_COLOR; Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
     try { Record 'ss' "" ("ut setting --config config.toml{ENTER}{WAIT:1500}{DOWN}{WAIT:400}" + (Shots 'ss' 2 300) + "q{WAIT:500}") }
     finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item "${drive}:\config.toml" -ErrorAction SilentlyContinue }

@@ -65,6 +65,7 @@
         <a href="#help" data-i18n="nav.help">Assistance</a>
         <a href="#agents" data-i18n="nav.agents">Agents</a>
         <a href="#settings" data-i18n="nav.settings">Settings</a>
+        <a href="#themes" data-i18n="nav.themes">Themes</a>
         <a href="#observations" data-i18n="nav.observations">Limits</a>
         <a href="#install" data-i18n="nav.install">Install</a>
       </nav>
@@ -124,6 +125,10 @@
               <div>
                 <dt>Built-in commands <span lang="zh">内置命令</span></dt>
                 <dd data-i18n="field.commands">99 on Windows, 114 on Linux</dd>
+              </div>
+              <div>
+                <dt>Themes <span lang="zh">主题</span></dt>
+                <dd data-i18n="field.themes">17 built in, 8 with a character</dd>
               </div>
               <div>
                 <dt>Built with <span lang="zh">技术栈</span></dt>
@@ -275,8 +280,12 @@ ut view clip.mp4</code></pre>
             <p data-i18n="help.p1">UnifyTerm provides both local command correction and LLM-powered assistance.</p>
             <h3 data-i18n="help.h1">Local command correction</h3>
             <p data-i18n="help.p2">When a command is mistyped, UnifyTerm checks available commands and suggests a correction. This works locally without an internet connection or an AI model.</p>
+            <h3 data-i18n="help.h3">Command lists, without a model</h3>
+            <p data-i18n="help.p6">A program can describe its commands and options in an <a href="https://opencli.org" rel="noopener">OpenCLI</a> file. Add it with <code>ut program add</code>. UnifyTerm then lists the program's subcommands as you type (<code>git st</code> shows <code>stash</code> and <code>status</code>), corrects a mistyped one (<code>git comit</code>) and explains each word with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>. Nothing is sent anywhere.</p>
             <h3 data-i18n="help.h2">AI-powered explanations</h3>
             <p data-i18n="help.p3">After configuring an LLM, you can use <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to get explanations of commands and their arguments. UnifyTerm can also provide command completion suggestions as you type.</p>
+            <p data-i18n="help.p7">Type <code>#</code> and what you want, for example <code># the five largest files here</code>, then press <kbd>Enter</kbd>. The model's command goes on the input line. It does not run until you press <kbd>Enter</kbd> again.</p>
+            <p data-i18n="help.p8">The model can be a service (Anthropic, OpenAI or any OpenAI-compatible one), a model server on your machine (Ollama, LM Studio, vLLM), or the command line of an agent you already use (Claude Code, Codex, pi).</p>
             <p data-i18n="help.p4">AI assistance is disabled by default.</p>
             <p data-i18n="help.p5">Before you enable it, UnifyTerm shows what information will be shared and asks you to agree once. Passwords, tokens and keys are filtered from every request. You decide whether to enable AI assistance.</p>
           </div>
@@ -343,7 +352,7 @@ ut view clip.mp4</code></pre>
               <li data-i18n="settings.l3">Invalid values are rejected with the reason, and nothing is written.</li>
               <li data-i18n="settings.l4">Comments and the order of your file are preserved.</li>
             </ul>
-            <p data-i18n="settings.p2">Changes to the font, colors and padding apply immediately in open windows. Other settings apply later, for example to the next tab or after a restart; the settings screen shows when each one applies.</p>
+            <p data-i18n="settings.p2">Changes to the font, the theme, the keys and the padding apply immediately in open windows. Other settings apply later, for example to the next tab or after a restart; the settings screen shows when each one applies.</p>
             <p data-i18n="settings.p3">For example, on Windows and macOS the tab row also serves as the title bar. Set <code>window.system_title_bar</code> to <code>true</code> to use the system title bar instead.</p>
             <p data-i18n="settings.p4">The same settings are available to scripts and agents:</p>
             <pre><code>ut setting list
@@ -351,12 +360,54 @@ ut setting set font.size 16</code></pre>
           </div>
           <figure class="plate">
             <img src="img/settings.png" width="960" height="620" loading="lazy" alt="The settings screen in the terminal: the settings in sections, each with its value; under the list, what the chosen setting does, the values it accepts and its default." data-i18n-attr="alt:settings.alt" />
-            <svg class="stamp stamp--box" viewBox="0 0 250 120" role="img" aria-label="Stamp: 61 settings in one file, comments kept" data-i18n-attr="aria-label:stamp.settings" style="--turn: 6deg; --ink: var(--ink-teal)">
+            <svg class="stamp stamp--box" viewBox="0 0 250 120" role="img" aria-label="Stamp: 78 settings in one file, comments kept" data-i18n-attr="aria-label:stamp.settings" style="--turn: 6deg; --ink: var(--ink-teal)">
               <g filter="url(#ink)">
                 <rect x="4" y="4" width="242" height="112" rx="6" /><rect x="11" y="11" width="228" height="98" rx="3" class="thin" />
-                <text class="row" x="125" y="44">61 SETTINGS</text>
+                <text class="row" x="125" y="44">78 SETTINGS</text>
                 <text class="row" x="125" y="70">ONE FILE</text>
                 <text class="row row--small" x="125" y="96">COMMENTS KEPT</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Themes -->
+      <section class="page page--lilac" id="themes" aria-labelledby="h-themes">
+        <div class="guilloche" aria-hidden="true"></div>
+        <div class="themes">
+          <div class="spread__text">
+            <h2 id="h-themes" data-i18n="themes.h">Themes and characters</h2>
+            <p data-i18n="themes.p1">UnifyTerm has 17 built-in themes. <code>ut theme</code> lists them with a sample of each one's colors. <code>ut theme NAME</code> changes every open window at once.</p>
+            <p data-i18n="themes.p2">Eight of them have a character, shown behind the text and at the foot of the agents' sidebar.</p>
+            <pre><code>ut theme
+ut theme whale</code></pre>
+          </div>
+          <div class="spread__text">
+            <p data-i18n="themes.p3">A theme also sets the look of UnifyTerm's own prompt: directory, git branch, exit code and duration. Turn the prompt on with <code>prompt.enabled</code>. Your shell's own prompt stays until you do.</p>
+            <p data-i18n="themes.p4">A theme of your own is a TOML file in the themes folder. It can set the colors, opacity, blur, rounded corners, a sidebar picture and a wallpaper. <code>ut theme new NAME</code> starts one from the theme in use, and the window follows the file as you save it.</p>
+          </div>
+        </div>
+        <div class="viewer">
+          <div class="viewer__tabs" role="tablist" aria-label="Themes with a character" data-i18n-attr="aria-label:themes.tabs">
+            <button role="tab" type="button" id="tab-whale" aria-controls="viewer-plate" aria-selected="true" style="--bg: #0b1530; --dot: #6fe3ff" data-src="img/theme-whale.webp" data-alt="The theme whale: a girl in a whale hood behind the text and at the foot of the agents' sidebar; ut theme lists the 17 themes." data-i18n-attr="data-alt:themes.alt.whale"><b lang="zh">哦鲸鲸</b><span>whale</span></button>
+            <button role="tab" type="button" id="tab-clay" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #f5f1e8; --dot: #c8603f" data-src="img/theme-clay.webp" data-alt="The theme clay, a light one: a girl with long auburn hair in a white dress, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.clay"><b lang="zh">陶陶</b><span>clay</span></button>
+            <button role="tab" type="button" id="tab-mint" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #0f1412; --dot: #3fd6a8" data-src="img/theme-mint.webp" data-alt="The theme mint: a girl with black and green hair at a laptop, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.mint"><b lang="zh">薄荷</b><span>mint</span></button>
+            <button role="tab" type="button" id="tab-twin" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #11132a; --dot: #c79bff" data-src="img/theme-twin.webp" data-alt="The theme twin: a purple-haired girl in violet and gold, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.twin"><b lang="zh">双子</b><span>twin</span></button>
+            <button role="tab" type="button" id="tab-void" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #0a0a0a; --dot: #ffffff" data-src="img/theme-void.webp" data-alt="The theme void: a blonde girl in a black dress, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.void"><b lang="zh">虚空</b><span>void</span></button>
+            <button role="tab" type="button" id="tab-lyre" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #0a0f1f; --dot: #f2c14e" data-src="img/theme-lyre.webp" data-alt="The theme lyre: a girl holding a lyre, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.lyre"><b lang="zh">缪缪</b><span>lyre</span></button>
+            <button role="tab" type="button" id="tab-prism" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #0e1124; --dot: #5ce1e6" data-src="img/theme-prism.webp" data-alt="The theme prism: a fox girl in dark blue, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.prism"><b lang="zh">谱谱</b><span>prism</span></button>
+            <button role="tab" type="button" id="tab-drake" aria-controls="viewer-plate" aria-selected="false" tabindex="-1" style="--bg: #0b1a17; --dot: #4fe3a0" data-src="img/theme-drake.webp" data-alt="The theme drake: a white-haired dragon girl in green, behind the text and in the sidebar." data-i18n-attr="data-alt:themes.alt.drake"><b lang="zh">龙龙</b><span>drake</span></button>
+          </div>
+          <figure class="plate viewer__plate" id="viewer-plate" role="tabpanel" aria-labelledby="tab-whale">
+            <img id="viewer-img" src="img/theme-whale.webp" width="1264" height="791" loading="lazy" alt="The theme whale: a girl in a whale hood behind the text and at the foot of the agents' sidebar; ut theme lists the 17 themes." />
+            <svg class="stamp stamp--round" viewBox="0 0 200 200" role="img" aria-label="Stamp: 17 themes, 8 with a character" data-i18n-attr="aria-label:stamp.themes" style="--turn: 8deg; --ink: var(--ink-purple)">
+              <defs><path id="t-top" d="M 26 100 A 74 74 0 0 1 174 100" /><path id="t-bottom" d="M 20 100 A 80 80 0 0 0 180 100" /></defs>
+              <g filter="url(#ink)">
+                <circle cx="100" cy="100" r="94" /><circle cx="100" cy="100" r="58" class="thin" />
+                <text class="arc"><textPath href="#t-top" startOffset="50%">BUILT-IN THEMES</textPath></text>
+                <text class="arc arc--small"><textPath href="#t-bottom" startOffset="50%">8 WITH A CHARACTER</textPath></text>
+                <text class="mid" x="100" y="112">17</text>
               </g>
             </svg>
           </figure>
@@ -384,9 +435,10 @@ ut setting set font.size 16</code></pre>
           <li data-i18n="obs.2">The macOS build passes CI builds and tests, but has seen little hands-on use so far.</li>
           <li data-i18n="obs.3">Video playback requires FFmpeg and currently does not support audio.</li>
           <li data-i18n="obs.4">PowerShell's native Tab completion still uses Windows-style path separators.</li>
+          <li data-i18n="obs.6">The themes, the row of tabs and the sidebar were checked by hand on Windows. On macOS and Linux they are built and tested, and have seen little use.</li>
           <li data-i18n="obs.5">In its own window, UnifyTerm currently renders images through the Kitty graphics protocol only. When <code>ut view</code> runs in other terminals, it can also output Sixel and iTerm2 images.</li>
         </ul>
-        <p class="obs__note" data-i18n="obs.tests">The project currently includes 401 test cases, plus 182 tests that drive the desktop application.</p>
+        <p class="obs__note" data-i18n="obs.tests">The project currently includes 401 test cases, plus 183 tests that drive the desktop application.</p>
       </section>
 
       <!-- Install -->
@@ -417,7 +469,7 @@ scoop install unifyterm</code></pre>
     </main>
 
     <footer class="foot">
-      <p class="foot__mrz" aria-hidden="true">P&lt;UNIFYTERM&lt;&lt;ONE&lt;TERMINAL&lt;&lt;&lt;WINDOWS&lt;MACOS&lt;LINUX&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br />MIT&lt;&lt;GITHUB.COM/NEWDEE/UNIFYTERM&lt;&lt;&lt;&lt;V0&lt;1&lt;0&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</p>
+      <p class="foot__mrz" aria-hidden="true">P&lt;UNIFYTERM&lt;&lt;ONE&lt;TERMINAL&lt;&lt;&lt;WINDOWS&lt;MACOS&lt;LINUX&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br />MIT&lt;&lt;GITHUB.COM/NEWDEE/UNIFYTERM&lt;&lt;&lt;&lt;V0&lt;7&lt;3&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</p>
       <p data-i18n="foot.by">Developed by <a href="https://github.com/newdee" rel="noopener">newdee</a>.</p>
       <p data-i18n="foot.keepane">UnifyTerm unifies the terminal environment and the command interface. To manage terminal panes, agent lifecycles and collaboration between multiple agents, see <a href="https://github.com/newdee/keepane" rel="noopener">keepane</a>.</p>
     </footer>

@@ -33,6 +33,7 @@
     "nav.help": "辅助",
     "nav.agents": "Agent",
     "nav.settings": "设置",
+    "nav.themes": "主题",
     "nav.observations": "限制",
     "nav.install": "安装",
     "theme.label": "切换浅色和深色",
@@ -45,6 +46,7 @@
     "field.type": "桌面终端应用",
     "field.shell": "PowerShell、cmd、bash、zsh、fish",
     "field.commands": "Windows 99 个，Linux 114 个",
+    "field.themes": "内置 17 套，8 套带角色",
     "field.repo": "GitHub 仓库",
     "entries.label": "适用的系统",
     "entry.windows": "10（1809）及以上",
@@ -90,8 +92,12 @@
     "help.p1": "UnifyTerm 提供本地命令纠错和基于大语言模型的命令辅助。",
     "help.h1": "本地命令纠错",
     "help.p2": "输入错误的命令时，会检查可用命令并给出修正建议。这部分在本地完成，不需要联网，也不依赖 AI 模型。",
+    "help.h3": "命令清单，不需要模型",
+    "help.p6": "程序可以用 <a href=\"https://opencli.org\" rel=\"noopener\">OpenCLI</a> 格式的文件描述自己的子命令和选项，用 <code>ut program add</code> 加入。之后输入时会列出这个程序的子命令（输入 <code>git st</code> 会出现 <code>stash</code> 和 <code>status</code>），拼错的子命令会给出修正（<code>git comit</code>），按 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> 会逐词解释。这些都在本地完成，不发送任何内容。",
     "help.h2": "AI 命令解释",
     "help.p3": "配置大语言模型后，可以通过 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> 获取命令及其参数的解释，也可以在输入过程中获得命令补全建议。",
+    "help.p7": "输入 <code>#</code> 加上你想做的事，例如 <code># 这里最大的五个文件</code>，然后按 <kbd>Enter</kbd>。模型给出的命令会放到输入行上，再按一次 <kbd>Enter</kbd> 才会执行。",
+    "help.p8": "模型可以是在线服务（Anthropic、OpenAI 或任何兼容 OpenAI 接口的服务）、本机的模型服务器（Ollama、LM Studio、vLLM），也可以是你已经在用的 Agent 命令行（Claude Code、Codex、pi）。",
     "help.p4": "AI 功能默认关闭。",
     "help.p5": "启用之前，UnifyTerm 会展示即将共享的信息，并请你确认一次。每次请求都会先过滤密码、Token 和密钥等敏感内容。是否启用 AI 辅助，由用户决定。",
     "help.alt": "在 tar -czf site.tgz public 下面，一个框逐行解释 tar、-czf、site.tgz 和 public。",
@@ -115,11 +121,26 @@
     "settings.l2": "每个设置项都会显示用途、可取的值和默认值。",
     "settings.l3": "不合法的值会被拒绝并说明原因，不会写入文件。",
     "settings.l4": "文件中原有的注释和顺序会保留。",
-    "settings.p2": "字体、颜色和边距的修改会在已打开的窗口中立即生效。其他设置稍后生效，例如在下一个标签页或重启之后；设置界面中会注明每一项何时生效。",
+    "settings.p2": "字体、主题、快捷键和边距的修改会在已打开的窗口中立即生效。其他设置稍后生效，例如在下一个标签页或重启之后；设置界面中会注明每一项何时生效。",
     "settings.p3": "例如，在 Windows 和 macOS 上，标签栏同时作为标题栏使用。将 <code>window.system_title_bar</code> 设为 <code>true</code>，可以改回系统标题栏。",
     "settings.p4": "脚本和 Agent 也可以使用同样的设置：",
     "settings.alt": "终端里的设置界面：设置项按分组列出，每项后面是它的值；列表下方是所选设置项的用途、可取的值和默认值。",
-    "stamp.settings": "印章：61 个设置项，一个文件，注释保留",
+    "stamp.settings": "印章：78 个设置项，一个文件，注释保留",
+    "themes.h": "主题和角色",
+    "themes.p1": "UnifyTerm 内置 17 套主题。<code>ut theme</code> 列出全部主题和各自的色样，<code>ut theme NAME</code> 让所有打开的窗口立即换上这套主题。",
+    "themes.p2": "其中 8 套带有角色，角色图显示在文字后面和 Agent 侧栏底部。",
+    "themes.p3": "主题还决定 UnifyTerm 自带提示符的样子：目录、git 分支、退出码和耗时。用 <code>prompt.enabled</code> 打开提示符；打开之前，仍使用你的 Shell 自己的提示符。",
+    "themes.p4": "自己的主题是 themes 文件夹里的一个 TOML 文件，可以设置颜色、透明度、毛玻璃、圆角、侧栏图片和壁纸。<code>ut theme new NAME</code> 以当前主题为底新建一个；保存文件后，窗口立即跟着变化。",
+    "themes.tabs": "带角色的主题",
+    "themes.alt.whale": "主题 whale（哦鲸鲸）：戴鲸鱼兜帽的女孩显示在文字后面和 Agent 侧栏底部；ut theme 列出 17 套主题。",
+    "themes.alt.clay": "主题 clay（陶陶），浅色：长发、白裙的女孩显示在文字后面和侧栏里。",
+    "themes.alt.mint": "主题 mint（薄荷）：黑发带绿色挑染、坐在笔记本电脑前的女孩显示在文字后面和侧栏里。",
+    "themes.alt.twin": "主题 twin（双子）：紫发、紫金配色的女孩显示在文字后面和侧栏里。",
+    "themes.alt.void": "主题 void（虚空）：金发、黑裙的女孩显示在文字后面和侧栏里。",
+    "themes.alt.lyre": "主题 lyre（缪缪）：抱着竖琴的女孩显示在文字后面和侧栏里。",
+    "themes.alt.prism": "主题 prism（谱谱）：深蓝色的狐狸女孩显示在文字后面和侧栏里。",
+    "themes.alt.drake": "主题 drake（龙龙）：白发、绿衣的龙女孩显示在文字后面和侧栏里。",
+    "stamp.themes": "印章：内置 17 套主题，8 套带角色",
     "film.h": "实际运行效果",
     "film.p": "这里展示 UnifyTerm 在真实环境中的运行过程，包括命令执行、历史搜索、内容查看和 Agent 集成。",
     "film.link": "观看演示视频",
@@ -129,8 +150,9 @@
     "obs.2": "macOS 版本已通过 CI 构建和测试，但人工使用还很少。",
     "obs.3": "视频播放依赖 FFmpeg，目前不支持音频。",
     "obs.4": "PowerShell 原生 Tab 补全仍然使用 Windows 风格的路径分隔符。",
+    "obs.6": "主题、标签栏和侧栏在 Windows 上做过人工检查；macOS 和 Linux 上通过了构建和测试，实际使用还很少。",
     "obs.5": "UnifyTerm 窗口内的图片渲染目前只支持 Kitty 图形协议；<code>ut view</code> 在其他终端中运行时，还可以输出 Sixel 和 iTerm2 格式。",
-    "obs.tests": "目前项目包含 401 个测试用例，另有 182 个针对桌面应用的测试。",
+    "obs.tests": "目前项目包含 401 个测试用例，另有 183 个针对桌面应用的测试。",
     "install.h": "安装",
     "install.brew": "使用 Homebrew：",
     "install.curl": "或者使用安装脚本：",
@@ -188,6 +210,7 @@
     langButton.setAttribute("aria-label", chinese ? "Switch to English" : "切换到中文");
     document.title = chinese ? "UnifyTerm · 一个终端，运行在 Windows、macOS 和 Linux 上" : "UnifyTerm · One terminal across Windows, macOS and Linux";
     showNote();
+    showTheme();
   }
   langButton.addEventListener("click", function () {
     var next = root.dataset.lang === "zh" ? "en" : "zh";
@@ -262,6 +285,38 @@
     selection.removeAllRanges();
     selection.addRange(range);
   }
+
+  // ---- themes: one picture at a time ------------------------------------
+  var themeTabs = Array.prototype.slice.call(document.querySelectorAll(".viewer__tabs [role=tab]"));
+  var plate = document.getElementById("viewer-plate");
+  var picture = document.getElementById("viewer-img");
+  var shownTheme = themeTabs[0];
+  function showTheme() {
+    picture.alt = shownTheme.getAttribute("data-alt");
+  }
+  function pickTheme(tab, focus) {
+    themeTabs.forEach(function (other) {
+      var selected = other === tab;
+      other.setAttribute("aria-selected", String(selected));
+      other.tabIndex = selected ? 0 : -1;
+    });
+    shownTheme = tab;
+    picture.src = tab.dataset.src;
+    plate.setAttribute("aria-labelledby", tab.id);
+    showTheme();
+    if (focus) tab.focus();
+  }
+  themeTabs.forEach(function (tab, index) {
+    tab.addEventListener("click", function () {
+      pickTheme(tab, false);
+    });
+    tab.addEventListener("keydown", function (event) {
+      var step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      pickTheme(themeTabs[(index + step + themeTabs.length) % themeTabs.length], true);
+    });
+  });
 
   // ---- the stamps land once, as their page comes into view -------------
   var still = matchMedia("(prefers-reduced-motion: reduce)").matches;

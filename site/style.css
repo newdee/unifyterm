@@ -262,6 +262,8 @@ main {
   border-radius: 20px;
   box-shadow: var(--shadow);
   overflow: hidden;
+  /* clip, not hidden, where it is known: a page that is no scroll box lets its picture stay in view. */
+  overflow: clip;
 }
 .page--blue {
   background: var(--paper-blue);
@@ -622,6 +624,12 @@ h1 {
 .spread__text p {
   max-width: 58ch;
 }
+/* Beside words longer than itself, the picture stays in view while they are read. */
+.spread > .plate {
+  position: sticky;
+  top: 96px;
+  align-self: start;
+}
 .spread__text h3 {
   margin: 1.5em 0 0.5em;
   font-size: 1rem;
@@ -661,6 +669,67 @@ h1 {
   font: 400 0.8125rem/1.75 var(--mono);
   color: var(--ink-2);
   word-spacing: 0.35em;
+}
+
+/* ---- themes: the words in two columns, then one picture at a time ---- */
+
+.themes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 clamp(28px, 5vw, 66px);
+}
+.themes .spread__text:last-child {
+  padding-top: clamp(0px, 4.2vw, 52px);
+}
+.viewer {
+  margin-top: clamp(22px, 3vw, 34px);
+}
+.viewer__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.viewer__tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 9px;
+  border: 1.5px solid var(--rule);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 70%, transparent);
+  color: var(--ink-2);
+  font: 400 0.8125rem/1 var(--sans);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+/* A theme's own two colors: what is behind its text, and its cursor. */
+.viewer__tabs button::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--dot) 0 32%, var(--bg) 36%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.viewer__tabs b {
+  font-weight: 700;
+  color: var(--ink);
+}
+.viewer__tabs span {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+.viewer__tabs button:hover {
+  border-color: var(--ink-2);
+}
+.viewer__tabs button[aria-selected="true"] {
+  border-color: var(--foil);
+  background: var(--paper);
+  color: var(--ink);
+}
+html:not(.js) .viewer__tabs {
+  display: none;
 }
 
 /* ---- stamps --------------------------------------------------------- */
@@ -900,8 +969,12 @@ pre code {
 
 @media (max-width: 860px) {
   .data,
-  .spread {
+  .spread,
+  .themes {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .themes .spread__text:last-child {
+    padding-top: 1em;
   }
   .spread--flip .spread__text {
     order: 0;
