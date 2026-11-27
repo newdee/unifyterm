@@ -9,7 +9,7 @@
 - 设置：`[mail.accounts.NAME]` 一个邮箱一张表（地址、服务器、登录名、密码命令、代理、天数、登录方式各自设）；`[mail]` 里原来的写法算第一个邮箱，名字取域名第一段。新增 `mail.auth`（auto / password / oauth2）、`mail.oauth_client_id`、`keys.mail_add`（Ctrl+Alt+Shift+M），共 91 项。同一地址设两次、名字不合规、缺地址都在读设置时拒绝。`File::set_mailbox` / `remove_mailbox` 写表、删表，保留注释和原有顺序；改第一个邮箱时把它挪进自己的表。
 - 存储：`mail.db` 升到第 2 版，每封信、每个对话、每个文件夹、每条状态都记属于哪个邮箱（地址）；同一封信在两个邮箱里各存一份。第 1 版文件打开时原地迁移，旧行由 `[mail]` 的邮箱接收，不重新下载。`threads` 新增「待我回复」「我发出的」两种筛选。
 - 同步：每个邮箱一个线程、一把锁（`mail-<地址>.lock`）、一条状态；一个出错不影响别的。回复从对话所在的邮箱发出。`mail.on_new` 多一个 `{account}`。
-- OAuth2（微软）：设备码登录（`/devicecode`、`/token`，可走邮箱的代理），刷新令牌分段存钥匙串，访问令牌在进程里缓存、快到期时自动换；IMAP 用 `AUTHENTICATE XOAUTH2`，SMTP 用 `AUTH XOAUTH2`。Outlook.com 等域名自动选 OAuth2，服务器 outlook.office365.com:993 / smtp-mail.outlook.com:587（来自微软的 Outlook.com 设置页）。UnifyTerm 自己的微软应用还没注册：没有 `mail.oauth_client_id` 时明确提示，不发请求。
+- OAuth2（微软）：设备码登录（`/devicecode`、`/token`，可走邮箱的代理），刷新令牌分段存钥匙串，访问令牌在进程里缓存、快到期时自动换；IMAP 用 `AUTHENTICATE XOAUTH2`，SMTP 用 `AUTH XOAUTH2`。Outlook.com 等域名自动选 OAuth2，服务器 outlook.office365.com:993 / smtp-mail.outlook.com:587（来自微软的 Outlook.com 设置页）。用户让我注册了 UnifyTerm 的微软应用（Microsoft Entra，用户登录后由我操作）：名称 UnifyTerm，账户类型"任何 Entra ID 租户 + 个人 Microsoft 帐户"，打开"允许公共客户端流"，不设重定向 URI、不建密钥。编号写进 `CLIENT_ID`；`mail.oauth_client_id` 留给自己注册了应用的组织。注册后用这个编号向微软的 `/devicecode` 申请过一次，拿到登录码和 `https://login.microsoft.com/device`（没有登录，没有令牌）。
 - 窗口：左上角邮箱名（全部混排，对话带邮箱标签；右键：重新登录 / 修改 / 移除，移除要点两次）；四个筛选；`+` 或 Ctrl+Alt+Shift+M 在右栏打开添加表单：按地址识别服务器、推荐登录方式（授权码 / 浏览器登录 / 手动服务器 / 程序给密码），直连或代理，"测试并添加"逐项显示连接、登录、已发送文件夹、SMTP，全部通过才写设置和钥匙串，失败把那一步的原因写在底部。没有邮箱时打开邮件界面就是这个表单。
 - `ut mail account add/list/remove`，`login`/`logout`/`sync`/`list`/`search` 加 `--account`，`list` 加 `--waiting`/`--mine`；`ut mcp` 的 `mail_threads` 加 `filter`、`account`。README、skill、网页（版本、91 项、邮箱一句和限制一条按事实改；邮箱截图换成两个邮箱的新图）。版本 0.9.0。
 
@@ -22,6 +22,7 @@
 | 加完邮箱后右边还停在旧对话；筛选为空时右边仍显示列表里没有的对话；加完后沿用 Sent 筛选 | 共性（"选中的对话必须在列表里"这个不变量在三个入口没执法） | 切邮箱、换筛选、加完邮箱都重新选，列表空时清掉 |
 | 授权码错时底部只写 "nothing was kept"，原因在被挤出视野的步骤列表里 | 个性 | 失败那一步的原因写进底部提示 |
 | 第一轮静态检查：rustfmt、clippy `single_match_else`、`crates/mail/Cargo.toml` 混进 CRLF | 写法问题 | 修掉；换行检查改成只看文本文件 |
+| 推送后 CI（Windows）失败：并发测试 `seen: database is locked` | 共性（所有后台写入：同步、状态、发信），结构缺陷：界面和后台共用 5 秒等待；而且每次打开都开写事务查版本，打开本身就抢写锁 | 后台连接 `open_background` 等 60 秒、界面仍 5 秒，等待在打开前就设好；版本相同时只读不写，新建和迁移才拿写锁。本机同时跑 4 份这个测试：修前 4/4 失败（报错来自打开），修后 4/4 通过 |
 | docs-check 把 `examples/` 里的测试用环境变量当成要写进 README 的变量 | 检查脚本的期望写错，不是代码的问题 | `examples/` 和 `tests/` 一样排除 |
 
 我自己的两次失误（已恢复，记下）：一次命令里误带 `git stash` 把 store.rs 的改动收进了 stash，立刻 `git stash pop` 恢复并核对；一次修 CRLF 时把 `site/img/mail.webp` 当文本重写，从原始截图重新生成，大小和第一次一致（61486 字节）、能解码。
@@ -32,7 +33,13 @@
 2. 测试 + 机制通路：unifyterm 158、config 46、mail 25 + 7、ut 118 + 4 + 4 + 3，全过。实机（两个本机假邮箱）：添加第三个邮箱（手动服务器）→ 写进设置、开始同步、标签栏 ✉ 5 = 全部 5、无锁错误；`ut mail account remove third --yes` 后设置和钥匙串都无残留；授权码错时底部写出 `[AUTHENTICATIONFAILED]`，设置和钥匙串都没有写入。
 3. 可复现 + 边界：mail 测试连跑 3 次，3 次都是 25/0、7/0；没有任何邮箱时 Ctrl+Shift+M 直接是添加表单，Esc 回终端，不建 `mail.db`。
 
-遗留：Outlook 浏览器登录只对本机假登录服务测过，等用户发版后用自己的应用 ID 实测；macOS、Linux 的界面没看过。
+CI 失败修好、写进应用编号之后，又做三轮：
+
+1. 静态：fmt、clippy 0；docs、site、scripts 检查 0 失败；隐私 0、CRLF 0；编号只在 `oauth.rs` 一处。
+2. 测试 + 通路：各包全过（158、46、25 + 7、118 + 4 + 4 + 3）；`ut mail account add work someone@outlook.com` 用内置编号从微软拿到登录码，10 秒后中止，设置文件仍是空的。
+3. 可复现 + 压力：mail 测试连跑 3 次都是 25/0、7/0；并发测试同时 4 份、重复 3 组，12/12 通过。
+
+遗留：Outlook 浏览器登录对微软只验证到拿到登录码，完整登录、收发等用户发版后用真实账号实测；macOS、Linux 的界面没看过。
 ## 2026-11-27 · 0.8.0 发布；第三支宣传视频，发到 B 站和 YouTube
 
 发布：CI（4e496b8）三个系统全绿；标签 `v0.8.0`，release 工作流成功，Release 18 个文件；Homebrew formula 3 个哈希、Scoop 1 个哈希和 Release 的 `.sha256` 一致（第一次读哈希时有一个文件网络 EOF，换 `gh release download` 重读后 3/3）；网页显示 0.8.0，有"终端旁边的邮箱"一节。

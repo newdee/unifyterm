@@ -149,7 +149,7 @@ pub const BY_HAND: &str = "you";
 /// put in the server's sent folder when the server did not keep one itself.
 pub fn send_answer(plans: &[Plan], thread: i64, text: &str) -> Result<()> {
     let path = plans.first().map_or_else(default_path, |plan| Ok(plan.store.clone()))?;
-    let mut store = Store::open(&path)?;
+    let mut store = Store::open_background(&path)?;
     let conversation = store.thread(thread)?.with_context(|| format!("there is no conversation {thread}"))?;
     let address = &conversation.summary.account;
     let plan = plans

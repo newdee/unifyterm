@@ -99,7 +99,7 @@ impl Plan {
 /// One sync, start to end: logs in, syncs, logs out. For `ut mail sync`.
 pub fn once(plan: &Plan) -> Result<Vec<NewMail>> {
     let credential = plan.credential().map_err(|failure| anyhow::anyhow!("{failure}"))?;
-    let mut store = Store::open(&plan.store)?;
+    let mut store = Store::open_background(&plan.store)?;
     let mut session = net::login(&plan.account, &credential).map_err(|failure| anyhow::anyhow!("{failure}"))?;
     let new = net::sync(&mut session, &mut store, &plan.account, plan.days, unifyterm_history::now_ms())?;
     store.set_status(&plan.account.address, "synced", Health::Fine, unifyterm_history::now_ms())?;
@@ -163,7 +163,7 @@ pub fn run(plan: &Plan, stop: &Stopper, mut on_new: impl FnMut(Vec<NewMail>)) {
 /// Logged in, sync and wait again and again, until the connection fails or `stop` is stopped.
 fn round(plan: &Plan, stop: &Stopper, on_new: &mut impl FnMut(Vec<NewMail>)) -> Result<(), Failure> {
     let credential = plan.credential()?;
-    let mut store = Store::open(&plan.store).map_err(Failure::Other)?;
+    let mut store = Store::open_background(&plan.store).map_err(Failure::Other)?;
     say(plan, "connecting", Health::Fine);
     let mut session = net::login_holding(&plan.account, &credential, |socket| stop.hold(socket))?;
     while !stop.stopped() {
@@ -190,7 +190,7 @@ fn say(plan: &Plan, text: &str, health: Health) {
     }
     let now = unifyterm_history::now_ms();
     if let Err(error) =
-        Store::open(&plan.store).and_then(|store| store.set_status(&plan.account.address, text, health, now))
+        Store::open_background(&plan.store).and_then(|store| store.set_status(&plan.account.address, text, health, now))
     {
         log::warn!("mail: the status could not be written: {error:#}");
     }

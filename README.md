@@ -198,7 +198,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `mail.notify` | `true` | A note at the window's foot when mail comes |
 | `mail.auth` | `auto` | How the mailbox logs in: `password`, or `oauth2` (a sign-in in the browser, Microsoft). `auto`: `oauth2` for outlook.com, hotmail.com, live.com and msn.com |
 | `mail.accounts` | | More mailboxes: `[mail.accounts.NAME]`, each a table with the keys above from `address` to `auth` (see [Mail](#mail)) |
-| `mail.oauth_client_id` | | The application the browser sign-in uses: one you or your organization registered at Microsoft. Needed for now (see [Mail](#mail)) |
+| `mail.oauth_client_id` | UnifyTerm's | The application the browser sign-in uses at Microsoft, for an organization that registered its own |
 
 **Keys.** A key in `[keys]` may be written as you would say it (`Ctrl+Shift+G`): `ut setting` keeps it as `ctrl-shift-g`. The keys held are `ctrl`, `alt`, `shift` and `cmd` (the Windows key on a PC). A letter, a digit or a sign needs Ctrl, Alt or Cmd with it, and so do Enter, Tab, Esc and the arrows: alone, or with Shift only, they are what the shell is typed to with, and are refused. A function key and Insert may stand alone. A key cannot be given to two commands. A key another program has taken for the whole system (a screenshot key) never reaches UnifyTerm: give the command another one, as `ut setting set keys.agents ctrl-alt-a`.
 
@@ -298,7 +298,7 @@ address = "me@gmail.com"
 proxy = "socks5://127.0.0.1:7890"
 ```
 
-**Outlook, Hotmail and work mail at Microsoft** let mail programs in with a sign-in in the browser (OAuth2) only. Choose "Sign in in the browser": UnifyTerm shows a code, opens Microsoft's page, and keeps the token Microsoft gives once you sign in there; it never sees your password, and gets a new token by itself as each one ends. For now the sign-in needs an application registered at Microsoft (Microsoft Entra, a public client that allows the device code flow): set its id as `mail.oauth_client_id`. An organization may have to allow it before its people can sign in.
+**Outlook, Hotmail and work mail at Microsoft** let mail programs in with a sign-in in the browser (OAuth2) only. Choose "Sign in in the browser": UnifyTerm shows a code, opens Microsoft's page, and keeps the token Microsoft gives once you sign in there; it never sees your password, and gets a new token by itself as each one ends. The consent page names the publisher as not verified. An organization may have to allow UnifyTerm before its people can sign in, or may set its own application as `mail.oauth_client_id`.
 
 A mailbox abroad: `mail.proxy = "socks5://127.0.0.1:7890"` (or `http://...`) sends both servers' connections through that proxy. The server's name goes to the proxy, which looks up its address. Not set: directly.
 
@@ -399,7 +399,7 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - The row of tabs, the lists, the boxes and the sidebar were redrawn in 0.5.0 and looked at on Windows only: macOS and Linux build them and run the tests.
 - The white-text rule for light themes covers white and bright white on the theme's background. A program that writes another color the theme has made light is left as it wrote it.
 - A wallpaper is blended toward its own edges where the window shows them, over about half a pixel of the picture: 2 rows of the window for a picture of 400 by 200 made 3 times larger, and more the smaller the picture is. A picture of the window's size or larger shows none of it.
-- Mail: read while a window is open or `ut mail sync` runs; the inbox and the sent folder only. The browser sign-in (Outlook) needs `mail.oauth_client_id` for now, and was tried against a pretend sign-in service, not yet against Microsoft. Attachments are named, not saved or opened. The answer line takes text at its end (Backspace, no cursor within it). It was tried against a pretend IMAP and SMTP server on this machine, through SOCKS5 and HTTP proxies too, not yet against each real service; the window was looked at on Windows only.
+- Mail: read while a window is open or `ut mail sync` runs; the inbox and the sent folder only. The browser sign-in (Outlook) was tried against a pretend sign-in service; against Microsoft, only as far as getting a code. Attachments are named, not saved or opened. The answer line takes text at its end (Backspace, no cursor within it). It was tried against a pretend IMAP and SMTP server on this machine, through SOCKS5 and HTTP proxies too, not yet against each real service; the window was looked at on Windows only.
 - The builds are not signed.
 
 ## License

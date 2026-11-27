@@ -13,10 +13,10 @@ use serde::Deserialize;
 use crate::account::Proxy;
 
 /// UnifyTerm's application at Microsoft: a public client (no secret), allowed the device code
-/// flow, for work and personal accounts. An id, not a secret. Not registered yet: until it is,
-/// the sign-in needs `mail.oauth_client_id`, an application the person (or their organization)
-/// registered.
-pub const CLIENT_ID: &str = "";
+/// flow, for work and personal accounts (Microsoft Entra: any organization's directory and
+/// personal Microsoft accounts). An id, not a secret. `mail.oauth_client_id` puts an
+/// organization's own application in its place.
+pub const CLIENT_ID: &str = "aee8de56-489a-4caa-94ed-b97b9bb4f57b";
 /// Where Microsoft signs people in, for work and personal accounts alike.
 pub const AUTHORITY: &str = "https://login.microsoftonline.com/common/oauth2/v2.0";
 /// IMAP and SMTP at Outlook, and a refresh token.

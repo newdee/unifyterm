@@ -114,8 +114,11 @@ UPDATE meta SET value = '2' WHERE key = 'schema';
 /// How long ago the newest mail of a conversation may be for a mail with the
 /// same subject to join it when nothing else ties them: 60 days.
 const SUBJECT_REACH_MS: i64 = 60 * 86_400_000;
-/// How many times the journal is asked to change while another connection holds the file (50 ms apart).
-const BUSY_TRIES: u32 = 100;
+/// How long a write in the window waits for another writer: a window must not stop longer.
+const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long a write on a thread of its own (a sync, a send) waits for the other writers: the
+/// first syncs of several big mailboxes may hold the file in turn for a while.
+pub const BACKGROUND_WAIT: std::time::Duration = std::time::Duration::from_mins(1);
 /// How many characters of a mail's first line a list shows.
 const SNIPPET_CHARS: usize = 80;
 
@@ -227,26 +230,39 @@ pub struct Status {
 }
 
 impl Store {
-    /// The file at `path`, made if it is not there.
+    /// The file at `path`, made if it is not there; its writes wait [`WINDOW_WAIT`] for another writer.
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_waiting(path, WINDOW_WAIT)
+    }
+
+    /// The file at `path`, for a thread of its own (a sync, a send): its writes wait [`BACKGROUND_WAIT`].
+    pub fn open_background(path: &Path) -> Result<Self> {
+        Self::open_waiting(path, BACKGROUND_WAIT)
+    }
+
+    fn open_waiting(path: &Path, wait: std::time::Duration) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| format!("make {}", parent.display()))?;
         }
         let db = Connection::open(path).with_context(|| format!("open {}", path.display()))?;
-        db.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Changing the journal does not wait for another connection by itself (SQLite gives no busy
-        // handler to it): tried again for a while.
-        let mut tries = 0;
-        loop {
-            match db.pragma_update(None, "journal_mode", "WAL") {
-                Ok(()) => break,
-                Err(rusqlite::Error::SqliteFailure(failure, _))
-                    if failure.code == rusqlite::ErrorCode::DatabaseBusy && tries < BUSY_TRIES =>
-                {
-                    tries += 1;
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+        db.busy_timeout(wait)?;
+        let journal: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        if !journal.eq_ignore_ascii_case("wal") {
+            // Changing the journal does not wait for another connection by itself (SQLite gives no
+            // busy handler to it): tried again, 50 ms apart, for as long as a write would wait.
+            let most = u32::try_from(wait.as_millis() / 50).unwrap_or(u32::MAX).max(1);
+            let mut tries = 0;
+            loop {
+                match db.pragma_update(None, "journal_mode", "WAL") {
+                    Ok(()) => break,
+                    Err(rusqlite::Error::SqliteFailure(failure, _))
+                        if failure.code == rusqlite::ErrorCode::DatabaseBusy && tries < most =>
+                    {
+                        tries += 1;
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    Err(error) => return Err(error).context("make mail.db a WAL file"),
                 }
-                Err(error) => return Err(error).context("make mail.db a WAL file"),
             }
         }
         Self::ready(db)
@@ -257,11 +273,21 @@ impl Store {
         Self::ready(Connection::open_in_memory()?)
     }
 
-    /// Makes the tables of a new file, or checks an old one's version. Two processes may open a
-    /// new file at once (the window's sync, `ut mcp`): the look and the making are one write
-    /// transaction, so that the second waits and then finds the tables made.
+    /// Makes the tables of a new file, or checks an old one's version. A file of this version is
+    /// only read: an open takes no write lock. Two processes may open a new file at once (the
+    /// window's sync, `ut mcp`): the making looks again inside one write transaction, so that the
+    /// second waits and then finds the tables made.
     fn ready(mut db: Connection) -> Result<Self> {
         db.pragma_update(None, "foreign_keys", true)?;
+        let current: Option<String> = db
+            .query_row("SELECT value FROM meta WHERE key = 'schema'", [], |row| row.get(0))
+            .optional()
+            // No meta table yet (a new file), or anything else: the write transaction below looks again and says.
+            .ok()
+            .flatten();
+        if current.as_deref() == Some(SCHEMA_VERSION) {
+            return Ok(Self { db });
+        }
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let has_meta: bool =
             tx.query_row("SELECT count(*) > 0 FROM sqlite_master WHERE name = 'meta'", [], |row| row.get(0))?;
@@ -1028,7 +1054,8 @@ mod tests {
                 let path = path.clone();
                 std::thread::spawn(move || -> Result<(), String> {
                     let account = format!("me{writer}@example.com");
-                    let mut store = Store::open(&path).map_err(|error| format!("{error:#}"))?;
+                    // The writers are syncs: they wait as a sync does.
+                    let mut store = Store::open_background(&path).map_err(|error| format!("{error:#}"))?;
                     for n in 0..300u32 {
                         let id = format!("w{writer}-{n}");
                         let one = mail(&id, "lin@example.com", "x", &[], i64::from(n));

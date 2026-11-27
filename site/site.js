@@ -160,7 +160,7 @@
     "obs.3": "视频播放依赖 FFmpeg，目前不支持音频。",
     "obs.4": "PowerShell 原生 Tab 补全仍然使用 Windows 风格的路径分隔符。",
     "obs.6": "主题、标签栏和侧栏在 Windows 上做过人工检查；macOS 和 Linux 上通过了构建和测试，实际使用还很少。",
-    "obs.7": "邮件功能在本机的模拟服务器上测试过，还没有逐个在真实邮箱服务上测试。Outlook 在浏览器里登录，目前需要你自己的应用 ID（<code>mail.oauth_client_id</code>）。",
+    "obs.7": "邮件功能在本机的模拟服务器上测试过，还没有逐个在真实邮箱服务上测试。Outlook 的浏览器登录只在本机的模拟服务上测试过，还没有用真实账号试过。",
     "obs.5": "UnifyTerm 窗口内的图片渲染目前只支持 Kitty 图形协议；<code>ut view</code> 在其他终端中运行时，还可以输出 Sixel 和 iTerm2 格式。",
     "obs.tests": "目前项目包含 401 个测试用例，另有 183 个针对桌面应用的测试。",
     "install.h": "安装",
