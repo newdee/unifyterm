@@ -718,7 +718,8 @@ impl MailView {
     /// What the syncs of the mailboxes shown last said.
     fn status_line(&self) -> gpui::Div {
         let colors = self.colors();
-        let mut line = div().flex_none().flex().flex_wrap().gap_x_2().px_4().pb(px(6.)).text_size(px(11.));
+        // One mailbox to a line: a long failure wraps within the list instead of running past it.
+        let mut line = div().flex_none().flex().flex_col().px_4().pb(px(6.)).text_size(px(11.));
         for (mailbox, plan) in &self.plans {
             if self.showing.as_ref().is_some_and(|address| address != &mailbox.address) {
                 continue;

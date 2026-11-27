@@ -684,6 +684,9 @@ fn try_and_keep(
     Ok(())
 }
 
+/// The narrowest a way of logging in is drawn before the four go one to a row.
+const WAY_WIDTH: f32 = 230.;
+
 /// Whether the settings file is saved after the test: not for a sign-in, which changes no setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Save {
@@ -833,7 +836,9 @@ impl MailView {
             let on = way == now;
             div()
                 .id(("way", at))
-                .w(gpui::relative(0.485))
+                // Two to a row when there is room, one when there is not: each grows from this width.
+                .flex_grow()
+                .flex_basis(px(WAY_WIDTH))
                 .px_3()
                 .py_2()
                 .rounded(px(theme.panel_rounding()))
@@ -847,9 +852,18 @@ impl MailView {
                     div()
                         .flex()
                         .justify_between()
-                        .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(way.title()))
+                        .gap_2()
+                        // Words in a row wrap only when given the width that is left: measured as drawn.
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(way.title()),
+                        )
                         .when(way == likely && form.text(Field::Address).contains('@'), |line| {
-                            line.child(div().text_size(px(10.5)).text_color(colors.fine).child("likely"))
+                            line.child(div().flex_none().text_size(px(10.5)).text_color(colors.fine).child("likely"))
                         }),
                 )
                 .child(div().text_size(px(11.5)).text_color(colors.muted).child(way.says()))
@@ -918,13 +932,14 @@ impl MailView {
             .when(!big.is_empty(), |line| {
                 line.child(
                     div()
+                        .flex_none()
                         .font_family(SharedString::from(self.settings.config.font.family.clone()))
                         .text_size(px(22.))
                         .font_weight(FontWeight::BOLD)
                         .child(SharedString::from(big)),
                 )
             })
-            .child(div().text_size(px(12.)).text_color(color).child(SharedString::from(small)))
+            .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(color).child(SharedString::from(small)))
     }
 
     /// Directly, or through a proxy.
@@ -952,9 +967,10 @@ impl MailView {
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap_2()
-                    .child(div().text_size(px(12.)).text_color(colors.muted).child("Connection"))
+                    .child(div().flex_none().text_size(px(12.)).text_color(colors.muted).child("Connection"))
                     .child(pill("via-direct", "Directly", Via::Direct))
                     .child(pill("via-proxy", "Through a proxy", Via::Proxy)),
             )

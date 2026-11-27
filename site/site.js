@@ -154,7 +154,7 @@
     "film.p": "这里展示 UnifyTerm 在真实环境中的运行过程，包括命令执行、历史搜索、内容查看和 Agent 集成。",
     "film.link": "观看演示视频",
     "obs.h": "当前限制",
-    "obs.lede": "UnifyTerm 目前处于 0.9.0 版本，仍有一些尚未完善的地方：",
+    "obs.lede": "UnifyTerm 目前处于 0.9.1 版本，仍有一些尚未完善的地方：",
     "obs.1": "Windows 和 macOS 版本尚未进行代码签名，首次运行可能出现 SmartScreen 或 Gatekeeper 安全提示。",
     "obs.2": "macOS 版本已通过 CI 构建和测试，但人工使用还很少。",
     "obs.3": "视频播放依赖 FFmpeg，目前不支持音频。",
