@@ -19,6 +19,7 @@
 - 已发布：**0.7.2**，2026-11-26，标签 `v0.7.2`（提交 `3a459f0`）：八套带角色的主题（whale 哦鲸鲸、clay 陶陶、mint 薄荷、twin 双子、void 虚空、lyre 缪缪、prism 谱谱、drake 龙龙），内置主题共 17 套；角色图默认也是背景图。`v0.7.1` 打过标签但没有发布（发版中途换图，取消了）。Release 18 个文件；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.7.2。X 上回复了第一条推文，配 8 套主题的 GIF。
 - 已发布：**0.7.3**，2026-11-27，标签 `v0.7.3`（提交 `b43d060`）：角色主题的背景图换成整屏大小（`<名字>-wall.jpg`，3072×1728，Real-ESRGAN 放大），全屏不再发糊。Release 18 个文件；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.7.3。
 - 已发布：**0.8.0**，2026-11-27，标签 `v0.8.0`（提交 `4e496b8`）：邮件（Ctrl+Shift+M 在终端和邮箱之间切换；IMAP 收、SMTP 发，可走 SOCKS5/HTTP 代理；`ut mail`；`ut mcp` 的 4 个邮件工具，Agent 只能起草；`mail.on_new`）；默认主题 paper-dark。Release 18 个文件；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.8.0 和"终端旁边的邮箱"一节。第三支宣传视频：YouTube https://youtu.be/tLe2dmZq1E0 ，B 站 BV13V1WzDE6b。
+- 已发布：**0.9.0**，2026-11-27，标签 `v0.9.0`（提交 `f16f88d`）：多个邮箱（`[mail.accounts.NAME]`，全部混排、按邮箱看，四个筛选）；在邮箱界面里添加邮箱（Ctrl+Alt+Shift+M，测试通过才保存），右键重新登录、修改、移除；Outlook 等微软邮箱用浏览器登录（OAuth2 设备码，UnifyTerm 自己的微软应用 `aee8de56-…`）；`ut mail account`。Release 18 个文件，正文写了这一版的改动；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.9.0，邮箱截图换成两个邮箱。Outlook 完整登录待用户实测。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
