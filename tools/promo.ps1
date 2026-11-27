@@ -4,18 +4,19 @@
 # with ffmpeg. Nothing is mocked up, and nothing touches the user's own data:
 # every scene has a throwaway data directory and settings file.
 #
-#   pwsh tools/promo.ps1 [-Cut first|second] [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img] [-Narrate] [-Only s2,s3]
+#   pwsh tools/promo.ps1 [-Cut first|second|third] [-Exe target/release/unifyterm.exe] [-Out docs/media] [-Stills site/img] [-Narrate] [-Only s2,s3]
 #
 # Two videos: `first` (0.2.4: the commands, the history, pictures, a model's explanation, the agents,
 # the settings) and `second` (0.3.0 to 0.6.2: themes, a command for a sentence, the model's sources,
-# command lists, the row of tabs, keys of your own).
+# command lists, the row of tabs, keys of your own), and `third` (0.7.0 to 0.8.0: the themes with a
+# character, the prompt from the theme, the mail).
 # Writes OUT/unifyterm-promo.mp4 and OUT/unifyterm-promo.gif (no sound); the second video's files are
 # named unifyterm-promo-2. With -Narrate also OUT/unifyterm-promo-zh.mp4 and -en.mp4 (-2-zh, -2-en). With -Stills (first video), also one
 # picture of the window for each scene (the site's pictures, cut to the rows that have
 # something in them): hero.png, commands.png, history.png, media.png, explain.png, agents.png, settings.png. Needs ffmpeg and Microsoft Edge (for the cards).
 # -Only records the scenes named and joins them alone, without the cards: for trying a scene out.
 param(
-    [ValidateSet('first', 'second')][string]$Cut = 'first',
+    [ValidateSet('first', 'second', 'third')][string]$Cut = 'first',
     [string]$Exe = (Join-Path (Split-Path $PSScriptRoot) 'target/release/unifyterm.exe'),
     [string]$Out = (Join-Path (Split-Path $PSScriptRoot) 'docs/media'),
     [string]$Stills = '',
@@ -60,6 +61,18 @@ $caption = if ($Cut -eq 'first') { @{
     s9       = 'Enter full screen with <b>F11</b> (<b>Cmd-Enter</b> on macOS)'
     s10      = 'Tab bar shows new versions and how to upgrade'
     install  = 'Install it from the UnifyTerm website'
+} } elseif ($Cut -eq 'third') { @{
+    # The third video's words: written by ChatGPT from the facts and the scenes, checked against the README.
+    subtitle = 'Themes, prompts, and email in one terminal'
+    points   = '17 themes &middot; Built-in prompt &middot; Email &middot; Agent drafts'
+    roster   = '17 built-in themes, switched with <b>ut theme</b>'
+    characters = 'Switch between drake, clay, and lyre character themes'
+    prompt   = 'Directory, Git status, and command exit codes, built in'
+    mail     = '<b>Ctrl+Shift+M</b>: email as conversations, quotes folded'
+    draft    = 'Agents prepare drafts. Only you can send emails'
+    note     = 'New mail: an unread count and a note in the window'
+    setup    = 'Common providers need only the address; a proxy when needed'
+    install  = 'Windows &middot; macOS &middot; Linux &middot; MIT License'
 } } else { @{
     # The second video's words: written by ChatGPT from the README and the scenes, checked against the README.
     subtitle = 'A cross-platform GUI terminal for Windows, macOS and Linux'
@@ -78,7 +91,32 @@ $caption = if ($Cut -eq 'first') { @{
 # What is said over each part, one line a part, in each language (written by an agent from the README).
 # With -Narrate each language's lines are spoken (edge-tts: the words go to Microsoft's speech service)
 # and each part lasts until its longest line is said; OUT/unifyterm-promo-<language>.mp4 has that voice.
-$narration = if ($Cut -eq 'second') { [ordered]@{
+$narration = if ($Cut -eq 'third') { [ordered]@{
+    zh = @{
+        voice      = 'zh-CN-XiaoxiaoNeural'
+        title      = 'UnifyTerm 0.8.0，新增主题角色、内置提示符和邮件功能。'
+        roster     = '内置十七套主题，其中八套包含角色形象，用命令即时切换。'
+        characters = '鲸鱼、龙和抱竖琴的女孩等角色，铺满窗口和侧栏，配色随主题变化。'
+        prompt     = '打开后，提示符显示目录、Git 分支、改动状态和命令退出码。'
+        mail       = '按下 Ctrl+Shift+M，窗口变成邮箱，邮件按对话显示成气泡。'
+        draft      = 'Agent 可以写回复草稿，只有你点击发送，邮件才会发出。'
+        note       = '在终端里收到新邮件时，标签栏显示未读数，右下角弹出提示，按快捷键或点提示就能查看。'
+        setup      = '常见邮箱只要填地址；国外邮箱可以走代理，连接失败会自动重试。'
+        end        = '支持 Windows、macOS 和 Linux，使用 Rust 开发，采用 MIT 协议开源。'
+    }
+    en = @{
+        voice      = 'en-US-AriaNeural'
+        title      = 'UnifyTerm 0.8.0 introduces character themes, a built-in prompt, and email.'
+        roster     = 'Browse 17 built-in themes with ut theme, then switch instantly by name.'
+        characters = 'Switch between character themes, including whale, drake, clay, and lyre.'
+        prompt     = 'Once turned on, the prompt shows the directory, the Git branch, changes, and failed exit codes.'
+        mail       = 'Press Ctrl+Shift+M to read email as conversations, with folded quotes and theme colors.'
+        draft      = 'Agents can prepare reply drafts, but only you can send an email.'
+        note       = 'New mail updates the unread count and shows a note in the window; the shortcut or a click opens it.'
+        setup      = 'Common providers need only your address. Use a proxy when needed; failed connections are retried.'
+        end        = 'Available on Windows, macOS, and Linux. Built with Rust and released under the MIT License.'
+    }
+} } elseif ($Cut -eq 'second') { [ordered]@{
     zh = @{
         voice   = 'zh-CN-XiaoxiaoNeural'
         title   = 'UnifyTerm 是一款支持 Windows、macOS 和 Linux 的图形终端。'
@@ -363,7 +401,7 @@ if ($Stills) {
     finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item "${drive}:\config.toml" -ErrorAction SilentlyContinue }
     Save-Still 'ss' 'settings' 620
 }
-} else {
+} elseif ($Cut -eq 'second') {
 # The second video. Each scene reads a settings file on the demo drive, so what `ut theme` and
 # `ut setting` print names no path of this machine; and with colors, for the themes' samples.
 function Wanted([string]$scene) { -not $Only -or $Only -contains $scene }
@@ -448,6 +486,101 @@ if (Wanted 'shortcuts') {
     Record-Second 'shortcuts' ((Theme 'paper-dark') + $agents) $keys
     $clips += Join-Scene 'shortcuts' (Save-Backdrop 'b-shortcuts' $caption.shortcuts) 1.4
 }
+} else {
+# The third video: the themes with a character, the prompt from the theme, the mail. The mail is
+# a pretend mailbox on this machine (the mail crate's example fake_mailbox), never a real one.
+function Wanted([string]$scene) { -not $Only -or $Only -contains $scene }
+function Record-Third([string]$scene, [string]$toml, [string]$keys, [hashtable]$data = @{}) {
+    $config = "${drive}:\settings.toml"
+    $noColor = $env:NO_COLOR; Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+    try { Record $scene $toml $keys $data $config }
+    finally { if ($null -ne $noColor) { $env:NO_COLOR = $noColor }; Remove-Item $config -ErrorAction SilentlyContinue }
+}
+function Theme([string]$name) { "[theme]`nname = `"$name`"`n" }
+$fixture = (Join-Path $root 'crates/unifyterm/tests/fixtures/agents.json') -replace '\\', '/'
+$ut = (Join-Path (Split-Path $Exe) 'ut.exe') -replace '\\', '/'
+$agents = "[agents]`nsidebar = true`ncommand = ['$ut', 'cat', '$fixture']`n"
+$fakeMailbox = Join-Path (Split-Path $Exe) 'examples\fake_mailbox.exe'
+# A pretend mailbox for one scene (another mail after `$later` seconds, when given), and the [mail] settings that read it.
+function Start-Mailbox([string]$scene, [int]$later = 0) {
+    $port = Get-Random -Minimum 20000 -Maximum 40000
+    $said = Join-Path $work "mailbox-$scene.txt"
+    $arguments = if ($later -gt 0) { "$port $later" } else { "$port" }
+    $process = Start-Process $fakeMailbox -ArgumentList $arguments -RedirectStandardOutput $said -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 50 -and -not ((Test-Path $said) -and (Get-Content $said -Raw) -match 'smtp 127\.0\.0\.1:(\d+)'); $i++) { Start-Sleep -Milliseconds 100 }
+    $smtp = [regex]::Match((Get-Content $said -Raw), 'smtp 127\.0\.0\.1:(\d+)').Groups[1].Value
+    $toml = "[mail]`naddress = `"me@example.com`"`nimap = `"127.0.0.1:$port`"`nsmtp = `"127.0.0.1:$smtp`"`npassword_command = [`"cmd`", `"/c`", `"echo s3cret`"]`n"
+    @{ process = $process; toml = $toml }
+}
+
+# 2. The themes there are, then one with a character: behind the text and at the sidebar's foot.
+if (Wanted 'roster') {
+    $script:frame = 0
+    $keys = (Typed 'roster' 'ut theme') + '{ENTER}' + (Shots 'roster' 16) + (Typed 'roster' 'ut theme whale') + '{ENTER}' + (Shots 'roster' 22)
+    Record-Third 'roster' $agents $keys
+    $clips += Join-Scene 'roster' (Save-Backdrop 'b-roster' $caption.roster) 1.2
+}
+
+# 3. Other characters, one after another.
+if (Wanted 'characters') {
+    $script:frame = 0
+    $keys = (Shots 'characters' 4 200) + (Typed 'characters' 'ut theme drake') + '{ENTER}' + (Shots 'characters' 14) + (Typed 'characters' 'ut theme clay') + '{ENTER}' + (Shots 'characters' 14) + (Typed 'characters' 'ut theme lyre') + '{ENTER}' + (Shots 'characters' 16)
+    Record-Third 'characters' ((Theme 'whale') + $agents) $keys
+    $clips += Join-Scene 'characters' (Save-Backdrop 'b-characters' $caption.characters) 1.2
+}
+
+# 4. UnifyTerm's prompt, in the theme's colors: git's branch, a change, a failed command.
+if (Wanted 'prompt') {
+    $script:frame = 0
+    $keys = (Shots 'prompt' 4 200) + (Typed 'prompt' 'git log --oneline -2') + '{ENTER}' + (Shots 'prompt' 8) + (Typed 'prompt' 'echo hi > hello.txt') + '{ENTER}' + (Shots 'prompt' 8) + (Typed 'prompt' 'ls nothing') + '{ENTER}' + (Shots 'prompt' 14)
+    try { Record-Third 'prompt' ((Theme 'twin') + "[prompt]`nenabled = true`n") $keys }
+    finally { Remove-Item "${drive}:\hello.txt" -ErrorAction SilentlyContinue }
+    $clips += Join-Scene 'prompt' (Save-Backdrop 'b-prompt' $caption.prompt) 1.2
+}
+
+# 5. The mail in place of the terminal: the conversations, the bubbles, another conversation.
+if (Wanted 'mail') {
+    $script:frame = 0
+    $mailbox = Start-Mailbox 'mail'
+    try {
+        $keys = (Typed 'mail' 'ut mail list') + '{WAIT:1500}{ENTER}' + (Shots 'mail' 18) + '{KEY:CTRL+SHIFT+M}' + (Shots 'mail' 18) + '{DOWN}' + (Shots 'mail' 12) + '{UP}' + (Shots 'mail' 8)
+        Record-Third 'mail' ((Theme 'whale') + $mailbox.toml) $keys
+    } finally { Stop-Process -Id $mailbox.process.Id -Force -ErrorAction SilentlyContinue }
+    $clips += Join-Scene 'mail' (Save-Backdrop 'b-mail' $caption.mail) 1.2
+}
+
+# 6. An agent's draft (here ut mail draft, as an agent would call it), shown in a dashed box, sent by the person.
+if (Wanted 'draft') {
+    $script:frame = 0
+    $mailbox = Start-Mailbox 'draft'
+    [IO.File]::WriteAllText("${drive}:\reply.txt", "可以，定周四 10:00。我周三晚上把构建和测试跑完，结果发到群里。")
+    try {
+        $keys = '{WAIT:1500}' + (Typed 'draft' 'ut mail draft 3 reply.txt --by claude') + '{ENTER}' + (Shots 'draft' 10) + '{KEY:CTRL+SHIFT+M}' + (Shots 'draft' 16) + '{CLICK:$SENDX,$SENDY}' + (Shots 'draft' 18)
+        $keys = $keys.Replace('$SENDX', $env:PROMO_SEND_X ?? '897').Replace('$SENDY', $env:PROMO_SEND_Y ?? '508')
+        Record-Third 'draft' ((Theme 'paper-dark') + $mailbox.toml) $keys
+    } finally { Stop-Process -Id $mailbox.process.Id -Force -ErrorAction SilentlyContinue; Remove-Item "${drive}:\reply.txt" -ErrorAction SilentlyContinue }
+    $clips += Join-Scene 'draft' (Save-Backdrop 'b-draft' $caption.draft) 1.2
+}
+
+# 7. New mail while the terminal shows: the count in the row of tabs, the note; Ctrl+Shift+M opens it (the newest is chosen).
+if (Wanted 'note') {
+    $script:frame = 0
+    $mailbox = Start-Mailbox 'note' 16
+    try {
+        $keys = '{WAIT:1500}' + (Typed 'note' 'git status --short') + '{ENTER}' + (Shots 'note' 75) + '{KEY:CTRL+SHIFT+M}' + (Shots 'note' 16)
+        Record-Third 'note' ((Theme 'drake') + $mailbox.toml) $keys
+    } finally { Stop-Process -Id $mailbox.process.Id -Force -ErrorAction SilentlyContinue }
+    $clips += Join-Scene 'note' (Save-Backdrop 'b-note' $caption.note) 1.2
+}
+
+# 8. The mailbox's settings: a proxy for a mailbox abroad, then the [mail] settings in ut setting.
+# example.com's servers are not known: nothing is asked of any server here.
+if (Wanted 'setup') {
+    $script:frame = 0
+    $keys = (Typed 'setup' 'ut setting set mail.proxy socks5://127.0.0.1:7890') + '{ENTER}' + (Shots 'setup' 8) + (Typed 'setup' 'ut setting') + '{ENTER}' + (Shots 'setup' 6 150) + '/' + (Typed 'setup' 'mail') + (Shots 'setup' 18 150)
+    Record-Third 'setup' ((Theme 'day') + "[mail]`naddress = `"me@example.com`"`n") $keys
+    $clips += Join-Scene 'setup' (Save-Backdrop 'b-setup' $caption.setup) 1.2
+}
 }
 
 # 7. How to get it.
@@ -457,7 +590,7 @@ if (-not $Only) {
 }
 
 # All of it, then the GIF.
-$name = if ($Only) { 'unifyterm-promo-try' } elseif ($Cut -eq 'second') { 'unifyterm-promo-2' } else { 'unifyterm-promo' }
+$name = if ($Only) { 'unifyterm-promo-try' } elseif ($Cut -eq 'second') { 'unifyterm-promo-2' } elseif ($Cut -eq 'third') { 'unifyterm-promo-3' } else { 'unifyterm-promo' }
 $list = Join-Path $work 'all.txt'
 [IO.File]::WriteAllLines($list, @($clips | ForEach-Object { "file '$($_ -replace '\\', '/')'" }))
 $mp4 = Join-Path $Out "$name.mp4"
