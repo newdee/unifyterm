@@ -3,7 +3,7 @@
 //!
 //! | mode      | how                                   | chosen when                                   |
 //! |-----------|---------------------------------------|-----------------------------------------------|
-//! | `kitty`   | kitty's graphics protocol             | UnifyTerm, kitty, `WezTerm`, ghostty         |
+//! | `kitty`   | kitty's graphics protocol             | UnifyTerm, kitty, `WezTerm`, ghostty, a keepane pane with them on (`KEEPANE_GRAPHICS=kitty`) |
 //! | `iterm`   | iTerm2's inline images                | iTerm2                                        |
 //! | `sixel`   | sixel graphics                        | Windows Terminal                              |
 //! | `half`    | `▀` with two true colors a cell       | the terminal says it has true color           |
@@ -98,6 +98,12 @@ pub(crate) fn choose(get: impl Fn(&str) -> Option<String>, output: Output) -> (M
             Mode::Kitty,
             format!("the terminal ({}) has kitty's graphics", if program.is_empty() { "kitty" } else { &program }),
         );
+    }
+    // A keepane pane (0.99 on) keeps kitty's pictures while its server has
+    // them on, and says so; it shows them in a terminal that can, a label in
+    // one that cannot. With them off it says nothing: half blocks, below.
+    if program == "keepane" && get("KEEPANE_GRAPHICS").as_deref() == Some("kitty") {
+        return (Mode::Kitty, "a keepane pane, which keeps kitty's pictures: KEEPANE_GRAPHICS=kitty".into());
     }
     if program == "iTerm.app" {
         return (Mode::Iterm, "the terminal is iTerm2".into());
@@ -412,6 +418,16 @@ mod tests {
         assert_eq!(mode(&[("WT_SESSION", "x")]), Mode::Sixel);
         assert_eq!(mode(&[("TERM", "dumb"), ("COLORTERM", "truecolor")]), Mode::Ascii);
         assert_eq!(mode(&[("COLORTERM", "truecolor")]), Mode::Half);
+        // A keepane pane: kitty's pictures while its server keeps them; half
+        // blocks (its true color) with them off, as before.
+        let pane = [("TERM_PROGRAM", "keepane"), ("COLORTERM", "truecolor"), ("KEEPANE_GRAPHICS", "kitty")];
+        assert_eq!(mode(&pane), Mode::Kitty);
+        assert_eq!(mode(&pane[..2]), Mode::Half, "kitty-graphics off: nothing said");
+        assert_ne!(
+            mode(&[("TERM_PROGRAM", "other"), ("KEEPANE_GRAPHICS", "kitty")]),
+            Mode::Kitty,
+            "only a keepane pane is taken at its word"
+        );
         if !cfg!(windows) {
             assert_eq!(mode(&[("LANG", "en_US.UTF-8")]), Mode::Braille);
             assert_eq!(mode(&[("LANG", "C")]), Mode::Ascii);
