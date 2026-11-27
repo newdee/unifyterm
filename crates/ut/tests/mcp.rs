@@ -68,7 +68,7 @@ fn an_agent_asks_the_history() {
     );
     assert_eq!(answers.len(), 5, "4 answers and the parse error; none for the notification: {answers:?}");
     assert_eq!(answers[0]["result"]["protocolVersion"], "2024-11-05");
-    assert_eq!(answers[1]["result"]["tools"].as_array().map(Vec::len), Some(4));
+    assert_eq!(answers[1]["result"]["tools"].as_array().map(Vec::len), Some(8), "the history, the commands, the mail");
     let found: Value = serde_json::from_str(result_text(&answers[2])).expect("a list");
     let texts: Vec<&str> = found.as_array().expect("a list").iter().filter_map(|row| row["command"].as_str()).collect();
     assert_eq!(texts.len(), 2);

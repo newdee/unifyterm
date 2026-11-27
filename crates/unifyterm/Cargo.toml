@@ -52,6 +52,10 @@ unifyterm-history = { path = "../history" }
 unifyterm-assist = { path = "../assist" }
 # What programs say of their own commands: offered while typing, used to put a mistyped one right and to explain.
 unifyterm-programs = { path = "../programs" }
+# The mail (Ctrl-Shift-M): the mailbox, its sync and sending.
+unifyterm-mail = { path = "../mail" }
+# The mail's times, in the local time zone (already in the tree through imap).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 regex = "1"
 # updates.check: GitHub's latest release (already in the tree through unifyterm-assist).
 ureq = { version = "3.5", features = ["json"] }

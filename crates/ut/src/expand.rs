@@ -248,7 +248,7 @@ mod windows {
             // Relative to where the test runs: the crate's own directory.
             assert_eq!(line("ut ./Cargo.t*"), ["ut", "./Cargo.toml"], "./ stays in front");
             assert_eq!(line("ut .\\Cargo.t*"), ["ut", ".\\Cargo.toml"]);
-            assert_eq!(line("ut src/mai*.rs"), ["ut", "src/main.rs"], "and is not put where it was not typed");
+            assert_eq!(line("ut src/main.r*"), ["ut", "src/main.rs"], "and is not put where it was not typed");
             let (_dir, at) = files("separators");
             let native = at.replace('/', "\\");
             assert_eq!(line(&format!("ut {native}\\*.log")), ["ut", &format!("{native}\\c.log")]);

@@ -709,7 +709,7 @@ mod tests {
             let named = |line: &&String| line.split_whitespace().next() == Some(key.name);
             assert_eq!(lines.iter().filter(named).count(), 1, "{}", key.name);
         }
-        assert_eq!(lines.iter().filter(|line| line.starts_with('[')).count(), 12, "twelve sections");
+        assert_eq!(lines.iter().filter(|line| line.starts_with('[')).count(), 13, "thirteen sections");
         assert!(
             lines.iter().any(|line| line == "  font.size                16"),
             "the value as the file has it: {lines:#?}"
@@ -907,11 +907,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   23 of 78");
+        assert_eq!(lines[1], "/color   23 of 88");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 78");
+        assert_eq!(lines[1], "/colorzzz   0 of 88");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }
@@ -923,7 +923,7 @@ mod tests {
         let lines = text(&mut screen, 40, 12);
         assert_eq!(lines.len(), 12, "as many lines as the screen has");
         assert!(lines.iter().all(|line| line.width() <= 40), "{lines:#?}");
-        assert!(lines.iter().any(|line| line.trim_start().starts_with("agents.focus")), "the last one is in view");
+        assert!(lines.iter().any(|line| line.trim_start().starts_with("mail.notify")), "the last one is in view");
         press(&mut screen, &[KeyCode::Home]);
         let lines = text(&mut screen, 40, 12);
         assert_eq!(lines[HEAD], "[font]", "back at the top, with its heading");

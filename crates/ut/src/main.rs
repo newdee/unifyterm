@@ -13,6 +13,7 @@ mod grep;
 mod history;
 mod jq;
 mod links;
+mod mail;
 mod mcp;
 mod md;
 mod program;
@@ -281,7 +282,8 @@ const USAGE: &str = "usage: ut COMMAND [ARGUMENTS...]
        ut program [add FILE]             the programs whose commands UnifyTerm knows ('ut program --help')
        ut theme [NAME]                   the themes there are; with a name, use that one ('ut theme --help')
        ut prompt preview                 the prompt UnifyTerm writes, with these settings ('ut prompt --help')
-       ut mcp                            an MCP server for agents: the history, these commands' help
+       ut mail [list|show|send|sync]     the mailbox, as text ('ut mail --help'); Ctrl-Shift-M in the window
+       ut mcp                            an MCP server for agents: the history, these commands' help, the mail
        ut skill [--install DIRECTORY]    print the agents' skill file, or write DIRECTORY/unifyterm/SKILL.md
        ut --version
 
@@ -379,6 +381,7 @@ fn ut(args: &[OsString]) -> i32 {
         Some("program" | "programs") => program::main(&args[1..]),
         Some("theme" | "themes") => theme::main(&args[1..]),
         Some("prompt") => prompt::main(&args[1..]),
+        Some("mail") => mail::main(&args[1..]),
         Some("mcp") => {
             let names = commands().into_iter().map(|(name, _)| name.to_owned()).collect();
             mcp::main(&args[1..], names, help)

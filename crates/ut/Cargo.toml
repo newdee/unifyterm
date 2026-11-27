@@ -113,6 +113,8 @@ unifyterm-history = { path = "../history" }
 unifyterm-config = { path = "../config" }
 # ut program: the descriptions programs give of their own commands.
 unifyterm-programs = { path = "../programs" }
+# ut mail and the mail tools of ut mcp.
+unifyterm-mail = { path = "../mail" }
 # ut shell enable: the home and documents folders, where the shells' start files are.
 dirs = "6"
 # ut setting: the fonts this system has, for font.family to be chosen from a list (already in the tree through GPUI).

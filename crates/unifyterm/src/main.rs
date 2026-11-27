@@ -19,6 +19,7 @@ mod helper;
 mod keys;
 mod lights;
 mod logging;
+mod mailbox;
 mod marks;
 mod powerline;
 mod prompt;
@@ -47,7 +48,19 @@ use terminal::{Backdrop, Settings, TerminalEvent, TerminalView};
 
 actions!(
     unifyterm,
-    [NewTab, CloseTab, NextTab, PreviousTab, Copy, Paste, ToggleAgents, ToggleFullScreen, ToggleTabBar, Explain]
+    [
+        NewTab,
+        CloseTab,
+        NextTab,
+        PreviousTab,
+        Copy,
+        Paste,
+        ToggleAgents,
+        ToggleFullScreen,
+        ToggleTabBar,
+        Explain,
+        ToggleMail
+    ]
 );
 
 const APP_NAME: &str = "UnifyTerm";
@@ -94,6 +107,10 @@ const SIDEBAR_PICTURE: f32 = 180.;
 const SIDEBAR_PICTURE_FADE: f32 = 0.54;
 /// A window lower than this has no room for the picture beside the agents' cards.
 const SIDEBAR_PICTURE_FROM: f32 = 480.;
+/// How often the mailbox's file is looked at for new mail and what was read.
+const MAIL_LOOK: Duration = Duration::from_millis(1500);
+/// How long the note of new mail stays.
+const MAIL_NOTE: Duration = Duration::from_secs(6);
 /// How often the settings file is looked at for a change.
 const SETTINGS_LOOK: Duration = Duration::from_millis(500);
 /// The longest title a tab shows, in characters.
@@ -308,6 +325,22 @@ struct Workspace {
     corners_told: CornersTold,
     /// Whether the system's three buttons show (macOS; see [`lights`]).
     lights: Lights,
+    mail: Mail,
+}
+
+/// The mail: the view, whether it shows in place of the terminal, the sync, and what the
+/// row of tabs says of it.
+struct Mail {
+    view: Entity<mailbox::MailView>,
+    shown: bool,
+    /// The sync running for this window, when a mailbox is set.
+    sync: Option<Arc<unifyterm_mail::Stopper>>,
+    unread: usize,
+    /// The newest mail from someone else seen so far: a newer one is told of.
+    newest: Option<i64>,
+    /// The note of new mail: the conversation, who, what, and when it was put up.
+    note: Option<(i64, String, String, std::time::Instant)>,
+    _events: Subscription,
 }
 
 /// What the system was last told of the window's corners.
@@ -471,6 +504,11 @@ impl Workspace {
         } else {
             settings
         };
+        let mail_view = cx.new(|cx| mailbox::MailView::new(Arc::clone(&settings), cx));
+        let mail_events = cx.subscribe_in(&mail_view, window, Self::mail_event);
+        let mail_sync = mailbox::plan_of(&settings.config.mail)
+            .ok()
+            .map(|plan| mailbox::start_sync(plan, settings.config.mail.on_new.clone()));
         let mut workspace = Self {
             tabs: Vec::new(),
             active: 0,
@@ -494,7 +532,17 @@ impl Workspace {
             wallpapers,
             corners_told: CornersTold::NotYet,
             lights: Lights::Shown,
+            mail: Mail {
+                view: mail_view,
+                shown: false,
+                sync: mail_sync,
+                unread: 0,
+                newest: None,
+                note: None,
+                _events: mail_events,
+            },
         };
+        Self::watch_mail(cx);
         if let Some(file) = file {
             Self::follow_settings(file.path, theme_named, cx);
         }
@@ -536,6 +584,83 @@ impl Workspace {
             .detach();
         })
         .detach();
+    }
+
+    /// Looks at the mailbox now and then: the unread count in the row of tabs, a note of new
+    /// mail, and the view read again when it shows.
+    fn watch_mail(cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(MAIL_LOOK).await;
+                if this.update(cx, Self::look_at_mail).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn look_at_mail(&mut self, cx: &mut Context<'_, Self>) {
+        let note_was = self.mail.note.is_some();
+        if self.mail.note.as_ref().is_some_and(|(_, _, _, put)| put.elapsed() > MAIL_NOTE) {
+            self.mail.note = None;
+        }
+        let counts = self.mail.view.update(cx, |view, _| view.counts());
+        let Some((unread, newest)) = counts else {
+            if note_was != self.mail.note.is_some() {
+                cx.notify();
+            }
+            return;
+        };
+        let newer = self.mail.newest.is_some_and(|seen| newest > seen);
+        if newer
+            && !self.mail.shown
+            && self.settings.config.mail.notify
+            && let Some(summary) = self.mail.view.read(cx).newest()
+        {
+            self.mail.note = Some((summary.id, summary.with, summary.subject, std::time::Instant::now()));
+        }
+        let changed = unread != self.mail.unread || newer || note_was != self.mail.note.is_some();
+        (self.mail.unread, self.mail.newest) = (unread, Some(newest));
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// Shows the mail in place of the terminal, or the terminal again.
+    fn toggle_mail(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        self.mail.shown = !self.mail.shown;
+        if self.mail.shown {
+            self.mail.note = None;
+            self.mail.view.update(cx, mailbox::MailView::shown);
+            window.focus(&self.mail.view.read(cx).focus);
+        } else if let Some(tab) = self.tabs.get(self.active) {
+            window.focus(&tab.view.read(cx).focus);
+        }
+        cx.notify();
+    }
+
+    /// The note of new mail was clicked: the mail, at that conversation.
+    fn open_mail_at(&mut self, thread: i64, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if !self.mail.shown {
+            self.toggle_mail(window, cx);
+        }
+        self.mail.note = None;
+        self.mail.view.update(cx, |view, cx| view.choose(thread, cx));
+    }
+
+    #[expect(clippy::trivially_copy_pass_by_ref, reason = "GPUI hands a subscriber the event by reference")]
+    fn mail_event(
+        &mut self,
+        _: &Entity<mailbox::MailView>,
+        event: &mailbox::MailEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match event {
+            mailbox::MailEvent::Leave if self.mail.shown => self.toggle_mail(window, cx),
+            mailbox::MailEvent::Leave => {}
+        }
     }
 
     /// Asks in the background whether a newer UnifyTerm is out; a newer one is named in the row of tabs.
@@ -659,7 +784,18 @@ impl Workspace {
         if config.window.tab_bar != self.settings.config.window.tab_bar {
             self.bar.asked = None;
         }
+        // Another mailbox, or another way to it: the sync starts again with it.
+        if config.mail != self.settings.config.mail {
+            if let Some(old) = self.mail.sync.take() {
+                old.stop();
+            }
+            self.mail.sync =
+                mailbox::plan_of(&config.mail).ok().map(|plan| mailbox::start_sync(plan, config.mail.on_new.clone()));
+            (self.mail.unread, self.mail.newest) = (0, None);
+        }
         self.settings = Arc::new(Settings { config, theme, backdrop, prompt });
+        let for_mail = Arc::clone(&self.settings);
+        self.mail.view.update(cx, |view, cx| view.use_settings(for_mail, cx));
         for tab in &self.tabs {
             let settings = Arc::clone(&self.settings);
             tab.view.update(cx, |view, cx| view.use_settings(settings, cx));
@@ -738,6 +874,8 @@ impl Workspace {
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<'_, Self>) {
         let Some(tab) = self.tabs.get(index) else { return };
         self.active = index;
+        // A tab chosen: the terminal shows again, if the mail did.
+        self.mail.shown = false;
         window.focus(&tab.view.read(cx).focus);
         window.set_window_title(&self.title(index, cx));
         self.show_bar_a_moment(window, cx);
@@ -1134,6 +1272,38 @@ impl Workspace {
                 .on_click(cx.listener(|this, _, _, cx| this.open_update(cx)))
                 .child(SharedString::from(newer.text()))
         });
+        // The mail's button, when a mailbox is set: the unread count, and pressed while the mail shows.
+        let mail = (!self.settings.config.mail.address.trim().is_empty()).then(|| {
+            let (well, muted) = (solid(theme.well()), solid(theme.muted()));
+            div()
+                .id("mail")
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_1()
+                .h(px(TAB_HEIGHT - 6.))
+                .px_2()
+                .mr_1()
+                .rounded(px(theme.button_rounding()))
+                .text_size(px(14.))
+                .text_color(if self.mail.shown { solid(theme.accent()) } else { muted })
+                .when(self.mail.shown, |button| button.bg(well))
+                .hover(move |button| button.bg(well))
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_mail(window, cx)))
+                .child("✉")
+                .when(self.mail.unread > 0, |button| {
+                    button.child(
+                        div()
+                            .px(px(5.))
+                            .rounded_full()
+                            .bg(solid(theme.accent()))
+                            .text_color(solid(theme.background))
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(SharedString::from(self.mail.unread.to_string())),
+                    )
+                })
+        });
         let own_bar = self.title_bar == TitleBar::Tabs;
         // Full screen has no title bar: the tabs do not move the window then.
         let handle = window_handle(if window.is_fullscreen() { TitleBar::System } else { self.title_bar });
@@ -1160,7 +1330,36 @@ impl Workspace {
             .child(div().flex().flex_none().items_center().gap_1().children(tabs).child(add))
             .child(handle)
             .children(newer)
+            .children(mail)
             .children(buttons)
+    }
+
+    /// The note of new mail, at the window's foot on the right: a click shows that conversation.
+    fn mail_note(&self, cx: &mut Context<'_, Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        let (thread, who, subject, _) = self.mail.note.clone()?;
+        let theme = &self.settings.theme;
+        let keys = self.settings.config.keys.mail.first().cloned().unwrap_or_default();
+        Some(
+            div()
+                .id("mail-note")
+                .absolute()
+                .right(px(16.))
+                .bottom(px(16.))
+                .w(px(320.))
+                .p_3()
+                .rounded(px(theme.panel_rounding() + 2.))
+                .border_1()
+                .border_color(solid(theme.edge()))
+                .bg(solid(theme.panel()))
+                .shadow_lg()
+                .occlude()
+                .cursor_pointer()
+                .text_color(solid(theme.foreground))
+                .on_click(cx.listener(move |this, _, window, cx| this.open_mail_at(thread, window, cx)))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(SharedString::from(format!("✉ {who}"))))
+                .child(div().text_size(px(12.)).text_color(solid(theme.muted())).child(SharedString::from(subject)))
+                .child(div().text_size(px(11.)).text_color(solid(theme.accent())).child(SharedString::from(keys))),
+        )
     }
 
     /// Goes to the tab beside the active one, around the ends.
@@ -1357,6 +1556,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ToggleAgents, _, cx| this.toggle_agents(cx)))
             .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
             .on_action(cx.listener(|this, _: &ToggleTabBar, _, cx| this.toggle_tab_bar(cx)))
+            .on_action(cx.listener(|this, _: &ToggleMail, window, cx| this.toggle_mail(window, cx)))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.pointer_moved(event.position, window, cx);
             }))
@@ -1366,11 +1566,19 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .children(
-                        self.tabs.get(self.active).map(|tab| div().flex_1().min_w_0().h_full().child(tab.view.clone())),
-                    )
+                    .when(self.mail.shown, |area| {
+                        area.child(div().flex_1().min_w_0().h_full().child(self.mail.view.clone()))
+                    })
+                    .when(!self.mail.shown, |area| {
+                        area.children(
+                            self.tabs
+                                .get(self.active)
+                                .map(|tab| div().flex_1().min_w_0().h_full().child(tab.view.clone())),
+                        )
+                    })
                     .when(self.sidebar.shown, |area| area.child(self.sidebar(window, cx))),
             )
+            .children(self.mail_note(cx))
             .children(over_the_text)
     }
 }
@@ -1399,6 +1607,7 @@ fn key_bindings(keys: &config::KeysConfig) -> Vec<KeyBinding> {
                 "tab_bar" => KeyBinding::new(chord, ToggleTabBar, None),
                 "full_screen" => KeyBinding::new(chord, ToggleFullScreen, None),
                 "explain" => KeyBinding::new(chord, Explain, None),
+                "mail" => KeyBinding::new(chord, ToggleMail, None),
                 _ => continue,
             });
         }

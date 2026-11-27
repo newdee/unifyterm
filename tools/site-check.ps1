@@ -70,9 +70,9 @@ $readmeText = $readme.Replace("`r", '')
 $unknown = @($commands | Where-Object { -not $readmeText.Contains($_) })
 Report 'install commands are the README''s' ($commands.Count -eq 4 -and $unknown.Count -eq 0) ("{0} commands{1}" -f $commands.Count, $(if ($unknown) { "; not in the README: $($unknown -join ' | ')" }))
 
-# 6. Nothing of the machine it was made on: no home folder, no mail address.
+# 6. Nothing of the machine it was made on: no home folder, no mail address (but example.com's, RFC 2606's, for examples).
 $text = Get-ChildItem $site -Recurse -File -Include *.html, *.css, *.js, *.svg, *.md | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }
-$private = @([regex]::Matches(($text -join "`n"), '(?i)[a-z]:[\\/]users[\\/]\w+|/home/\w+|/Users/\w+|[\w.+-]+@[\w-]+\.[a-z]{2,}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+$private = @([regex]::Matches(($text -join "`n"), '(?i)[a-z]:[\\/]users[\\/]\w+|/home/\w+|/Users/\w+|[\w.+-]+@[\w-]+\.[a-z]{2,}') | ForEach-Object { $_.Value } | Where-Object { $_ -notmatch '@example\.(com|org|net)$' } | Sort-Object -Unique)
 Report 'no home folder, no mail address' ($private.Count -eq 0) ("{0} found{1}" -f $private.Count, $(if ($private) { ": $($private -join ', ')" }))
 
 # 7. The version the page states is the workspace's.

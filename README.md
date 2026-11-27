@@ -12,7 +12,8 @@ One terminal for Windows, macOS and Linux. The page that introduces it: [dfine.t
 - **A command history you can search as you type.** Every command a shell runs is kept (without secrets) with its directory and exit code; a list of matches shows while you type.
 - **Help with commands.** A corrected command when one is not found, guessed on your machine from the commands it knows. With a model you name and agree to once: better corrections, what each part of a command means (Ctrl-Shift-E), the rest of a command in grey, and a command for what you say in words (`# the five largest files here`, then Enter). The model is a service, a model server on your machine, or an agent's command line you already have (Claude Code, Codex, pi).
 - **Pictures, video and markdown in the terminal.** `ut view photo.png`, `ut view clip.mp4`, `ut md README.md`.
-- **For agents.** A sidebar with the agents keepane watches (Ctrl-Shift-A); `ut mcp`, an MCP server with the history and the commands' help; a skill file.
+- **Mail beside the terminal.** Ctrl-Shift-M shows one mailbox in the window as conversations, and the terminal again. An agent reads it through `ut mcp` and writes drafts; only you send.
+- **For agents.** A sidebar with the agents keepane watches (Ctrl-Shift-A); `ut mcp`, an MCP server with the history, the commands' help and the mail; a skill file.
 
 It runs your own shell: PowerShell, cmd, bash, zsh or fish.
 
@@ -71,7 +72,7 @@ From source: `cargo build --release` with Rust 1.93 or later; on Windows run `pw
 
 ## Keys
 
-On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first ten, down to "Explain", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
+On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first eleven, down to "Mail", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
 
 | Key | macOS | What it does |
 |---|---|---|
@@ -85,6 +86,7 @@ On macOS the window's own keys use Cmd, as the second column shows; the keys at 
 | Ctrl-Shift-B | Cmd-Shift-B | The row of tabs out of the way (`window.tab_bar = "auto-hide"`), or always there again: for this window, until the setting is changed |
 | F11, Alt-Enter | Cmd-Enter, Ctrl-Cmd-F | Full screen, over the taskbar; again to leave it. A program in the terminal no longer gets Alt-Enter |
 | Ctrl-Shift-E | Ctrl-Shift-E | Explain the command on the line |
+| Ctrl-Shift-M | Cmd-Shift-M | The mail in place of the terminal, or the terminal again (see [Mail](#mail)) |
 | Ctrl-N, Down | Ctrl-N, Down | The next command in the list while typing |
 | Ctrl-P, Up | Ctrl-P, Up | The command before in the list |
 | Tab, Right | Tab, Right | Put the chosen command on the line; Right with none chosen takes the grey suggestion |
@@ -99,7 +101,7 @@ The settings file is `config.toml` in `%APPDATA%\unifyterm` (Windows), `~/Librar
 
 `ut setting`, in a tab, shows every setting and changes it from the keyboard. ↑↓ move; Enter changes the one the cursor is on: a switch turns, and a font, a shell, the fallback fonts, the commands to leave to the system and the model's provider open a list to pick from (type to narrow it; Space marks several, in order). ←→ make a number smaller or larger, `e` types any value (a font the list lacks), `d` puts the default back, `u` takes the last change back, `/` narrows the settings, `q` leaves. A value UnifyTerm would refuse is not written, and the line says why. The comments in your file stay. For a script: `ut setting list`, `ut setting get font.size`, `ut setting set font.size 16`, `ut setting reset font.size`, `ut setting path`.
 
-UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the theme and everything in `[theme]`, the keys in `[keys]`, the padding, `window.tab_bar` and the list of earlier commands change at once. The rest of `[prompt]` is used at the next prompt. `shell.*`, `terminal.scrollback` and `prompt.enabled` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.system_title_bar`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
+UnifyTerm reads the file again whenever it changes, by `ut setting` or by an editor. The font, the theme and everything in `[theme]`, the keys in `[keys]`, the padding, `window.tab_bar`, the list of earlier commands and `[mail]` (the mail's sync starts again with it) change at once. The rest of `[prompt]` is used at the next prompt. `shell.*`, `terminal.scrollback` and `prompt.enabled` are used by the next tab; `agents.command` and `agents.poll_ms` when the sidebar is shown again. The rest (`commands.*`, `history.enabled`, `ai.*`, `window.system_title_bar`, `agents.sidebar`, `updates.check`) is set up when UnifyTerm starts. A changed file that is wrong changes nothing: the settings in use stay, and the log says why.
 
 | Key | Default | What it is |
 |---|---|---|
@@ -125,6 +127,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `keys.tab_bar` | as above | The keys that put the row of tabs out of the way, or back |
 | `keys.full_screen` | as above | The keys for full screen, and out of it |
 | `keys.explain` | as above | The keys that explain the command on the line |
+| `keys.mail` | as above | The keys that show the mail in the window, or the terminal again |
 | `theme.name` | | The theme: one of UnifyTerm's or one of your own (below). Not set: `paper-dark` |
 | `theme.foreground` | the theme's | The color of text, `#rrggbb` |
 | `theme.background` | the theme's | The color behind it |
@@ -182,6 +185,15 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `agents.command` | `["keepane", "list-agents", "-J"]` | The program that prints the agents as JSON |
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 | `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
+| `mail.address` | | Your mail address. Not set: no mail (see [Mail](#mail)) |
+| `mail.imap` | the domain's | The IMAP server, `host:port` (993, TLS) |
+| `mail.smtp` | the domain's | The SMTP server, `host:port` (465 with TLS, or 587 with STARTTLS) |
+| `mail.login` | the address | The name logged in with |
+| `mail.password_command` | `[]` | A program, with its arguments, that prints the password. Empty: the one `ut mail login` keeps in the system's keychain |
+| `mail.proxy` | | `socks5://host:port` or `http://host:port`: both servers are reached through it. Not set: directly |
+| `mail.days` | `30` | How many days of mail the first sync reads, 1 to 3650 |
+| `mail.on_new` | `[]` | A program run for each new mail from someone else: `{thread}`, `{from}`, `{subject}`, `{snippet}` in its words, the mail as JSON on its input |
+| `mail.notify` | `true` | A note at the window's foot when mail comes |
 
 **Keys.** A key in `[keys]` may be written as you would say it (`Ctrl+Shift+G`): `ut setting` keeps it as `ctrl-shift-g`. The keys held are `ctrl`, `alt`, `shift` and `cmd` (the Windows key on a PC). A letter, a digit or a sign needs Ctrl, Alt or Cmd with it, and so do Enter, Tab, Esc and the arrows: alone, or with Shift only, they are what the shell is typed to with, and are refused. A function key and Insert may stand alone. A key cannot be given to two commands. A key another program has taken for the whole system (a screenshot key) never reaches UnifyTerm: give the command another one, as `ut setting set keys.agents ctrl-alt-a`.
 
@@ -254,6 +266,27 @@ On macOS a tab's shell is a login shell, as in Terminal.app: zsh and fish get `-
 
 After a shell's start files have run, UnifyTerm's commands are put first in `PATH` again (bash, zsh, fish, PowerShell): your files may add directories, but `cat` stays UnifyTerm's. `commands.system` names the commands you want from the system instead.
 
+### Mail
+
+Ctrl-Shift-M (Cmd-Shift-M on macOS) shows one mailbox in the window, in place of the terminal; pressed again, the terminal is back, and so it is after a click on a tab. The conversations are on the left, newest first. On the right is the chosen one as bubbles: the other person's mails on the left, yours on the right, the mail they quote folded under a link. Type an answer at the foot and press Ctrl-Enter or Send. The colors are the theme's, and a theme's wallpaper shows behind the bubbles.
+
+Set it up once, in a tab:
+
+```
+ut setting set mail.address me@qq.com
+ut mail login
+```
+
+`ut mail login` asks for the password, tries it on the server, and keeps it in the system's keychain (Windows' Credential Manager, the macOS Keychain, the Secret Service on Linux). Or name a program that prints it: `mail.password_command = ["pass", "mail/qq"]`. Most services want an app password or authorization code here, not the password of their web page: QQ and 163 call it 授权码 and give it once IMAP is turned on in their settings; Gmail and iCloud call it an app password. The servers of qq.com, foxmail.com, 163.com, 126.com, yeah.net, gmail.com, icloud.com, yahoo.com, fastmail.com and aliyun.com are known; for another domain set `mail.imap` and `mail.smtp`. Outlook.com and Hotmail let mail programs in with OAuth2 only, which UnifyTerm does not do yet.
+
+A mailbox abroad: `mail.proxy = "socks5://127.0.0.1:7890"` (or `http://...`) sends both servers' connections through that proxy. The server's name goes to the proxy, which looks up its address. Not set: directly.
+
+While a window is open, it reads the inbox and the sent folder: first the last `mail.days` days, then each mail as the server tells of it (IDLE; a server without IDLE is asked every five minutes). One window on the machine does it at a time; `ut mail sync` reads once when no window is open. A connection that fails is tried again after 30 seconds, then twice as long each time up to ten minutes; a password the server refuses, after half an hour. What went wrong is shown under the address. A mail of more than 8 MiB is kept by its header only. HTML is shown as text; nothing it would load from elsewhere is loaded.
+
+When mail comes, ✉ in the row of tabs counts what is unread, and a note shows at the window's foot. `mail.on_new` names a program run for each new mail, with `{thread}`, `{from}`, `{subject}` and `{snippet}` in its words and the mail as JSON on its input; no shell is between, so nothing a mail says is run as a command. `on_new = ["keepane", "send-message", "--to", "%3", "Mail {thread} from {from}: {subject}"]` tells an agent in keepane.
+
+**Agents write drafts; you send.** An agent reads the mailbox through `ut mcp` (`mail_threads`, `mail_thread`, `mail_search`) and keeps an answer with `mail_draft`, or with `ut mail draft`. The draft shows in its conversation in a dashed box, with Drop, Edit and Send. No tool sends: a mail goes out when you press Send or Ctrl-Enter, or answer y to `ut mail send`. The tools give mails with a note that their words are other people's, to be read as data. An agent that can run commands could still send mail its own way (with curl, say): this keeps the agent's tools from sending; it cannot stop a program.
+
 ## Environment variables
 
 | Variable | What it does |
@@ -296,13 +329,21 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut theme new NAME [--from NAME]` | Begin a theme of your own: a copy of the theme in use, or of the one named |
 | `ut theme check FILE` | Check a theme file only: for who writes one |
 | `ut theme directory` | Print the folder your own themes are in |
+| `ut mail [list] [--unread] [--all] [--json]` | The mailbox's conversations, newest first (see [Mail](#mail)) |
+| `ut mail show THREAD [--json]` | One conversation, oldest first, with its draft |
+| `ut mail search TEXT` | The conversations with TEXT in a subject, a mail or a sender |
+| `ut mail draft THREAD FILE\|- [--by NAME]` | Keep an answer as the conversation's draft (`-` reads standard input) |
+| `ut mail send THREAD` | Show the draft and ask, on the terminal, before sending it |
+| `ut mail sync` | Read the server's new mail now, when no window does |
+| `ut mail status` | The address, the servers, what the sync last said, how many are unread |
+| `ut mail login`, `ut mail logout` | Keep the password in the system's keychain (tried on the server first), or take it away |
 | `ut prompt preview` | The prompt UnifyTerm writes, with the settings and the theme in use (see [The prompt](#the-prompt)) |
 | `ut prompt --shell NAME ...` | The prompt for a shell's hook: what UnifyTerm's tabs run at every prompt |
 
 ## For agents
 
 - **The sidebar** (Ctrl-Shift-A) shows the agents in keepane's panes (keepane is a terminal multiplexer): model, cost, context, CPU, memory. A cost or a context share keepane does not know is left out of the card; a cost with a `+` (`$2.10+`) is less than the real one, because keepane has no price for some of the tokens. It asks keepane only while it shows.
-- **`ut mcp`** gives an agent four tools: `history_search`, `history_recent`, `list_commands`, `command_help`. It reads the history and runs nothing. Register it with Claude Code: `claude mcp add unifyterm -- ut mcp`.
+- **`ut mcp`** gives an agent eight tools: `history_search`, `history_recent`, `list_commands`, `command_help`, and for the mail `mail_threads`, `mail_thread`, `mail_search`, `mail_draft`. It reads the history and the mail, keeps drafts, and runs and sends nothing. Register it with Claude Code: `claude mcp add unifyterm -- ut mcp`.
 - **The skill** (`skills/unifyterm/SKILL.md`, or `ut skill`) tells an agent how to work in UnifyTerm.
 
 ## Where things are
@@ -311,7 +352,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 |---|---|---|---|
 | Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
 | Your own themes | `%APPDATA%\unifyterm\themes` | `~/Library/Application Support/unifyterm/themes` | `~/.config/unifyterm/themes` |
-| History, log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
+| History, mail (`mail.db`), log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
 The history is one SQLite file, `history.db`; a copy works on every system. `update.json` beside it keeps what GitHub last said about the latest version (`updates.check`): once a day the window asks `api.github.com` for it, telling it only `unifyterm/VERSION`.
 
@@ -334,6 +375,7 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - The row of tabs, the lists, the boxes and the sidebar were redrawn in 0.5.0 and looked at on Windows only: macOS and Linux build them and run the tests.
 - The white-text rule for light themes covers white and bright white on the theme's background. A program that writes another color the theme has made light is left as it wrote it.
 - A wallpaper is blended toward its own edges where the window shows them, over about half a pixel of the picture: 2 rows of the window for a picture of 400 by 200 made 3 times larger, and more the smaller the picture is. A picture of the window's size or larger shows none of it.
+- Mail: one mailbox, logged in with a password (no OAuth2, so not Outlook.com); read while a window is open or `ut mail sync` runs; the inbox and the sent folder only. Attachments are named, not saved or opened. The answer line takes text at its end (Backspace, no cursor within it). It was tried against a pretend IMAP and SMTP server on this machine, through SOCKS5 and HTTP proxies too, not yet against each real service; the window was looked at on Windows only.
 - The builds are not signed.
 
 ## License

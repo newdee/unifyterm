@@ -71,6 +71,7 @@ pub fn parse_color(text: &str) -> Option<[u8; 3]> {
 }
 const CANDIDATE_LIMITS: std::ops::RangeInclusive<usize> = 1..=20;
 const POLL_TIMES: std::ops::RangeInclusive<u64> = 500..=60_000;
+const MAIL_DAYS: std::ops::RangeInclusive<u32> = 1..=3650;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -87,6 +88,7 @@ pub struct Config {
     pub ai: AiConfig,
     pub agents: AgentsConfig,
     pub updates: UpdatesConfig,
+    pub mail: MailConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -160,7 +162,7 @@ pub struct WindowConfig {
 /// macOS. Ctrl-Shift on Windows and Linux, where Ctrl alone belongs to the
 /// program in the terminal; Cmd on macOS. Full screen: F11 and Alt-Enter as
 /// in Windows Terminal; Cmd-Enter and Ctrl-Cmd-F, the Mac's own key.
-pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 10] = [
+pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 11] = [
     ("new_tab", &["ctrl-shift-t"], &["cmd-t"]),
     ("close_tab", &["ctrl-shift-w"], &["cmd-w"]),
     ("next_tab", &["ctrl-tab"], &["ctrl-tab"]),
@@ -171,6 +173,7 @@ pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 10] = [
     ("tab_bar", &["ctrl-shift-b"], &["cmd-shift-b"]),
     ("full_screen", &["f11", "alt-enter"], &["cmd-enter", "ctrl-cmd-f"]),
     ("explain", &["ctrl-shift-e"], &["ctrl-shift-e"]),
+    ("mail", &["ctrl-shift-m"], &["cmd-shift-m"]),
 ];
 
 /// The keys of the window's own commands: each a list, so that a command
@@ -191,6 +194,8 @@ pub struct KeysConfig {
     pub full_screen: Vec<String>,
     /// What each part of the command on the line means.
     pub explain: Vec<String>,
+    /// The window shows the mail, or the terminal again.
+    pub mail: Vec<String>,
 }
 
 impl Default for KeysConfig {
@@ -212,6 +217,7 @@ impl Default for KeysConfig {
             tab_bar: of("tab_bar"),
             full_screen: of("full_screen"),
             explain: of("explain"),
+            mail: of("mail"),
         }
     }
 }
@@ -219,7 +225,7 @@ impl Default for KeysConfig {
 impl KeysConfig {
     /// Every command with its keys, by its name in `[keys]`, in the file's order.
     #[must_use]
-    pub fn all(&self) -> [(&'static str, &Vec<String>); 10] {
+    pub fn all(&self) -> [(&'static str, &Vec<String>); 11] {
         [
             ("new_tab", &self.new_tab),
             ("close_tab", &self.close_tab),
@@ -231,6 +237,7 @@ impl KeysConfig {
             ("tab_bar", &self.tab_bar),
             ("full_screen", &self.full_screen),
             ("explain", &self.explain),
+            ("mail", &self.mail),
         ]
     }
 
@@ -421,6 +428,85 @@ pub struct UpdatesConfig {
 impl Default for UpdatesConfig {
     fn default() -> Self {
         Self { check: true }
+    }
+}
+
+/// The mailbox UnifyTerm reads (`Ctrl-Shift-M`): none until `address` is set. The password is
+/// never here: a program prints it (`password_command`), or `ut mail login` keeps it in the system's keychain.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct MailConfig {
+    /// `me@example.com`; empty: no mail.
+    pub address: String,
+    /// The IMAP server as `host:port`; empty: the address's domain's, when it is a known one.
+    pub imap: String,
+    /// The SMTP server as `host:port`; empty: as `imap`.
+    pub smtp: String,
+    /// The name logged in with; empty: the address.
+    pub login: String,
+    /// A program and its arguments that print the password.
+    pub password_command: Vec<String>,
+    /// `socks5://host:port` or `http://host:port`: both servers are reached through it. Empty: directly.
+    pub proxy: String,
+    /// How many days of mail the first sync reads.
+    pub days: u32,
+    /// A program run for each new mail from someone else, with `{thread}`, `{from}`, `{subject}`, `{snippet}`.
+    pub on_new: Vec<String>,
+    /// A note in the window when mail comes.
+    pub notify: bool,
+}
+
+impl Default for MailConfig {
+    fn default() -> Self {
+        Self {
+            address: String::new(),
+            imap: String::new(),
+            smtp: String::new(),
+            login: String::new(),
+            password_command: Vec::new(),
+            proxy: String::new(),
+            days: 30,
+            on_new: Vec::new(),
+            notify: true,
+        }
+    }
+}
+
+impl MailConfig {
+    /// What can be told from the text alone: an address with `@`, servers as `host:port`, a proxy
+    /// with its kind and port, the days in range. Whether the servers answer is found when they are asked.
+    fn check(&self) -> Result<()> {
+        let address = self.address.trim();
+        if !address.is_empty()
+            && !address.split_once('@').is_some_and(|(name, domain)| !name.is_empty() && domain.contains('.'))
+        {
+            bail!("mail.address is \"{address}\": not a mail address like me@example.com");
+        }
+        for (key, text) in [("imap", &self.imap), ("smtp", &self.smtp)] {
+            let text = text.trim();
+            if !text.is_empty()
+                && !text.rsplit_once(':').is_some_and(|(host, port)| !host.is_empty() && port.parse::<u16>().is_ok())
+            {
+                bail!("mail.{key} is \"{text}\": write it as host:port, as imap.example.com:993");
+            }
+        }
+        let proxy = self.proxy.trim();
+        if !proxy.is_empty() {
+            let (scheme, place) = proxy.split_once("://").unwrap_or(("", proxy));
+            let known = matches!(scheme.to_ascii_lowercase().as_str(), "socks5" | "socks5h" | "http");
+            let port =
+                place.trim_end_matches('/').rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok());
+            if !known || !port {
+                bail!("mail.proxy is \"{proxy}\": write it as socks5://127.0.0.1:7890 or http://127.0.0.1:7890");
+            }
+        }
+        if !MAIL_DAYS.contains(&self.days) {
+            bail!("mail.days is {}: it must be from {} to {}", self.days, MAIL_DAYS.start(), MAIL_DAYS.end());
+        }
+        if self.on_new.first().is_some_and(|program| program.trim().is_empty()) {
+            bail!("mail.on_new begins with an empty word: it is a program and its arguments");
+        }
+        Ok(())
     }
 }
 
@@ -667,6 +753,7 @@ impl Config {
         }
         config.check_model()?;
         config.keys.check()?;
+        config.mail.check()?;
         config.theme.check()?;
         config.prompt.check(prompt::Layer::Settings)?;
         Ok(config)
@@ -765,6 +852,28 @@ mod tests {
         );
         assert!(said("[keys]\ncopy = [\"ctrl-alt-x\", \"ctrl-alt-x\"]").contains("keys.copy and keys.copy both have"));
         assert!(said("[keys]\nfrobnicate = [\"f9\"]").contains("unknown field"), "a command that is none");
+    }
+
+    #[test]
+    fn mail_settings_are_checked_as_far_as_text_can_tell() {
+        let mail = Config::parse("[mail]\naddress = \"me@qq.com\"\nproxy = \"socks5://127.0.0.1:7890\"")
+            .expect("settings")
+            .mail;
+        assert_eq!(
+            (mail.address.as_str(), mail.days, mail.notify),
+            ("me@qq.com", 30, true),
+            "days and notify by default"
+        );
+        assert_eq!(Config::default().mail.address, "", "no mail until an address is set");
+        let said = |text: &str| format!("{:#}", Config::parse(text).expect_err("refused"));
+        assert!(said("[mail]\naddress = \"me\"").contains("mail.address is \"me\""));
+        assert!(said("[mail]\nimap = \"imap.qq.com\"").contains("mail.imap"));
+        assert!(said("[mail]\nsmtp = \"x:port\"").contains("mail.smtp"));
+        assert!(said("[mail]\nproxy = \"127.0.0.1:7890\"").contains("mail.proxy"));
+        assert!(said("[mail]\nproxy = \"ftp://x:1\"").contains("mail.proxy"));
+        assert!(said("[mail]\ndays = 0").contains("mail.days is 0"));
+        assert!(said("[mail]\non_new = [\"\"]").contains("mail.on_new"));
+        assert!(said("[mail]\npassword = \"x\"").contains("unknown field"), "no password in the file");
     }
 
     #[test]

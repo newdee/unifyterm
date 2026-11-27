@@ -1,0 +1,44 @@
+[package]
+name = "unifyterm-mail"
+description = "UnifyTerm's mail: one mailbox kept in SQLite, read as conversations; IMAP in, SMTP out."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.43", features = ["bundled"] }
+unifyterm-history = { path = "../history" }
+# The settings' [mail] table, made into a plan.
+unifyterm-config = { path = "../config" }
+# IMAP, blocking, over a stream of our own (TLS below).
+imap = { version = "3.0.0-alpha.15", default-features = false }
+# TLS for IMAP: the same rustls, with ring and Mozilla's roots, that ureq already brings.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+# Reading a mail: MIME, the charsets (GBK, Big5, ...), encoded words.
+mail-parser = { version = "1", features = ["full_encoding"] }
+# The answer written with its headers (UnifyTerm speaks SMTP itself: through a proxy too).
+lettre = { version = "0.11", default-features = false, features = ["builder"] }
+# AUTH PLAIN, and a proxy's login.
+base64 = "0.22"
+log = "0.4"
+# IMAP's dates for SEARCH SINCE (already in the tree through imap).
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3.6", features = ["async-secret-service", "async-io", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"

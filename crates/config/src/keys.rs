@@ -93,7 +93,8 @@ impl Key {
             // A tab's shell is told when it starts whether UnifyTerm writes its prompt; how the
             // prompt looks is read again at every prompt (below).
             ("shell", _) | ("terminal", "scrollback") | ("prompt", "enabled") => Applies::NextTab,
-            ("font" | "theme" | "keys" | "prompt", _)
+            // The window starts its mail sync again with new mail settings.
+            ("font" | "theme" | "keys" | "prompt" | "mail", _)
             | ("terminal", "padding")
             | ("window", "tab_bar")
             | ("history", "candidates" | "limit")
@@ -118,7 +119,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 const SEGMENT_PAINTS: Kind = Kind::Paints { least: 1, most: 2 };
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 78] = [
+pub const KEYS: [Key; 88] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -164,6 +165,7 @@ pub const KEYS: [Key; 78] = [
     setting("keys.tab_bar", Kind::Keys, "The keys that put the row of tabs out of the way, or back."),
     setting("keys.full_screen", Kind::Keys, "The keys for full screen, and out of it."),
     setting("keys.explain", Kind::Keys, "The keys that explain the command on the line."),
+    setting("keys.mail", Kind::Keys, "The keys that show the mail in the window, or the terminal again."),
     setting(
         "theme.name",
         Kind::OptionalText,
@@ -329,4 +331,29 @@ pub const KEYS: [Key; 78] = [
         Kind::Switch,
         "Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs.",
     ),
+    setting("mail.address", Kind::Text, "Your mail address: me@example.com. Empty: no mail."),
+    setting(
+        "mail.imap",
+        Kind::Text,
+        "The IMAP server as host:port (993). Empty: the address's domain's: qq.com, 163.com, 126.com, gmail.com, icloud.com and others.",
+    ),
+    setting("mail.smtp", Kind::Text, "The SMTP server as host:port (465, or 587 with STARTTLS). Empty: as mail.imap."),
+    setting("mail.login", Kind::Text, "The name to log in with. Empty: the address."),
+    setting(
+        "mail.password_command",
+        Kind::Words,
+        "A program that prints the password (an app password or authorization code). Empty: the one ut mail login keeps in the keychain.",
+    ),
+    setting(
+        "mail.proxy",
+        Kind::Text,
+        "socks5://host:port or http://host:port: the servers are reached through it, as for a mailbox abroad. Empty: directly.",
+    ),
+    setting("mail.days", Kind::Whole { least: 1, most: 3650 }, "How many days of mail the first sync reads."),
+    setting(
+        "mail.on_new",
+        Kind::Words,
+        "A program run for each new mail: {thread} {from} {subject} {snippet}; the mail as JSON on its input.",
+    ),
+    setting("mail.notify", Kind::Switch, "A note in the window when mail comes."),
 ];

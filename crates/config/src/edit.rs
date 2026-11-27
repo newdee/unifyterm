@@ -297,20 +297,26 @@ mod tests {
         // Each name takes a value of its kind in an empty file: so the terminal knows the name.
         for key in &KEYS {
             let (_directory, mut file) = opened("");
-            let sample = match key.kind {
-                Kind::Switch => "true".to_owned(),
-                Kind::Whole { least, .. } => least.to_string(),
-                Kind::Number { least, .. } => least.to_string(),
-                Kind::Text | Kind::OptionalText => "text".to_owned(),
-                Kind::Words => "one, two".to_owned(),
-                // A provider needs a model: the choice that needs nothing else.
-                Kind::OneOf(choices) => choices[0].to_owned(),
-                Kind::Color => "#102030".to_owned(),
-                Kind::Colors => vec!["#102030"; ANSI_COLORS].join(", "),
-                // A key no command has by default.
-                Kind::Keys => "ctrl-alt-f9".to_owned(),
-                Kind::Segments => "dir".to_owned(),
-                Kind::Paints { least, .. } => vec!["blue"; least].join(", "),
+            let sample = match (key.name, key.kind) {
+                // Text the mail settings take: an address, a server, a proxy.
+                ("mail.address", _) => "me@example.com".to_owned(),
+                ("mail.imap" | "mail.smtp", _) => "mail.example.com:993".to_owned(),
+                ("mail.proxy", _) => "socks5://127.0.0.1:7890".to_owned(),
+                (_, kind) => match kind {
+                    Kind::Switch => "true".to_owned(),
+                    Kind::Whole { least, .. } => least.to_string(),
+                    Kind::Number { least, .. } => least.to_string(),
+                    Kind::Text | Kind::OptionalText => "text".to_owned(),
+                    Kind::Words => "one, two".to_owned(),
+                    // A provider needs a model: the choice that needs nothing else.
+                    Kind::OneOf(choices) => choices[0].to_owned(),
+                    Kind::Color => "#102030".to_owned(),
+                    Kind::Colors => vec!["#102030"; ANSI_COLORS].join(", "),
+                    // A key no command has by default.
+                    Kind::Keys => "ctrl-alt-f9".to_owned(),
+                    Kind::Segments => "dir".to_owned(),
+                    Kind::Paints { least, .. } => vec!["blue"; least].join(", "),
+                },
             };
             file.set(key, &sample).unwrap_or_else(|error| panic!("{}: {error:#}", key.name));
             assert!(file.value(key).is_some(), "{} is in the file", key.name);
@@ -328,7 +334,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (41, 37), "41 with a default written, 37 that are not set");
+        assert_eq!((written.len(), unset_by_default), (51, 37), "51 with a default written, 37 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -342,7 +348,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (56, 4, 2, 16)
+            (66, 4, 2, 16)
         );
     }
 
