@@ -12,7 +12,7 @@ One terminal for Windows, macOS and Linux. The page that introduces it: [dfine.t
 - **A command history you can search as you type.** Every command a shell runs is kept (without secrets) with its directory and exit code; a list of matches shows while you type.
 - **Help with commands.** A corrected command when one is not found, guessed on your machine from the commands it knows. With a model you name and agree to once: better corrections, what each part of a command means (Ctrl-Shift-E), the rest of a command in grey, and a command for what you say in words (`# the five largest files here`, then Enter). The model is a service, a model server on your machine, or an agent's command line you already have (Claude Code, Codex, pi).
 - **Pictures, video and markdown in the terminal.** `ut view photo.png`, `ut view clip.mp4`, `ut md README.md`.
-- **Mail beside the terminal.** Ctrl-Shift-M shows one mailbox in the window as conversations, and the terminal again. An agent reads it through `ut mcp` and writes drafts; only you send.
+- **Mail beside the terminal.** Ctrl-Shift-M shows your mailboxes in the window as conversations, and the terminal again; a mailbox is added there too. An agent reads it through `ut mcp` and writes drafts; only you send.
 - **For agents.** A sidebar with the agents keepane watches (Ctrl-Shift-A); `ut mcp`, an MCP server with the history, the commands' help and the mail; a skill file.
 
 It runs your own shell: PowerShell, cmd, bash, zsh or fish.
@@ -72,7 +72,7 @@ From source: `cargo build --release` with Rust 1.93 or later; on Windows run `pw
 
 ## Keys
 
-On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first eleven, down to "Mail", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
+On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first twelve, down to "Add a mailbox", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
 
 | Key | macOS | What it does |
 |---|---|---|
@@ -87,6 +87,7 @@ On macOS the window's own keys use Cmd, as the second column shows; the keys at 
 | F11, Alt-Enter | Cmd-Enter, Ctrl-Cmd-F | Full screen, over the taskbar; again to leave it. A program in the terminal no longer gets Alt-Enter |
 | Ctrl-Shift-E | Ctrl-Shift-E | Explain the command on the line |
 | Ctrl-Shift-M | Cmd-Shift-M | The mail in place of the terminal, or the terminal again (see [Mail](#mail)) |
+| Ctrl-Alt-Shift-M | Alt-Cmd-Shift-M | Add a mailbox: the mail, with the form that adds one |
 | Ctrl-N, Down | Ctrl-N, Down | The next command in the list while typing |
 | Ctrl-P, Up | Ctrl-P, Up | The command before in the list |
 | Tab, Right | Tab, Right | Put the chosen command on the line; Right with none chosen takes the grey suggestion |
@@ -128,6 +129,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `keys.full_screen` | as above | The keys for full screen, and out of it |
 | `keys.explain` | as above | The keys that explain the command on the line |
 | `keys.mail` | as above | The keys that show the mail in the window, or the terminal again |
+| `keys.mail_add` | as above | The keys that show the mail with the form that adds a mailbox |
 | `theme.name` | | The theme: one of UnifyTerm's or one of your own (below). Not set: `paper-dark` |
 | `theme.foreground` | the theme's | The color of text, `#rrggbb` |
 | `theme.background` | the theme's | The color behind it |
@@ -185,15 +187,18 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `agents.command` | `["keepane", "list-agents", "-J"]` | The program that prints the agents as JSON |
 | `agents.focus` | `["keepane", "focus-pane", "{pane}"]` | The program that brings an agent's pane to the front; `{pane}` is its number |
 | `updates.check` | `true` | Once a day, ask GitHub whether a newer UnifyTerm is out, and name it in the row of tabs |
-| `mail.address` | | Your mail address. Not set: no mail (see [Mail](#mail)) |
+| `mail.address` | | A mail address. Not set: no mailbox here; more mailboxes are `[mail.accounts.NAME]` (see [Mail](#mail)) |
 | `mail.imap` | the domain's | The IMAP server, `host:port` (993, TLS) |
 | `mail.smtp` | the domain's | The SMTP server, `host:port` (465 with TLS, or 587 with STARTTLS) |
 | `mail.login` | the address | The name logged in with |
 | `mail.password_command` | `[]` | A program, with its arguments, that prints the password. Empty: the one `ut mail login` keeps in the system's keychain |
 | `mail.proxy` | | `socks5://host:port` or `http://host:port`: both servers are reached through it. Not set: directly |
-| `mail.days` | `30` | How many days of mail the first sync reads, 1 to 3650 |
-| `mail.on_new` | `[]` | A program run for each new mail from someone else: `{thread}`, `{from}`, `{subject}`, `{snippet}` in its words, the mail as JSON on its input |
+| `mail.days` | `30` | How many days of mail the first sync reads, 1 to 3650; a mailbox in `[mail.accounts]` without its own takes this |
+| `mail.on_new` | `[]` | A program run for each new mail from someone else: `{thread}`, `{from}`, `{subject}`, `{snippet}`, `{account}` in its words, the mail as JSON on its input |
 | `mail.notify` | `true` | A note at the window's foot when mail comes |
+| `mail.auth` | `auto` | How the mailbox logs in: `password`, or `oauth2` (a sign-in in the browser, Microsoft). `auto`: `oauth2` for outlook.com, hotmail.com, live.com and msn.com |
+| `mail.accounts` | | More mailboxes: `[mail.accounts.NAME]`, each a table with the keys above from `address` to `auth` (see [Mail](#mail)) |
+| `mail.oauth_client_id` | | The application the browser sign-in uses: one you or your organization registered at Microsoft. Needed for now (see [Mail](#mail)) |
 
 **Keys.** A key in `[keys]` may be written as you would say it (`Ctrl+Shift+G`): `ut setting` keeps it as `ctrl-shift-g`. The keys held are `ctrl`, `alt`, `shift` and `cmd` (the Windows key on a PC). A letter, a digit or a sign needs Ctrl, Alt or Cmd with it, and so do Enter, Tab, Esc and the arrows: alone, or with Shift only, they are what the shell is typed to with, and are refused. A function key and Insert may stand alone. A key cannot be given to two commands. A key another program has taken for the whole system (a screenshot key) never reaches UnifyTerm: give the command another one, as `ut setting set keys.agents ctrl-alt-a`.
 
@@ -268,24 +273,40 @@ After a shell's start files have run, UnifyTerm's commands are put first in `PAT
 
 ### Mail
 
-Ctrl-Shift-M (Cmd-Shift-M on macOS) shows one mailbox in the window, in place of the terminal; pressed again, the terminal is back, and so it is after a click on a tab. The conversations are on the left, newest first. On the right is the chosen one as bubbles: the other person's mails on the left, yours on the right, the mail they quote folded under a link. Type an answer at the foot and press Ctrl-Enter or Send. The colors are the theme's, and a theme's wallpaper shows behind the bubbles.
+Ctrl-Shift-M (Cmd-Shift-M on macOS) shows your mailboxes in the window, in place of the terminal; pressed again, the terminal is back, and so it is after a click on a tab. The mailboxes are named at the top left: All shows every mailbox's conversations together, each marked with its mailbox; a name shows only that one. Under them, All, Unread, To answer (the newest mail is someone else's) and Sent (the newest is yours, waiting for theirs). There is no separate inbox and sent folder: a conversation holds both. The conversations are on the left, newest first. On the right is the chosen one as bubbles: the other person's mails on the left, yours on the right, the mail they quote folded under a link. Type an answer at the foot and press Ctrl-Enter or Send. The colors are the theme's, and a theme's wallpaper shows behind the bubbles.
 
-Set it up once, in a tab:
+**Adding a mailbox.** Press `+` at the top left, or Ctrl-Alt-Shift-M; with no mailbox yet, the mail opens on the form. Type the address: UnifyTerm says which servers the domain uses and which way in is likely, and you may choose another: an authorization code or app password, a sign-in in the browser, servers by hand, or a program that prints the password. Choose Directly or Through a proxy. "Test and add" connects, logs in, finds the sent folder and logs in to SMTP, and says each step; only when all went is the mailbox written to the settings and the password (or the sign-in) kept in the system's keychain (Windows' Credential Manager, the macOS Keychain, the Secret Service on Linux). A step that fails says why, and nothing is kept. The right button on a mailbox's name signs it in again, changes it, or removes it (its settings, its kept password and the mail kept here; the server keeps its mail).
+
+The same in a tab:
 
 ```
-ut setting set mail.address me@qq.com
-ut mail login
+ut mail account add qq me@qq.com          # asks for the code, tests, keeps
+ut mail account add work me@corp.example --imap mail.corp.example:993 --smtp mail.corp.example:587
+ut mail account add gmail me@gmail.com --proxy socks5://127.0.0.1:7890
 ```
 
-`ut mail login` asks for the password, tries it on the server, and keeps it in the system's keychain (Windows' Credential Manager, the macOS Keychain, the Secret Service on Linux). Or name a program that prints it: `mail.password_command = ["pass", "mail/qq"]`. Most services want an app password or authorization code here, not the password of their web page: QQ and 163 call it 授权码 and give it once IMAP is turned on in their settings; Gmail and iCloud call it an app password. The servers of qq.com, foxmail.com, 163.com, 126.com, yeah.net, gmail.com, icloud.com, yahoo.com, fastmail.com and aliyun.com are known; for another domain set `mail.imap` and `mail.smtp`. Outlook.com and Hotmail let mail programs in with OAuth2 only, which UnifyTerm does not do yet.
+Most services want an app password or authorization code, not the password of their web page: QQ and 163 call it 授权码 and give it once IMAP is turned on in their settings; Gmail and iCloud call it an app password. Or name a program that prints it: `password_command = ["pass", "mail/qq"]`. The servers of qq.com, foxmail.com, 163.com, 126.com, yeah.net, gmail.com, icloud.com, yahoo.com, fastmail.com and aliyun.com are known.
+
+The first mailbox may be in `[mail]` itself (as 0.8 wrote it); the others are tables of their own, which take `address`, `imap`, `smtp`, `login`, `password_command`, `proxy`, `days` and `auth` as above. A mailbox is named after its domain (`qq`) unless you name it:
+
+```toml
+[mail.accounts.qq]
+address = "me@qq.com"
+
+[mail.accounts.gmail]
+address = "me@gmail.com"
+proxy = "socks5://127.0.0.1:7890"
+```
+
+**Outlook, Hotmail and work mail at Microsoft** let mail programs in with a sign-in in the browser (OAuth2) only. Choose "Sign in in the browser": UnifyTerm shows a code, opens Microsoft's page, and keeps the token Microsoft gives once you sign in there; it never sees your password, and gets a new token by itself as each one ends. For now the sign-in needs an application registered at Microsoft (Microsoft Entra, a public client that allows the device code flow): set its id as `mail.oauth_client_id`. An organization may have to allow it before its people can sign in.
 
 A mailbox abroad: `mail.proxy = "socks5://127.0.0.1:7890"` (or `http://...`) sends both servers' connections through that proxy. The server's name goes to the proxy, which looks up its address. Not set: directly.
 
-While a window is open, it reads the inbox and the sent folder: first the last `mail.days` days, then each mail as the server tells of it (IDLE; a server without IDLE is asked every five minutes). One window on the machine does it at a time; `ut mail sync` reads once when no window is open. A connection that fails is tried again after 30 seconds, then twice as long each time up to ten minutes; a password the server refuses, after half an hour. What went wrong is shown under the address. A mail of more than 8 MiB is kept by its header only. HTML is shown as text; nothing it would load from elsewhere is loaded.
+While a window is open, it reads each mailbox's inbox and sent folder, each mailbox on its own: first the last `mail.days` days, then each mail as the server tells of it (IDLE; a server without IDLE is asked every five minutes). One window on the machine reads a mailbox at a time; `ut mail sync` reads once when no window is open. A connection that fails is tried again after 30 seconds, then twice as long each time up to ten minutes; a password the server refuses, after half an hour. What went wrong is shown under the mailboxes' names; one mailbox that fails does not keep the others from being read. A mail of more than 8 MiB is kept by its header only. HTML is shown as text; nothing it would load from elsewhere is loaded.
 
-When mail comes, ✉ in the row of tabs counts what is unread, and a note shows at the window's foot. `mail.on_new` names a program run for each new mail, with `{thread}`, `{from}`, `{subject}` and `{snippet}` in its words and the mail as JSON on its input; no shell is between, so nothing a mail says is run as a command. `on_new = ["keepane", "send-message", "--to", "%3", "Mail {thread} from {from}: {subject}"]` tells an agent in keepane.
+When mail comes, ✉ in the row of tabs counts what is unread, and a note shows at the window's foot. `mail.on_new` names a program run for each new mail, with `{thread}`, `{from}`, `{subject}`, `{snippet}` and `{account}` (the mailbox's name) in its words and the mail as JSON on its input; no shell is between, so nothing a mail says is run as a command. `on_new = ["keepane", "send-message", "--to", "%3", "Mail {thread} from {from}: {subject}"]` tells an agent in keepane.
 
-**Agents write drafts; you send.** An agent reads the mailbox through `ut mcp` (`mail_threads`, `mail_thread`, `mail_search`) and keeps an answer with `mail_draft`, or with `ut mail draft`. The draft shows in its conversation in a dashed box, with Drop, Edit and Send. No tool sends: a mail goes out when you press Send or Ctrl-Enter, or answer y to `ut mail send`. The tools give mails with a note that their words are other people's, to be read as data. An agent that can run commands could still send mail its own way (with curl, say): this keeps the agent's tools from sending; it cannot stop a program.
+**Agents write drafts; you send.** An agent reads the mailboxes through `ut mcp` (`mail_threads`, `mail_thread`, `mail_search`; each conversation says its mailbox) and keeps an answer with `mail_draft`, or with `ut mail draft`. The draft shows in its conversation in a dashed box, with Drop, Edit and Send. No tool sends: an answer goes out from the mailbox its conversation is in, when you press Send or Ctrl-Enter, or answer y to `ut mail send`. The tools give mails with a note that their words are other people's, to be read as data. An agent that can run commands could still send mail its own way (with curl, say): this keeps the agent's tools from sending; it cannot stop a program.
 
 ## Environment variables
 
@@ -329,14 +350,17 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 | `ut theme new NAME [--from NAME]` | Begin a theme of your own: a copy of the theme in use, or of the one named |
 | `ut theme check FILE` | Check a theme file only: for who writes one |
 | `ut theme directory` | Print the folder your own themes are in |
-| `ut mail [list] [--unread] [--all] [--json]` | The mailbox's conversations, newest first (see [Mail](#mail)) |
+| `ut mail [list] [--unread\|--waiting\|--mine\|--all] [--account NAME] [--json]` | The conversations, newest first, of all mailboxes or one (see [Mail](#mail)) |
 | `ut mail show THREAD [--json]` | One conversation, oldest first, with its draft |
-| `ut mail search TEXT` | The conversations with TEXT in a subject, a mail or a sender |
+| `ut mail search TEXT [--account NAME]` | The conversations with TEXT in a subject, a mail or a sender |
 | `ut mail draft THREAD FILE\|- [--by NAME]` | Keep an answer as the conversation's draft (`-` reads standard input) |
 | `ut mail send THREAD` | Show the draft and ask, on the terminal, before sending it |
-| `ut mail sync` | Read the server's new mail now, when no window does |
-| `ut mail status` | The address, the servers, what the sync last said, how many are unread |
-| `ut mail login`, `ut mail logout` | Keep the password in the system's keychain (tried on the server first), or take it away |
+| `ut mail sync [--account NAME]` | Read the servers' new mail now, when no window does |
+| `ut mail status` | Each mailbox: its address, servers, what its sync last said, how many are unread |
+| `ut mail account list` | The mailboxes, by name |
+| `ut mail account add NAME ADDRESS [--imap H:P] [--smtp H:P] [--login NAME] [--proxy URL] [--auth password\|oauth2]` | Try a mailbox, sign in, and keep it in the settings |
+| `ut mail account remove NAME [--yes]` | Take a mailbox out: its settings, its kept password, the mail kept here |
+| `ut mail login [--account NAME]`, `ut mail logout [--account NAME]` | Keep the password or the sign-in in the system's keychain (tried on the server first), or take it away |
 | `ut prompt preview` | The prompt UnifyTerm writes, with the settings and the theme in use (see [The prompt](#the-prompt)) |
 | `ut prompt --shell NAME ...` | The prompt for a shell's hook: what UnifyTerm's tabs run at every prompt |
 
@@ -375,7 +399,7 @@ The history is one SQLite file, `history.db`; a copy works on every system. `upd
 - The row of tabs, the lists, the boxes and the sidebar were redrawn in 0.5.0 and looked at on Windows only: macOS and Linux build them and run the tests.
 - The white-text rule for light themes covers white and bright white on the theme's background. A program that writes another color the theme has made light is left as it wrote it.
 - A wallpaper is blended toward its own edges where the window shows them, over about half a pixel of the picture: 2 rows of the window for a picture of 400 by 200 made 3 times larger, and more the smaller the picture is. A picture of the window's size or larger shows none of it.
-- Mail: one mailbox, logged in with a password (no OAuth2, so not Outlook.com); read while a window is open or `ut mail sync` runs; the inbox and the sent folder only. Attachments are named, not saved or opened. The answer line takes text at its end (Backspace, no cursor within it). It was tried against a pretend IMAP and SMTP server on this machine, through SOCKS5 and HTTP proxies too, not yet against each real service; the window was looked at on Windows only.
+- Mail: read while a window is open or `ut mail sync` runs; the inbox and the sent folder only. The browser sign-in (Outlook) needs `mail.oauth_client_id` for now, and was tried against a pretend sign-in service, not yet against Microsoft. Attachments are named, not saved or opened. The answer line takes text at its end (Backspace, no cursor within it). It was tried against a pretend IMAP and SMTP server on this machine, through SOCKS5 and HTTP proxies too, not yet against each real service; the window was looked at on Windows only.
 - The builds are not signed.
 
 ## License

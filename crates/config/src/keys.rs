@@ -119,7 +119,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 const SEGMENT_PAINTS: Kind = Kind::Paints { least: 1, most: 2 };
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 88] = [
+pub const KEYS: [Key; 91] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -166,6 +166,7 @@ pub const KEYS: [Key; 88] = [
     setting("keys.full_screen", Kind::Keys, "The keys for full screen, and out of it."),
     setting("keys.explain", Kind::Keys, "The keys that explain the command on the line."),
     setting("keys.mail", Kind::Keys, "The keys that show the mail in the window, or the terminal again."),
+    setting("keys.mail_add", Kind::Keys, "The keys that show the mail with the form that adds a mailbox."),
     setting(
         "theme.name",
         Kind::OptionalText,
@@ -356,4 +357,14 @@ pub const KEYS: [Key; 88] = [
         "A program run for each new mail: {thread} {from} {subject} {snippet}; the mail as JSON on its input.",
     ),
     setting("mail.notify", Kind::Switch, "A note in the window when mail comes."),
+    setting(
+        "mail.auth",
+        Kind::OneOf(&["auto", "password", "oauth2"]),
+        "How the mailbox logs in: oauth2 is a sign-in in the browser (Microsoft); auto is oauth2 for outlook.com, hotmail.com, live.com and msn.com, a password elsewhere.",
+    ),
+    setting(
+        "mail.oauth_client_id",
+        Kind::Text,
+        "The application id the browser sign-in uses, for an organization that registered its own. Empty: UnifyTerm's.",
+    ),
 ];

@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn the_list_names_every_setting_under_its_section() {
         let (_directory, mut screen) = opened("[font]\nsize = 16\n");
-        let lines = text(&mut screen, 120, 120);
+        let lines = text(&mut screen, 120, 130);
         assert!(lines[0].starts_with("UnifyTerm settings   ") && lines[0].ends_with("config.toml"), "{}", lines[0]);
         for key in &KEYS {
             // The whole name: `ai.ask` is not `ai.ask_enter`.
@@ -907,11 +907,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   23 of 88");
+        assert_eq!(lines[1], "/color   23 of 91");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 88");
+        assert_eq!(lines[1], "/colorzzz   0 of 91");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }
@@ -923,7 +923,10 @@ mod tests {
         let lines = text(&mut screen, 40, 12);
         assert_eq!(lines.len(), 12, "as many lines as the screen has");
         assert!(lines.iter().all(|line| line.width() <= 40), "{lines:#?}");
-        assert!(lines.iter().any(|line| line.trim_start().starts_with("mail.notify")), "the last one is in view");
+        assert!(
+            lines.iter().any(|line| line.trim_start().starts_with("mail.oauth_client_id")),
+            "the last one is in view"
+        );
         press(&mut screen, &[KeyCode::Home]);
         let lines = text(&mut screen, 40, 12);
         assert_eq!(lines[HEAD], "[font]", "back at the top, with its heading");

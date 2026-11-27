@@ -1,4 +1,5 @@
-//! The mailbox on this machine: one SQLite file, `mail.db`. The sync writes
+//! The mailboxes on this machine: one SQLite file, `mail.db`, for all of them;
+//! each row says whose it is (the mailbox's address). The sync writes
 //! what the server has; the window, `ut mail` and `ut mcp` read it, and
 //! write drafts and what was read. Each process opens its own connection:
 //! the file is in WAL mode, and a writer waits for another.
@@ -7,6 +8,7 @@
 //! of any mail it names in `In-Reply-To` or `References`, or that names it;
 //! a mail that names none, but whose subject says it answers ("Re:"), joins
 //! the newest conversation with the same plain subject and a person in common.
+//! A conversation is one mailbox's: the same mail in two mailboxes is kept in each.
 
 use std::path::Path;
 
@@ -16,17 +18,14 @@ use serde::Serialize;
 
 use crate::message::{self, Address, Attachment, Parsed};
 
-const SCHEMA_VERSION: &str = "1";
+const SCHEMA_VERSION: &str = "2";
 
-const SCHEMA: &str = "
-CREATE TABLE threads (
-    id       INTEGER PRIMARY KEY,
-    subject  TEXT NOT NULL,
-    last_at  INTEGER NOT NULL,
-    archived INTEGER NOT NULL DEFAULT 0
-);
+/// The messages table, apart: a file of version 1 is moved into it.
+const MESSAGES: &str = "
 CREATE TABLE messages (
     id          INTEGER PRIMARY KEY,
+    -- The mailbox's address; '' for one kept by version 1 that no mailbox has taken yet.
+    account     TEXT NOT NULL,
     thread_id   INTEGER NOT NULL REFERENCES threads(id),
     -- Where the server keeps it; '' and no uid for one sent from here whose copy has not come back.
     folder      TEXT NOT NULL,
@@ -48,20 +47,68 @@ CREATE TABLE messages (
     seen        INTEGER NOT NULL,
     -- The server has been told it is seen (or told us so).
     seen_told   INTEGER NOT NULL,
-    UNIQUE (folder, uidvalidity, uid)
+    UNIQUE (account, folder, uidvalidity, uid)
 );
 CREATE INDEX messages_by_thread ON messages(thread_id, at);
-CREATE INDEX messages_by_id ON messages(message_id);
--- Every message id seen, its own or one a mail names, and the conversation it is in.
-CREATE TABLE ids (message_id TEXT PRIMARY KEY, thread_id INTEGER NOT NULL);
+CREATE INDEX messages_by_id ON messages(account, message_id);
+";
+
+/// The rest of version 2.
+const SCHEMA: &str = "
+CREATE TABLE threads (
+    id       INTEGER PRIMARY KEY,
+    subject  TEXT NOT NULL,
+    last_at  INTEGER NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    account  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX threads_by_account ON threads(account, last_at);
+-- Every message id seen in a mailbox, its own or one a mail names, and the conversation it is in.
+CREATE TABLE ids (
+    account    TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    thread_id  INTEGER NOT NULL,
+    PRIMARY KEY (account, message_id)
+);
 CREATE TABLE drafts (
     thread_id INTEGER PRIMARY KEY,
     author    TEXT NOT NULL,
     body      TEXT NOT NULL,
     at        INTEGER NOT NULL
 );
-CREATE TABLE folders (name TEXT PRIMARY KEY, uidvalidity INTEGER NOT NULL, last_uid INTEGER NOT NULL);
+CREATE TABLE folders (
+    account     TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    uidvalidity INTEGER NOT NULL,
+    last_uid    INTEGER NOT NULL,
+    PRIMARY KEY (account, name)
+);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+";
+
+/// Version 1 (one mailbox) to 2: its rows are nobody's ('') until [`Store::adopt`] gives them a mailbox.
+const FROM_ONE: &str = "
+ALTER TABLE threads ADD COLUMN account TEXT NOT NULL DEFAULT '';
+CREATE INDEX threads_by_account ON threads(account, last_at);
+ALTER TABLE messages RENAME TO messages_one;
+DROP INDEX messages_by_thread;
+DROP INDEX messages_by_id;
+{messages}
+INSERT INTO messages (id, account, thread_id, folder, uidvalidity, uid, message_id, from_name, from_addr, reply_to,
+        to_json, cc_json, subject, at, body, files_json, refs, outgoing, seen, seen_told)
+    SELECT id, '', thread_id, folder, uidvalidity, uid, message_id, from_name, from_addr, reply_to,
+        to_json, cc_json, subject, at, body, files_json, refs, outgoing, seen, seen_told FROM messages_one;
+DROP TABLE messages_one;
+ALTER TABLE ids RENAME TO ids_one;
+CREATE TABLE ids (account TEXT NOT NULL, message_id TEXT NOT NULL, thread_id INTEGER NOT NULL, PRIMARY KEY (account, message_id));
+INSERT INTO ids SELECT '', message_id, thread_id FROM ids_one;
+DROP TABLE ids_one;
+ALTER TABLE folders RENAME TO folders_one;
+CREATE TABLE folders (account TEXT NOT NULL, name TEXT NOT NULL, uidvalidity INTEGER NOT NULL, last_uid INTEGER NOT NULL, PRIMARY KEY (account, name));
+INSERT INTO folders SELECT '', name, uidvalidity, last_uid FROM folders_one;
+DROP TABLE folders_one;
+UPDATE meta SET key = 'status:' WHERE key = 'status';
+UPDATE meta SET value = '2' WHERE key = 'schema';
 ";
 
 /// How long ago the newest mail of a conversation may be for a mail with the
@@ -81,6 +128,8 @@ pub struct Store {
 /// A mail from the server, or sent from here, to keep.
 #[derive(Debug, Clone, Copy)]
 pub struct Incoming<'a> {
+    /// The mailbox's address.
+    pub account: &'a str,
     /// The server's folder; `""` for one sent from here.
     pub folder: &'a str,
     pub uidvalidity: u32,
@@ -108,6 +157,8 @@ pub enum Added {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub id: i64,
+    /// The mailbox's address.
+    pub account: String,
     pub subject: String,
     /// Who it is with: the other person of its newest mail.
     pub with: String,
@@ -217,15 +268,25 @@ impl Store {
         if has_meta {
             let version: Option<String> =
                 tx.query_row("SELECT value FROM meta WHERE key = 'schema'", [], |row| row.get(0)).optional()?;
-            if version.as_deref() != Some(SCHEMA_VERSION) {
-                bail!("mail.db is of another version ({version:?}): move it away and the mail is read again");
+            match version.as_deref() {
+                Some(SCHEMA_VERSION) => {}
+                Some("1") => tx.execute_batch(&FROM_ONE.replace("{messages}", MESSAGES))?,
+                _ => bail!("mail.db is of another version ({version:?}): move it away and the mail is read again"),
             }
         } else {
             tx.execute_batch(SCHEMA)?;
+            tx.execute_batch(MESSAGES)?;
             tx.execute("INSERT INTO meta (key, value) VALUES ('schema', ?1)", [SCHEMA_VERSION])?;
         }
         tx.commit()?;
         Ok(Self { db })
+    }
+
+    /// A transaction that writes: it takes the file's write lock at once (IMMEDIATE), so that it
+    /// waits for another writer (the syncs of other mailboxes, a window, `ut`) instead of failing
+    /// when it first reads and then writes after the other wrote.
+    fn writing(&mut self) -> Result<rusqlite::Transaction<'_>> {
+        Ok(self.db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?)
     }
 
     /// Changes when another connection has written: what a window looks at to know it should read again.
@@ -233,15 +294,71 @@ impl Store {
         Ok(self.db.query_row("PRAGMA data_version", [], |row| row.get(0))?)
     }
 
+    /// Gives the rows version 1 kept, which are nobody's, to the mailbox `account`: the one that
+    /// was version 1's, in `[mail]`. A row it has already (read again since) is not kept twice.
+    pub fn adopt(&mut self, account: &str) -> Result<()> {
+        // Asked at each open: a look that writes nothing when there is nothing to take, as almost always.
+        let any: bool = self.db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM threads WHERE account = '') OR EXISTS (SELECT 1 FROM ids WHERE account = '')
+                 OR EXISTS (SELECT 1 FROM folders WHERE account = '') OR EXISTS (SELECT 1 FROM meta WHERE key = 'status:')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !any {
+            return Ok(());
+        }
+        let tx = self.writing()?;
+        let nobodys: bool =
+            tx.query_row("SELECT EXISTS (SELECT 1 FROM threads WHERE account = '')", [], |row| row.get(0))?;
+        if nobodys {
+            tx.execute("UPDATE threads SET account = ?1 WHERE account = ''", [account])?;
+            tx.execute("UPDATE OR IGNORE messages SET account = ?1 WHERE account = ''", [account])?;
+            tx.execute("DELETE FROM messages WHERE account = ''", [])?;
+            tx.execute("UPDATE OR IGNORE ids SET account = ?1 WHERE account = ''", [account])?;
+            tx.execute("UPDATE OR IGNORE folders SET account = ?1 WHERE account = ''", [account])?;
+            Self::tidy(&tx)?;
+        }
+        tx.execute("DELETE FROM ids WHERE account = ''", [])?;
+        tx.execute("DELETE FROM folders WHERE account = ''", [])?;
+        tx.execute("UPDATE OR IGNORE meta SET key = 'status:' || ?1 WHERE key = 'status:'", [account])?;
+        tx.execute("DELETE FROM meta WHERE key = 'status:'", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Everything kept of the mailbox `account` goes: its mails, conversations, drafts and status.
+    /// The server keeps its mail; this is what a removed mailbox leaves here.
+    pub fn forget_account(&mut self, account: &str) -> Result<()> {
+        let tx = self.writing()?;
+        tx.execute("DELETE FROM messages WHERE account = ?1", [account])?;
+        tx.execute("DELETE FROM ids WHERE account = ?1", [account])?;
+        tx.execute("DELETE FROM folders WHERE account = ?1", [account])?;
+        tx.execute("DELETE FROM meta WHERE key = 'status:' || ?1", [account])?;
+        Self::tidy(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Conversations left without mails go, with their drafts and the ids that led to them.
+    fn tidy(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+        tx.execute("DELETE FROM drafts WHERE thread_id NOT IN (SELECT thread_id FROM messages)", [])?;
+        tx.execute("DELETE FROM ids WHERE thread_id NOT IN (SELECT thread_id FROM messages)", [])?;
+        tx.execute("DELETE FROM threads WHERE id NOT IN (SELECT thread_id FROM messages)", [])?;
+        Ok(())
+    }
+
     /// Keeps a mail, in its conversation.
     pub fn add(&mut self, incoming: &Incoming<'_>) -> Result<Added> {
         let mail = incoming.mail;
-        let tx = self.db.transaction()?;
+        let account = incoming.account;
+        let tx = self.writing()?;
         if let Some(id) = &mail.message_id {
             let known: Option<(i64, String, Option<u32>)> = tx
-                .query_row("SELECT id, folder, uid FROM messages WHERE message_id = ?1", [id], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })
+                .query_row(
+                    "SELECT id, folder, uid FROM messages WHERE account = ?1 AND message_id = ?2",
+                    params![account, id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
                 .optional()?;
             if let Some((row, folder, uid)) = known {
                 // One sent from here, now seen in the server's folder: it is that copy from now on.
@@ -259,8 +376,13 @@ impl Store {
         let named: Vec<&String> = mail.message_id.iter().chain(&mail.in_reply_to).chain(&mail.references).collect();
         let mut thread: Option<i64> = None;
         for id in &named {
-            thread =
-                tx.query_row("SELECT thread_id FROM ids WHERE message_id = ?1", [id], |row| row.get(0)).optional()?;
+            thread = tx
+                .query_row(
+                    "SELECT thread_id FROM ids WHERE account = ?1 AND message_id = ?2",
+                    params![account, id],
+                    |row| row.get(0),
+                )
+                .optional()?;
             if thread.is_some() {
                 break;
             }
@@ -271,20 +393,23 @@ impl Store {
             && mail.references.is_empty()
             && message::is_answer(&mail.subject)
         {
-            thread = Self::by_subject(&tx, &plain, mail, at)?;
+            thread = Self::by_subject(&tx, account, &plain, mail, at)?;
         }
         let thread = if let Some(thread) = thread {
             thread
         } else {
-            tx.execute("INSERT INTO threads (subject, last_at) VALUES (?1, ?2)", params![plain, at])?;
+            tx.execute(
+                "INSERT INTO threads (subject, last_at, account) VALUES (?1, ?2, ?3)",
+                params![plain, at, account],
+            )?;
             tx.last_insert_rowid()
         };
         let from = mail.from.clone().unwrap_or_else(|| Address::new("", ""));
         let refs: Vec<&str> = mail.in_reply_to.iter().chain(&mail.references).map(String::as_str).collect();
         tx.execute(
             "INSERT INTO messages (thread_id, folder, uidvalidity, uid, message_id, from_name, from_addr, reply_to,
-                 to_json, cc_json, subject, at, body, files_json, refs, outgoing, seen, seen_told)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17)",
+                 to_json, cc_json, subject, at, body, files_json, refs, outgoing, seen, seen_told, account)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18)",
             params![
                 thread,
                 incoming.folder,
@@ -303,11 +428,15 @@ impl Store {
                 refs.join(" "),
                 incoming.outgoing,
                 incoming.seen || incoming.outgoing,
+                account,
             ],
         )?;
         let message = tx.last_insert_rowid();
         for id in named {
-            tx.execute("INSERT OR IGNORE INTO ids (message_id, thread_id) VALUES (?1, ?2)", params![id, thread])?;
+            tx.execute(
+                "INSERT OR IGNORE INTO ids (account, message_id, thread_id) VALUES (?1, ?2, ?3)",
+                params![account, id, thread],
+            )?;
         }
         // A new mail from someone else brings an archived conversation back.
         tx.execute(
@@ -319,7 +448,13 @@ impl Store {
     }
 
     /// The newest conversation with this plain subject, recent enough, with a person in common.
-    fn by_subject(tx: &rusqlite::Transaction<'_>, plain: &str, mail: &Parsed, at: i64) -> Result<Option<i64>> {
+    fn by_subject(
+        tx: &rusqlite::Transaction<'_>,
+        account: &str,
+        plain: &str,
+        mail: &Parsed,
+        at: i64,
+    ) -> Result<Option<i64>> {
         if plain.is_empty() {
             return Ok(None);
         }
@@ -328,11 +463,11 @@ impl Store {
         let mut find = tx.prepare(
             "SELECT t.id, group_concat(m.from_addr || ' ' || m.to_json || ' ' || m.cc_json, ' ')
              FROM threads t JOIN messages m ON m.thread_id = t.id
-             WHERE t.subject = ?1 AND t.last_at >= ?2
+             WHERE t.subject = ?1 AND t.last_at >= ?2 AND t.account = ?3
              GROUP BY t.id ORDER BY t.last_at DESC",
         )?;
         let found = find
-            .query_map(params![plain, at - SUBJECT_REACH_MS], |row| {
+            .query_map(params![plain, at - SUBJECT_REACH_MS, account], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?
             .filter_map(Result::ok)
@@ -341,25 +476,36 @@ impl Store {
         Ok(found)
     }
 
-    /// The conversations, newest first: at most `limit`; archived ones too only when asked.
-    pub fn threads(&self, limit: usize, filter: Filter) -> Result<Vec<Summary>> {
+    /// The conversations, newest first: at most `limit`; archived ones too only when asked;
+    /// of the mailbox `account`, or of all when `None`.
+    pub fn threads(&self, limit: usize, filter: Filter, account: Option<&str>) -> Result<Vec<Summary>> {
         let ids: Vec<i64> = {
             let mut list = self.db.prepare(
                 "SELECT t.id FROM threads t
                  WHERE (?1 OR t.archived = 0)
                    AND (NOT ?2 OR EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.seen = 0))
+                   AND (?4 IS NULL OR t.account = ?4)
+                   AND (?5 IS NULL OR ?5 = (SELECT m.outgoing FROM messages m WHERE m.thread_id = t.id
+                                            ORDER BY m.at DESC, m.id DESC LIMIT 1))
                  ORDER BY t.last_at DESC LIMIT ?3",
             )?;
             let all = matches!(filter, Filter::All);
             let unread = matches!(filter, Filter::Unread);
-            list.query_map(params![all, unread, i64::try_from(limit).unwrap_or(i64::MAX)], |row| row.get(0))?
+            // Whose the newest mail must be: someone else's (waiting for an answer), or mine.
+            let newest_outgoing = match filter {
+                Filter::Waiting => Some(false),
+                Filter::Mine => Some(true),
+                Filter::Inbox | Filter::Unread | Filter::All => None,
+            };
+            let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+            list.query_map(params![all, unread, limit, account, newest_outgoing], |row| row.get(0))?
                 .collect::<rusqlite::Result<_>>()?
         };
         ids.into_iter().map(|id| self.summary(id)).collect()
     }
 
     /// The conversations with a mail whose subject, words or sender has `text`, newest first.
-    pub fn search(&self, text: &str, limit: usize) -> Result<Vec<Summary>> {
+    pub fn search(&self, text: &str, limit: usize, account: Option<&str>) -> Result<Vec<Summary>> {
         let pattern = format!("%{}%", text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
         let ids: Vec<i64> = {
             let mut list = self.db.prepare(
@@ -367,19 +513,20 @@ impl Store {
                      SELECT 1 FROM messages m WHERE m.thread_id = t.id AND (
                          m.subject LIKE ?1 ESCAPE '\\' OR m.body LIKE ?1 ESCAPE '\\'
                          OR m.from_name LIKE ?1 ESCAPE '\\' OR m.from_addr LIKE ?1 ESCAPE '\\'))
+                   AND (?3 IS NULL OR t.account = ?3)
                  ORDER BY t.last_at DESC LIMIT ?2",
             )?;
-            list.query_map(params![pattern, i64::try_from(limit).unwrap_or(i64::MAX)], |row| row.get(0))?
+            list.query_map(params![pattern, i64::try_from(limit).unwrap_or(i64::MAX), account], |row| row.get(0))?
                 .collect::<rusqlite::Result<_>>()?
         };
         ids.into_iter().map(|id| self.summary(id)).collect()
     }
 
     fn summary(&self, id: i64) -> Result<Summary> {
-        let (subject, last_at, archived): (String, i64, bool) = self
+        let (subject, last_at, archived, account): (String, i64, bool, String) = self
             .db
-            .query_row("SELECT subject, last_at, archived FROM threads WHERE id = ?1", [id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            .query_row("SELECT subject, last_at, archived, account FROM threads WHERE id = ?1", [id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })
             .with_context(|| format!("no conversation {id}"))?;
         let (messages, unread): (usize, usize) = self.db.query_row(
@@ -393,6 +540,7 @@ impl Store {
             self.db.query_row("SELECT author FROM drafts WHERE thread_id = ?1", [id], |row| row.get(0)).optional()?;
         Ok(Summary {
             id,
+            account,
             subject: if subject.is_empty() { "(no subject)".to_owned() } else { subject },
             with,
             last_at_ms: last_at,
@@ -489,11 +637,13 @@ impl Store {
         Ok(mails)
     }
 
-    /// How many mails from others are not read, in conversations not archived.
-    pub fn unread(&self) -> Result<usize> {
+    /// How many mails from others are not read, in conversations not archived; of the mailbox
+    /// `account`, or of all when `None`.
+    pub fn unread(&self, account: Option<&str>) -> Result<usize> {
         let count: i64 = self.db.query_row(
-            "SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id WHERE m.seen = 0 AND t.archived = 0",
-            [],
+            "SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id
+             WHERE m.seen = 0 AND t.archived = 0 AND (?1 IS NULL OR t.account = ?1)",
+            [account],
             |row| row.get(0),
         )?;
         Ok(usize::try_from(count).unwrap_or(0))
@@ -509,12 +659,14 @@ impl Store {
         Ok(self.db.execute("UPDATE messages SET seen = 1 WHERE thread_id = ?1 AND seen = 0", [thread])?)
     }
 
-    /// Mails read here that the server has not been told of.
-    pub fn untold(&self) -> Result<Vec<Untold>> {
+    /// Mails of the mailbox `account` read here that the server has not been told of.
+    pub fn untold(&self, account: &str) -> Result<Vec<Untold>> {
         let mut list = self.db.prepare(
-            "SELECT id, folder, uid FROM messages WHERE seen = 1 AND seen_told = 0 AND uid IS NOT NULL ORDER BY folder",
+            "SELECT id, folder, uid FROM messages
+             WHERE account = ?1 AND seen = 1 AND seen_told = 0 AND uid IS NOT NULL ORDER BY folder",
         )?;
-        let rows = list.query_map([], |row| Ok(Untold { id: row.get(0)?, folder: row.get(1)?, uid: row.get(2)? }))?;
+        let rows =
+            list.query_map([account], |row| Ok(Untold { id: row.get(0)?, folder: row.get(1)?, uid: row.get(2)? }))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -528,14 +680,22 @@ impl Store {
 
     /// What the server says of these mails of `folder`: the ones in `seen` are read, the rest of
     /// `checked` are not. A mail read here that the server has not been told of yet stays read.
-    pub fn server_seen(&self, folder: &str, uidvalidity: u32, checked: &[u32], seen: &[u32]) -> Result<()> {
-        let tx = self.db.unchecked_transaction()?;
+    pub fn server_seen(
+        &self,
+        account: &str,
+        folder: &str,
+        uidvalidity: u32,
+        checked: &[u32],
+        seen: &[u32],
+    ) -> Result<()> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.db, rusqlite::TransactionBehavior::Immediate)?;
         for uid in checked {
             let on = seen.contains(uid);
             tx.execute(
                 "UPDATE messages SET seen = ?4, seen_told = ?4
-                 WHERE folder = ?1 AND uidvalidity = ?2 AND uid = ?3 AND outgoing = 0 AND NOT (seen = 1 AND seen_told = 0)",
-                params![folder, uidvalidity, uid, on],
+                 WHERE folder = ?1 AND uidvalidity = ?2 AND uid = ?3 AND outgoing = 0 AND NOT (seen = 1 AND seen_told = 0)
+                   AND account = ?5",
+                params![folder, uidvalidity, uid, on, account],
             )?;
         }
         tx.commit()?;
@@ -543,11 +703,12 @@ impl Store {
     }
 
     /// The uids of `folder`'s mails kept here.
-    pub fn uids(&self, folder: &str, uidvalidity: u32) -> Result<Vec<u32>> {
+    pub fn uids(&self, account: &str, folder: &str, uidvalidity: u32) -> Result<Vec<u32>> {
         let mut list = self.db.prepare(
-            "SELECT uid FROM messages WHERE folder = ?1 AND uidvalidity = ?2 AND uid IS NOT NULL ORDER BY uid",
+            "SELECT uid FROM messages
+             WHERE account = ?3 AND folder = ?1 AND uidvalidity = ?2 AND uid IS NOT NULL ORDER BY uid",
         )?;
-        let rows = list.query_map(params![folder, uidvalidity], |row| row.get(0))?;
+        let rows = list.query_map(params![folder, uidvalidity, account], |row| row.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -587,49 +748,52 @@ impl Store {
     }
 
     /// What is known of a server folder: its uid validity and the highest uid read.
-    pub fn folder(&self, name: &str) -> Result<Option<(u32, u32)>> {
+    pub fn folder(&self, account: &str, name: &str) -> Result<Option<(u32, u32)>> {
         Ok(self
             .db
-            .query_row("SELECT uidvalidity, last_uid FROM folders WHERE name = ?1", [name], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
+            .query_row(
+                "SELECT uidvalidity, last_uid FROM folders WHERE account = ?1 AND name = ?2",
+                params![account, name],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
             .optional()?)
     }
 
-    pub fn set_folder(&self, name: &str, uidvalidity: u32, last_uid: u32) -> Result<()> {
+    pub fn set_folder(&self, account: &str, name: &str, uidvalidity: u32, last_uid: u32) -> Result<()> {
         self.db.execute(
-            "INSERT INTO folders (name, uidvalidity, last_uid) VALUES (?1, ?2, ?3)
-             ON CONFLICT (name) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid",
-            params![name, uidvalidity, last_uid],
+            "INSERT INTO folders (account, name, uidvalidity, last_uid) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (account, name) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid",
+            params![account, name, uidvalidity, last_uid],
         )?;
         Ok(())
     }
 
     /// The server numbered the folder anew (its uid validity changed): what was read of it goes.
-    pub fn forget_folder(&self, name: &str) -> Result<()> {
-        let tx = self.db.unchecked_transaction()?;
-        tx.execute("DELETE FROM messages WHERE folder = ?1", [name])?;
-        tx.execute("DELETE FROM folders WHERE name = ?1", [name])?;
-        tx.execute("DELETE FROM drafts WHERE thread_id NOT IN (SELECT thread_id FROM messages)", [])?;
-        tx.execute("DELETE FROM ids WHERE thread_id NOT IN (SELECT thread_id FROM messages)", [])?;
-        tx.execute("DELETE FROM threads WHERE id NOT IN (SELECT thread_id FROM messages)", [])?;
+    pub fn forget_folder(&mut self, account: &str, name: &str) -> Result<()> {
+        let tx = self.writing()?;
+        tx.execute("DELETE FROM messages WHERE account = ?1 AND folder = ?2", params![account, name])?;
+        tx.execute("DELETE FROM folders WHERE account = ?1 AND name = ?2", params![account, name])?;
+        Self::tidy(&tx)?;
         tx.commit()?;
         Ok(())
     }
 
-    /// What the sync says now.
-    pub fn set_status(&self, text: &str, health: Health, at_ms: i64) -> Result<()> {
+    /// What the sync of the mailbox `account` says now.
+    pub fn set_status(&self, account: &str, text: &str, health: Health, at_ms: i64) -> Result<()> {
         let value = serde_json::json!({ "text": text, "failed": health == Health::Failed, "at": at_ms }).to_string();
         self.db.execute(
-            "INSERT INTO meta (key, value) VALUES ('status', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            [value],
+            "INSERT INTO meta (key, value) VALUES ('status:' || ?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![account, value],
         )?;
         Ok(())
     }
 
-    pub fn status(&self) -> Result<Option<Status>> {
-        let value: Option<String> =
-            self.db.query_row("SELECT value FROM meta WHERE key = 'status'", [], |row| row.get(0)).optional()?;
+    pub fn status(&self, account: &str) -> Result<Option<Status>> {
+        let value: Option<String> = self
+            .db
+            .query_row("SELECT value FROM meta WHERE key = 'status:' || ?1", [account], |row| row.get(0))
+            .optional()?;
         let Some(value) = value else { return Ok(None) };
         let json: serde_json::Value = serde_json::from_str(&value)?;
         Ok(Some(Status {
@@ -654,6 +818,10 @@ pub enum Filter {
     Inbox,
     /// Those not archived with a mail not read.
     Unread,
+    /// Those not archived whose newest mail is from someone else: they wait for an answer.
+    Waiting,
+    /// Those not archived whose newest mail is mine: sent, waiting for theirs.
+    Mine,
     /// All of them.
     All,
 }
@@ -669,6 +837,8 @@ fn parse_full(full: &str) -> Address {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ME: &str = "me@example.com";
 
     fn mail(id: &str, from: &str, subject: &str, answers: &[&str], at: i64) -> Parsed {
         Parsed {
@@ -687,7 +857,16 @@ mod tests {
     fn add(store: &mut Store, folder: &str, uid: u32, mail: &Parsed) -> Added {
         let outgoing = mail.from.as_ref().is_some_and(|from| from.addr == "me@example.com");
         store
-            .add(&Incoming { folder, uidvalidity: 7, uid: Some(uid), mail, seen: false, outgoing, received_ms: 0 })
+            .add(&Incoming {
+                account: ME,
+                folder,
+                uidvalidity: 7,
+                uid: Some(uid),
+                mail,
+                seen: false,
+                outgoing,
+                received_ms: 0,
+            })
             .expect("added")
     }
 
@@ -717,9 +896,15 @@ mod tests {
         assert_eq!((thread.summary.subject.as_str(), thread.summary.with.as_str()), ("发布", "lin@example.com"));
         assert!(thread.summary.waiting, "its newest mail is from someone else");
         assert_eq!(thread.summary.unread, 2, "mine is read");
-        let list = store.threads(10, Filter::Inbox).expect("list");
+        let list = store.threads(10, Filter::Inbox, None).expect("list");
         assert_eq!(list.iter().map(|summary| summary.id).collect::<Vec<_>>(), [first, other], "newest first");
-        assert_eq!(store.unread().expect("unread"), 3);
+        let started = thread_of(add(&mut store, "Sent", 2, &mail("d1", "me@example.com", "报价", &[], 4000)));
+        let ids = |filter: Filter| -> Vec<i64> {
+            store.threads(10, filter, None).expect("list").iter().map(|summary| summary.id).collect()
+        };
+        assert_eq!(ids(Filter::Mine), [started], "the newest mail mine: sent, waiting for theirs");
+        assert_eq!(ids(Filter::Waiting), [first, other], "the newest mail theirs");
+        assert_eq!(store.unread(None).expect("unread"), 3);
     }
 
     #[test]
@@ -756,6 +941,7 @@ mod tests {
         let sent = mail("s1", "me@example.com", "Hello", &[], 1000);
         let here = store
             .add(&Incoming {
+                account: ME,
                 folder: "",
                 uidvalidity: 0,
                 uid: None,
@@ -767,7 +953,7 @@ mod tests {
             .expect("sent from here");
         assert!(matches!(here, Added::New { .. }));
         assert_eq!(add(&mut store, "Sent", 9, &sent), Added::Known, "the server's copy");
-        assert_eq!(store.uids("Sent", 7).expect("uids"), [9], "the row is now the server's copy");
+        assert_eq!(store.uids(ME, "Sent", 7).expect("uids"), [9], "the row is now the server's copy");
         assert_eq!(add(&mut store, "Sent", 10, &sent), Added::Known, "and is not kept twice");
     }
 
@@ -777,13 +963,13 @@ mod tests {
         let thread = thread_of(add(&mut store, "INBOX", 1, &mail("a1", "lin@example.com", "x", &[], 1000)));
         add(&mut store, "INBOX", 2, &mail("a2", "lin@example.com", "Re: x", &["a1"], 2000));
         assert_eq!(store.mark_seen(thread).expect("seen"), 2);
-        let untold = store.untold().expect("untold");
+        let untold = store.untold(ME).expect("untold");
         assert_eq!(untold.iter().map(|mail| mail.uid).collect::<Vec<_>>(), [1, 2]);
-        store.server_seen("INBOX", 7, &[1, 2], &[]).expect("server");
-        assert_eq!(store.unread().expect("unread"), 0, "read here and not told yet: stays read");
+        store.server_seen(ME, "INBOX", 7, &[1, 2], &[]).expect("server");
+        assert_eq!(store.unread(None).expect("unread"), 0, "read here and not told yet: stays read");
         store.told(&untold.iter().map(|mail| mail.id).collect::<Vec<_>>()).expect("told");
-        store.server_seen("INBOX", 7, &[1, 2], &[2]).expect("server");
-        assert_eq!(store.unread().expect("unread"), 1, "told, then the server marked 1 unread again");
+        store.server_seen(ME, "INBOX", 7, &[1, 2], &[2]).expect("server");
+        assert_eq!(store.unread(None).expect("unread"), 1, "told, then the server marked 1 unread again");
     }
 
     #[test]
@@ -794,20 +980,21 @@ mod tests {
         store.save_draft(thread, "you", "可以，周四", 6).expect("again");
         let draft = store.draft(thread).expect("draft").expect("there");
         assert_eq!((draft.author.as_str(), draft.text.as_str()), ("you", "可以，周四"), "one draft a conversation");
-        assert_eq!(store.threads(5, Filter::Inbox).expect("list")[0].draft_by.as_deref(), Some("you"));
+        assert_eq!(store.threads(5, Filter::Inbox, None).expect("list")[0].draft_by.as_deref(), Some("you"));
         assert!(store.save_draft(999, "x", "y", 0).is_err(), "no such conversation");
-        assert_eq!(store.search("计划", 5).expect("search").len(), 1);
-        assert_eq!(store.search("lin@", 5).expect("search").len(), 1, "by sender");
-        assert!(store.search("100%", 5).expect("search").is_empty(), "% is a character, not a pattern");
+        assert_eq!(store.search("计划", 5, None).expect("search").len(), 1);
+        assert_eq!(store.search("lin@", 5, None).expect("search").len(), 1, "by sender");
+        assert!(store.search("100%", 5, None).expect("search").is_empty(), "% is a character, not a pattern");
         store.archive(thread).expect("archive");
-        assert!(store.threads(5, Filter::Inbox).expect("list").is_empty());
-        assert_eq!(store.threads(5, Filter::All).expect("list").len(), 1);
+        assert!(store.threads(5, Filter::Inbox, None).expect("list").is_empty());
+        assert_eq!(store.threads(5, Filter::All, None).expect("list").len(), 1);
         add(&mut store, "INBOX", 2, &mail("a2", "lin@example.com", "Re: 发布计划", &["a1"], 2000));
-        assert_eq!(store.threads(5, Filter::Inbox).expect("list").len(), 1, "a new mail brings it back");
-        store.set_folder("INBOX", 7, 2).expect("folder");
-        store.forget_folder("INBOX").expect("forget");
+        assert_eq!(store.threads(5, Filter::Inbox, None).expect("list").len(), 1, "a new mail brings it back");
+        store.set_folder(ME, "INBOX", 7, 2).expect("folder");
+        store.forget_folder(ME, "INBOX").expect("forget");
         assert!(
-            store.threads(5, Filter::All).expect("list").is_empty() && store.folder("INBOX").expect("folder").is_none()
+            store.threads(5, Filter::All, None).expect("list").is_empty()
+                && store.folder(ME, "INBOX").expect("folder").is_none()
         );
         assert!(store.draft(thread).expect("draft").is_none(), "its draft went with it");
     }
@@ -830,16 +1017,147 @@ mod tests {
     }
 
     #[test]
+    fn many_writers_at_once_wait_for_each_other() {
+        // The syncs of several mailboxes write to one file at once: a write that first reads must
+        // wait for the others, not fail with "database is locked".
+        let folder = tempfile::tempdir().expect("folder");
+        let path = folder.path().join("mail.db");
+        Store::open(&path).expect("made");
+        let writers: Vec<_> = (0..8)
+            .map(|writer| {
+                let path = path.clone();
+                std::thread::spawn(move || -> Result<(), String> {
+                    let account = format!("me{writer}@example.com");
+                    let mut store = Store::open(&path).map_err(|error| format!("{error:#}"))?;
+                    for n in 0..300u32 {
+                        let id = format!("w{writer}-{n}");
+                        let one = mail(&id, "lin@example.com", "x", &[], i64::from(n));
+                        store
+                            .add(&Incoming {
+                                account: &account,
+                                folder: "INBOX",
+                                uidvalidity: 7,
+                                uid: Some(n + 1),
+                                mail: &one,
+                                seen: false,
+                                outgoing: false,
+                                received_ms: 0,
+                            })
+                            .map_err(|error| format!("add: {error:#}"))?;
+                        store
+                            .server_seen(&account, "INBOX", 7, &[n + 1], &[])
+                            .map_err(|error| format!("seen: {error:#}"))?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for writer in writers {
+            assert_eq!(writer.join().expect("thread"), Ok(()));
+        }
+        assert_eq!(Store::open(&path).expect("open").unread(None).expect("unread"), 2400);
+    }
+
+    #[test]
     fn a_file_of_another_version_is_said_not_overwritten() {
         let folder = tempfile::tempdir().expect("folder");
         let path = folder.path().join("mail.db");
         let store = Store::open(&path).expect("made");
-        store.set_status("synced", Health::Fine, 42).expect("status");
+        store.set_status(ME, "synced", Health::Fine, 42).expect("status");
         drop(store);
         let again = Store::open(&path).expect("opened again");
-        assert_eq!(again.status().expect("status"), Some(Status { text: "synced".into(), at_ms: 42, failed: false }));
+        assert_eq!(again.status(ME).expect("status"), Some(Status { text: "synced".into(), at_ms: 42, failed: false }));
         again.db.execute("UPDATE meta SET value = '99' WHERE key = 'schema'", []).expect("older");
         drop(again);
         assert!(format!("{:#}", Store::open(&path).expect_err("refused")).contains("another version"));
+    }
+
+    #[test]
+    fn mailboxes_keep_their_own_conversations() {
+        const OTHER: &str = "me@other.example";
+        let mut store = Store::in_memory().expect("store");
+        let ours = mail("x1", "lin@example.com", "发布", &[], 1000);
+        let mine = thread_of(add(&mut store, "INBOX", 1, &ours));
+        let theirs = thread_of(
+            store
+                .add(&Incoming {
+                    account: OTHER,
+                    folder: "INBOX",
+                    uidvalidity: 7,
+                    uid: Some(1),
+                    mail: &ours,
+                    seen: false,
+                    outgoing: false,
+                    received_ms: 0,
+                })
+                .expect("added"),
+        );
+        assert_ne!(mine, theirs, "the same mail in two mailboxes: one conversation in each");
+        assert_eq!(store.threads(9, Filter::Inbox, None).expect("all").len(), 2);
+        let other = store.threads(9, Filter::Inbox, Some(OTHER)).expect("one");
+        assert_eq!((other.len(), other[0].account.as_str()), (1, OTHER));
+        assert_eq!(store.search("发布", 9, Some(ME)).expect("search").len(), 1);
+        assert_eq!((store.unread(None).expect("all"), store.unread(Some(OTHER)).expect("one")), (2, 1));
+        store.set_status(OTHER, "synced", Health::Fine, 5).expect("status");
+        assert!(store.status(ME).expect("status").is_none(), "each mailbox its own status");
+        store.set_folder(OTHER, "INBOX", 7, 1).expect("folder");
+        store.forget_account(OTHER).expect("forget");
+        assert_eq!(store.threads(9, Filter::All, None).expect("all").len(), 1, "only the other one's mail went");
+        assert!(
+            store.status(OTHER).expect("status").is_none() && store.folder(OTHER, "INBOX").expect("folder").is_none()
+        );
+        assert_eq!(store.uids(ME, "INBOX", 7).expect("uids"), [1]);
+    }
+
+    #[test]
+    fn a_file_of_version_one_is_moved_and_its_rows_taken_by_its_mailbox() {
+        let folder = tempfile::tempdir().expect("folder");
+        let path = folder.path().join("mail.db");
+        let one = Connection::open(&path).expect("open");
+        one.execute_batch(
+            "CREATE TABLE threads (id INTEGER PRIMARY KEY, subject TEXT NOT NULL, last_at INTEGER NOT NULL,
+                 archived INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE messages (id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
+                 folder TEXT NOT NULL, uidvalidity INTEGER NOT NULL, uid INTEGER, message_id TEXT,
+                 from_name TEXT NOT NULL, from_addr TEXT NOT NULL, reply_to TEXT, to_json TEXT NOT NULL,
+                 cc_json TEXT NOT NULL, subject TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL,
+                 files_json TEXT NOT NULL, refs TEXT NOT NULL, outgoing INTEGER NOT NULL, seen INTEGER NOT NULL,
+                 seen_told INTEGER NOT NULL, UNIQUE (folder, uidvalidity, uid));
+             CREATE INDEX messages_by_thread ON messages(thread_id, at);
+             CREATE INDEX messages_by_id ON messages(message_id);
+             CREATE TABLE ids (message_id TEXT PRIMARY KEY, thread_id INTEGER NOT NULL);
+             CREATE TABLE drafts (thread_id INTEGER PRIMARY KEY, author TEXT NOT NULL, body TEXT NOT NULL,
+                 at INTEGER NOT NULL);
+             CREATE TABLE folders (name TEXT PRIMARY KEY, uidvalidity INTEGER NOT NULL, last_uid INTEGER NOT NULL);
+             CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta VALUES ('schema', '1'), ('status', '{\"text\":\"synced\",\"failed\":false,\"at\":3}');
+             INSERT INTO threads VALUES (1, '发布', 1000, 0);
+             INSERT INTO messages VALUES (1, 1, 'INBOX', 7, 1, 'a1', '', 'lin@example.com', NULL, '[]', '[]',
+                 '发布', 1000, 'words', '[]', '', 0, 0, 0);
+             INSERT INTO ids VALUES ('a1', 1);
+             INSERT INTO drafts VALUES (1, 'claude', '可以', 4);
+             INSERT INTO folders VALUES ('INBOX', 7, 1);",
+        )
+        .expect("a file of version 1");
+        drop(one);
+        let mut store = Store::open(&path).expect("moved to version 2");
+        let nobodys = store.threads(9, Filter::Inbox, None).expect("list");
+        assert_eq!((nobodys.len(), nobodys[0].account.as_str()), (1, ""), "kept, nobody's yet");
+        store.adopt(ME).expect("adopt");
+        let list = store.threads(9, Filter::Inbox, Some(ME)).expect("list");
+        assert_eq!(
+            (list.len(), list[0].draft_by.as_deref()),
+            (1, Some("claude")),
+            "the mail and its draft are mine now"
+        );
+        assert_eq!(store.folder(ME, "INBOX").expect("folder"), Some((7, 1)), "not read again");
+        assert_eq!(store.status(ME).expect("status").map(|status| status.at_ms), Some(3));
+        let again = mail("a2", "lin@example.com", "Re: 发布", &["a1"], 2000);
+        assert_eq!(thread_of(add(&mut store, "INBOX", 2, &again)), list[0].id, "an answer finds it by its id");
+        assert_eq!(add(&mut store, "INBOX", 1, &mail("a1", "lin@example.com", "发布", &[], 1000)), Added::Known);
+        store.adopt(ME).expect("a second time does nothing");
+        assert_eq!(store.threads(9, Filter::All, None).expect("list").len(), 1);
+        drop(store);
+        Store::open(&path).expect("version 2 opens as it is");
     }
 }

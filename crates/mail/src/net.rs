@@ -220,7 +220,8 @@ pub type Session = imap::Session<Stream>;
 /// Why a sync could not be done.
 #[derive(Debug)]
 pub enum Failure {
-    /// The server said no to the name and password: trying again will not help until they change.
+    /// The server said no to the name and password, or there is none to give: trying again will
+    /// not help until they change. What is said says which.
     Refused(String),
     /// Anything else: the network, the server. Worth trying again later.
     Other(anyhow::Error),
@@ -229,37 +230,96 @@ pub enum Failure {
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Refused(why) => write!(f, "the server refused the login: {why}"),
+            Self::Refused(why) => f.write_str(why),
             Self::Other(error) => write!(f, "{error:#}"),
         }
     }
 }
 
+/// What a login proves itself with.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Credential {
+    /// A password, an app password or an authorization code.
+    Password(String),
+    /// An `OAuth2` access token (`XOAUTH2`).
+    Token(String),
+}
+
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never written out, also not in a log.
+        f.write_str(match self {
+            Self::Password(_) => "Password(..)",
+            Self::Token(_) => "Token(..)",
+        })
+    }
+}
+
+/// `XOAUTH2`'s one message: `user=…^Aauth=Bearer …^A^A`. Base64 is the caller's.
+pub fn xoauth2(user: &str, token: &str) -> String {
+    format!("user={user}\x01auth=Bearer {token}\x01\x01")
+}
+
+/// IMAP's AUTHENTICATE `XOAUTH2`: the message at first; after a refusal (the server sends what went
+/// wrong as a challenge) nothing, so that the server ends with NO.
+struct XOauth2 {
+    message: String,
+}
+
+impl imap::Authenticator for XOauth2 {
+    type Response = String;
+
+    fn process(&self, challenge: &[u8]) -> String {
+        if challenge.is_empty() { self.message.clone() } else { String::new() }
+    }
+}
+
 /// Logged in to the account's IMAP server.
-pub fn login(account: &Account, password: &str) -> std::result::Result<Session, Failure> {
-    login_holding(account, password, |_| {})
+pub fn login(account: &Account, credential: &Credential) -> std::result::Result<Session, Failure> {
+    login_holding(account, credential, |_| {})
 }
 
 /// Logged in, with `hold` given a handle on the connection's socket first: shutting it down
 /// from another thread ends a wait for new mail at once.
 pub fn login_holding(
     account: &Account,
-    password: &str,
+    credential: &Credential,
     hold: impl FnOnce(TcpStream),
 ) -> std::result::Result<Session, Failure> {
-    let stream = connect(&account.imap, account.proxy.as_ref()).map_err(Failure::Other)?;
+    let client = greeted(account, hold).map_err(Failure::Other)?;
+    log_in(client, account, credential)
+}
+
+/// A connection to the IMAP server that has greeted, not logged in; `hold` is given its socket.
+pub fn greeted(account: &Account, hold: impl FnOnce(TcpStream)) -> Result<imap::Client<Stream>> {
+    let stream = connect(&account.imap, account.proxy.as_ref())?;
     let socket = match &stream {
         Stream::Plain(tcp) => tcp.try_clone(),
         Stream::Tls(tls) => tls.get_ref().try_clone(),
     };
-    hold(socket.map_err(|error| Failure::Other(error.into()))?);
+    hold(socket?);
     let mut client = imap::Client::new(stream);
-    client.read_greeting().map_err(|error| Failure::Other(error.into()))?;
-    client.login(&account.login, password).map_err(|(error, _)| match error {
-        imap::Error::No(no) => Failure::Refused(no.information),
-        imap::Error::Bad(bad) => Failure::Refused(bad.information),
+    client.read_greeting().context("the IMAP server's greeting")?;
+    Ok(client)
+}
+
+/// Logs in on a connection that has greeted.
+pub fn log_in(
+    client: imap::Client<Stream>,
+    account: &Account,
+    credential: &Credential,
+) -> std::result::Result<Session, Failure> {
+    let refused = |(error, _)| match error {
+        imap::Error::No(no) => Failure::Refused(format!("the server refused the login: {}", no.information)),
+        imap::Error::Bad(bad) => Failure::Refused(format!("the server refused the login: {}", bad.information)),
         other => Failure::Other(other.into()),
-    })
+    };
+    match credential {
+        Credential::Password(password) => client.login(&account.login, password).map_err(refused),
+        Credential::Token(token) => {
+            client.authenticate("XOAUTH2", &XOauth2 { message: xoauth2(&account.login, token) }).map_err(refused)
+        }
+    }
 }
 
 /// The server's sent folder: the one it marks `\Sent`, else one with a sent folder's name.
@@ -350,6 +410,10 @@ pub fn uid_set(uids: &[u32]) -> String {
 /// A new mail from someone else: what the window says of it, and what `mail.on_new` is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NewMail {
+    /// The mailbox's address.
+    pub account: String,
+    /// The mailbox's name (`qq`, `work`); filled in by the sync, which knows it.
+    pub mailbox: String,
     pub thread: i64,
     pub from: Address,
     pub subject: String,
@@ -373,7 +437,7 @@ pub fn sync(
     days: u32,
     now_ms: i64,
 ) -> Result<Vec<NewMail>> {
-    tell_seen(session, store)?;
+    tell_seen(session, store, &account.address)?;
     let mut new = sync_folder(session, store, account, "INBOX", Kind::Inbox, days, now_ms)?;
     if let Some(sent) = sent_folder(session)? {
         new.extend(sync_folder(session, store, account, &sent, Kind::Sent, days, now_ms)?);
@@ -382,8 +446,8 @@ pub fn sync(
 }
 
 /// The mails read here are marked read on the server.
-fn tell_seen(session: &mut Session, store: &Store) -> Result<()> {
-    let untold = store.untold()?;
+fn tell_seen(session: &mut Session, store: &Store, account: &str) -> Result<()> {
+    let untold = store.untold(account)?;
     let mut folders: Vec<&str> = untold.iter().map(|mail| mail.folder.as_str()).collect();
     folders.dedup();
     for folder in folders {
@@ -407,9 +471,10 @@ fn sync_folder(
 ) -> Result<Vec<NewMail>> {
     let mailbox = session.select(folder).with_context(|| format!("open the folder {}", decode_folder(folder)))?;
     let validity = mailbox.uid_validity.unwrap_or_default();
-    let mut known = store.folder(folder)?;
+    let me = account.address.as_str();
+    let mut known = store.folder(me, folder)?;
     if known.is_some_and(|(was, _)| was != validity) {
-        store.forget_folder(folder)?;
+        store.forget_folder(me, folder)?;
         known = None;
     }
     let first = known.is_none();
@@ -454,6 +519,7 @@ fn sync_folder(
                 let outgoing =
                     kind == Kind::Sent || mail.from.as_ref().is_some_and(|from| from.addr == account.address);
                 let added = store.add(&Incoming {
+                    account: me,
                     folder,
                     uidvalidity: validity,
                     uid: Some(uid),
@@ -470,6 +536,8 @@ fn sync_folder(
                     && !seen
                 {
                     new.push(NewMail {
+                        account: me.to_owned(),
+                        mailbox: String::new(),
                         thread,
                         from: mail.from.clone().unwrap_or_else(|| Address::new("", "")),
                         subject: mail.subject.clone(),
@@ -482,7 +550,7 @@ fn sync_folder(
     }
     // What the server says of the mails kept before: read elsewhere, or not.
     if !first {
-        let kept = store.uids(folder, validity)?;
+        let kept = store.uids(me, folder, validity)?;
         let old: Vec<u32> = kept.iter().copied().filter(|uid| !uids.contains(uid)).collect();
         if !old.is_empty() {
             let flags = session.uid_fetch(uid_set(&old), "(UID FLAGS)")?;
@@ -492,10 +560,10 @@ fn sync_folder(
                 .filter_map(|fetch| fetch.uid)
                 .collect();
             let checked: Vec<u32> = flags.iter().filter_map(|fetch| fetch.uid).collect();
-            store.server_seen(folder, validity, &checked, &seen)?;
+            store.server_seen(me, folder, validity, &checked, &seen)?;
         }
     }
-    store.set_folder(folder, validity, highest)?;
+    store.set_folder(me, folder, validity, highest)?;
     Ok(new)
 }
 
@@ -529,8 +597,8 @@ pub fn wait(session: &mut Session, most: Duration, stopped: &dyn Fn() -> bool) -
 
 /// Puts a mail sent from here into the sent folder, unless the server has put it there itself
 /// (Gmail and others keep what SMTP sent): looked for by its message id first.
-pub fn keep_sent(account: &Account, password: &str, raw: &[u8], message_id: &str) -> Result<()> {
-    let mut session = login(account, password).map_err(|failure| anyhow::anyhow!("{failure}"))?;
+pub fn keep_sent(account: &Account, credential: &Credential, raw: &[u8], message_id: &str) -> Result<()> {
+    let mut session = login(account, credential).map_err(|failure| anyhow::anyhow!("{failure}"))?;
     let Some(sent) = sent_folder(&mut session)? else {
         session.logout().ok();
         return Ok(());

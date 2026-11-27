@@ -48,7 +48,7 @@ Compare-Sets 'keys' @($codeKeys | Sort-Object -Unique) @($documentedAll | Sort-O
 # Not unifyterm's own: the system's, an internal one, and conventions other programs share (named in a sentence below the table).
 $notOwn = 'PATH', 'PATHEXT', 'PROMPT', 'SHELL', 'ZDOTDIR', 'UNIFYTERM_COMMANDS', 'UNIFYTERM_LOGIN', 'UNIFYTERM_ZDOTDIR'
 $conventions = 'NO_COLOR', 'JQ_COLORS'
-$sources = Get-ChildItem (Join-Path $root 'crates') -Recurse -Include *.rs | Where-Object { $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -ne 'build.rs' } | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }
+$sources = Get-ChildItem (Join-Path $root 'crates') -Recurse -Include *.rs | Where-Object { $_.FullName -notmatch '[\\/](tests|examples)[\\/]' -and $_.Name -ne 'build.rs' } | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }
 $variables = foreach ($text in $sources) {
     foreach ($m in [regex]::Matches($text, 'env::var(?:_os)?\("([A-Z_]+)"\)|const [A-Z_]+: &str = "((?:UNIFYTERM|UT)_[A-Z_]+)"|get\("([A-Z_]+)"\)')) { ($m.Groups[1..2] | Where-Object Success | Select-Object -First 1).Value }
 }

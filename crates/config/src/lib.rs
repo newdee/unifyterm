@@ -162,7 +162,7 @@ pub struct WindowConfig {
 /// macOS. Ctrl-Shift on Windows and Linux, where Ctrl alone belongs to the
 /// program in the terminal; Cmd on macOS. Full screen: F11 and Alt-Enter as
 /// in Windows Terminal; Cmd-Enter and Ctrl-Cmd-F, the Mac's own key.
-pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 11] = [
+pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 12] = [
     ("new_tab", &["ctrl-shift-t"], &["cmd-t"]),
     ("close_tab", &["ctrl-shift-w"], &["cmd-w"]),
     ("next_tab", &["ctrl-tab"], &["ctrl-tab"]),
@@ -174,6 +174,8 @@ pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 11] = [
     ("full_screen", &["f11", "alt-enter"], &["cmd-enter", "ctrl-cmd-f"]),
     ("explain", &["ctrl-shift-e"], &["ctrl-shift-e"]),
     ("mail", &["ctrl-shift-m"], &["cmd-shift-m"]),
+    // Adding a mailbox is seldom done: a key no program is likely to want.
+    ("mail_add", &["ctrl-alt-shift-m"], &["alt-cmd-shift-m"]),
 ];
 
 /// The keys of the window's own commands: each a list, so that a command
@@ -196,6 +198,8 @@ pub struct KeysConfig {
     pub explain: Vec<String>,
     /// The window shows the mail, or the terminal again.
     pub mail: Vec<String>,
+    /// The mail, with the form that adds a mailbox.
+    pub mail_add: Vec<String>,
 }
 
 impl Default for KeysConfig {
@@ -218,6 +222,7 @@ impl Default for KeysConfig {
             full_screen: of("full_screen"),
             explain: of("explain"),
             mail: of("mail"),
+            mail_add: of("mail_add"),
         }
     }
 }
@@ -225,7 +230,7 @@ impl Default for KeysConfig {
 impl KeysConfig {
     /// Every command with its keys, by its name in `[keys]`, in the file's order.
     #[must_use]
-    pub fn all(&self) -> [(&'static str, &Vec<String>); 11] {
+    pub fn all(&self) -> [(&'static str, &Vec<String>); 12] {
         [
             ("new_tab", &self.new_tab),
             ("close_tab", &self.close_tab),
@@ -238,6 +243,7 @@ impl KeysConfig {
             ("full_screen", &self.full_screen),
             ("explain", &self.explain),
             ("mail", &self.mail),
+            ("mail_add", &self.mail_add),
         ]
     }
 
@@ -454,6 +460,62 @@ pub struct MailConfig {
     pub on_new: Vec<String>,
     /// A note in the window when mail comes.
     pub notify: bool,
+    /// How the mailbox above logs in.
+    pub auth: MailAuth,
+    /// The application id `OAuth2` signs in with, for an organization that registers its own; empty: UnifyTerm's.
+    pub oauth_client_id: String,
+    /// More mailboxes, by name: `[mail.accounts.NAME]`. Added in the window or with `ut mail account add`.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub accounts: std::collections::BTreeMap<String, MailAccount>,
+}
+
+/// How a mailbox logs in.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum MailAuth {
+    /// `OAuth2` for Microsoft's domains (outlook.com, hotmail.com, live.com, msn.com), a password elsewhere.
+    #[default]
+    Auto,
+    /// A password, an app password or an authorization code.
+    Password,
+    /// A browser sign-in (Microsoft): UnifyTerm keeps the token it is given, never a password.
+    Oauth2,
+}
+
+/// One mailbox of `[mail.accounts.NAME]`: as the first one in `[mail]`, and what it leaves out is `[mail]`'s.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct MailAccount {
+    pub address: String,
+    pub imap: String,
+    pub smtp: String,
+    pub login: String,
+    pub password_command: Vec<String>,
+    pub proxy: String,
+    pub days: Option<u32>,
+    pub auth: MailAuth,
+}
+
+/// A mailbox in use: its name and what it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailboxSettings {
+    pub name: String,
+    pub address: String,
+    pub imap: String,
+    pub smtp: String,
+    pub login: String,
+    pub password_command: Vec<String>,
+    pub proxy: String,
+    pub days: u32,
+    pub auth: MailAuth,
+}
+
+/// Whether `name` may name a mailbox: small letters, digits and `-`.
+#[must_use]
+pub fn is_mailbox_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 impl Default for MailConfig {
@@ -468,46 +530,113 @@ impl Default for MailConfig {
             days: 30,
             on_new: Vec::new(),
             notify: true,
+            auth: MailAuth::Auto,
+            oauth_client_id: String::new(),
+            accounts: std::collections::BTreeMap::new(),
         }
     }
 }
 
 impl MailConfig {
+    /// The mailboxes in use, in order: the one in `[mail]` first (named after its domain, `qq`
+    /// for me@qq.com, unless a named one has that name), then `[mail.accounts]` by name.
+    #[must_use]
+    pub fn mailboxes(&self) -> Vec<MailboxSettings> {
+        let mut all = Vec::new();
+        if !self.address.trim().is_empty() {
+            let domain = self.address.trim().rsplit_once('@').map_or("mail", |(_, domain)| domain);
+            let mut name: String = domain.split('.').next().unwrap_or("mail").to_lowercase();
+            if !is_mailbox_name(&name) {
+                "mail".clone_into(&mut name);
+            }
+            while self.accounts.contains_key(&name) {
+                name.push_str("-1");
+            }
+            all.push(MailboxSettings {
+                name,
+                address: self.address.trim().to_lowercase(),
+                imap: self.imap.clone(),
+                smtp: self.smtp.clone(),
+                login: self.login.clone(),
+                password_command: self.password_command.clone(),
+                proxy: self.proxy.clone(),
+                days: self.days,
+                auth: self.auth,
+            });
+        }
+        for (name, account) in &self.accounts {
+            all.push(MailboxSettings {
+                name: name.clone(),
+                address: account.address.trim().to_lowercase(),
+                imap: account.imap.clone(),
+                smtp: account.smtp.clone(),
+                login: account.login.clone(),
+                password_command: account.password_command.clone(),
+                proxy: account.proxy.clone(),
+                days: account.days.unwrap_or(self.days),
+                auth: account.auth,
+            });
+        }
+        all
+    }
+
     /// What can be told from the text alone: an address with `@`, servers as `host:port`, a proxy
-    /// with its kind and port, the days in range. Whether the servers answer is found when they are asked.
+    /// with its kind and port, the days in range, names a mailbox may have, no address twice.
+    /// Whether the servers answer is found when they are asked.
     fn check(&self) -> Result<()> {
-        let address = self.address.trim();
-        if !address.is_empty()
-            && !address.split_once('@').is_some_and(|(name, domain)| !name.is_empty() && domain.contains('.'))
+        check_mailbox("mail", &self.address, &self.imap, &self.smtp, &self.proxy, self.days)?;
+        for (name, account) in &self.accounts {
+            if !is_mailbox_name(name) {
+                bail!("[mail.accounts.{name}]: a mailbox's name is small letters, digits and -");
+            }
+            if account.address.trim().is_empty() {
+                bail!("[mail.accounts.{name}] has no address");
+            }
+            let prefix = format!("mail.accounts.{name}");
+            let days = account.days.unwrap_or(self.days);
+            check_mailbox(&prefix, &account.address, &account.imap, &account.smtp, &account.proxy, days)?;
+        }
+        let addresses: Vec<String> = self.mailboxes().iter().map(|mailbox| mailbox.address.clone()).collect();
+        if let Some((_, twice)) = addresses.iter().enumerate().find(|(at, address)| addresses[..*at].contains(address))
         {
-            bail!("mail.address is \"{address}\": not a mail address like me@example.com");
-        }
-        for (key, text) in [("imap", &self.imap), ("smtp", &self.smtp)] {
-            let text = text.trim();
-            if !text.is_empty()
-                && !text.rsplit_once(':').is_some_and(|(host, port)| !host.is_empty() && port.parse::<u16>().is_ok())
-            {
-                bail!("mail.{key} is \"{text}\": write it as host:port, as imap.example.com:993");
-            }
-        }
-        let proxy = self.proxy.trim();
-        if !proxy.is_empty() {
-            let (scheme, place) = proxy.split_once("://").unwrap_or(("", proxy));
-            let known = matches!(scheme.to_ascii_lowercase().as_str(), "socks5" | "socks5h" | "http");
-            let port =
-                place.trim_end_matches('/').rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok());
-            if !known || !port {
-                bail!("mail.proxy is \"{proxy}\": write it as socks5://127.0.0.1:7890 or http://127.0.0.1:7890");
-            }
-        }
-        if !MAIL_DAYS.contains(&self.days) {
-            bail!("mail.days is {}: it must be from {} to {}", self.days, MAIL_DAYS.start(), MAIL_DAYS.end());
+            bail!("the mailbox {twice} is set twice");
         }
         if self.on_new.first().is_some_and(|program| program.trim().is_empty()) {
             bail!("mail.on_new begins with an empty word: it is a program and its arguments");
         }
         Ok(())
     }
+}
+
+/// One mailbox's text checked: `prefix` names it in what is said (`mail`, `mail.accounts.qq`).
+fn check_mailbox(prefix: &str, address: &str, imap: &str, smtp: &str, proxy: &str, days: u32) -> Result<()> {
+    let address = address.trim();
+    if !address.is_empty()
+        && !address.split_once('@').is_some_and(|(name, domain)| !name.is_empty() && domain.contains('.'))
+    {
+        bail!("{prefix}.address is \"{address}\": not a mail address like me@example.com");
+    }
+    for (key, text) in [("imap", imap), ("smtp", smtp)] {
+        let text = text.trim();
+        if !text.is_empty()
+            && !text.rsplit_once(':').is_some_and(|(host, port)| !host.is_empty() && port.parse::<u16>().is_ok())
+        {
+            bail!("{prefix}.{key} is \"{text}\": write it as host:port, as imap.example.com:993");
+        }
+    }
+    let proxy = proxy.trim();
+    if !proxy.is_empty() {
+        let (scheme, place) = proxy.split_once("://").unwrap_or(("", proxy));
+        let known = matches!(scheme.to_ascii_lowercase().as_str(), "socks5" | "socks5h" | "http");
+        let port = place.trim_end_matches('/').rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok());
+        if !known || !port {
+            bail!("{prefix}.proxy is \"{proxy}\": write it as socks5://127.0.0.1:7890 or http://127.0.0.1:7890");
+        }
+    }
+    if !MAIL_DAYS.contains(&days) {
+        bail!("{prefix}.days is {days}: it must be from {} to {}", MAIL_DAYS.start(), MAIL_DAYS.end());
+    }
+    Ok(())
 }
 
 /// How the window looks: a theme's name, colors as `#rrggbb`, and what is
@@ -874,6 +1003,53 @@ mod tests {
         assert!(said("[mail]\ndays = 0").contains("mail.days is 0"));
         assert!(said("[mail]\non_new = [\"\"]").contains("mail.on_new"));
         assert!(said("[mail]\npassword = \"x\"").contains("unknown field"), "no password in the file");
+    }
+
+    #[test]
+    fn mailboxes_are_the_first_one_then_the_named_ones() {
+        let mail = Config::parse(
+            "[mail]\naddress = \"Me@QQ.com\"\ndays = 7\n\
+             [mail.accounts.work]\naddress = \"me@outlook.com\"\nauth = \"oauth2\"\n\
+             [mail.accounts.gmail]\naddress = \"me@gmail.com\"\nproxy = \"socks5://127.0.0.1:7890\"\ndays = 90",
+        )
+        .expect("settings")
+        .mail;
+        let mailboxes = mail.mailboxes();
+        let names: Vec<&str> = mailboxes.iter().map(|mailbox| mailbox.name.as_str()).collect();
+        assert_eq!(names, ["qq", "gmail", "work"], "the first one named after its domain, the others by name");
+        assert_eq!(mailboxes[0].address, "me@qq.com", "an address is kept in small letters");
+        assert_eq!((mailboxes[1].days, mailboxes[2].days), (90, 7), "days its own, else [mail]'s");
+        assert_eq!((mailboxes[0].auth, mailboxes[2].auth), (MailAuth::Auto, MailAuth::Oauth2));
+        assert_eq!(mailboxes[1].proxy, "socks5://127.0.0.1:7890", "each mailbox its own proxy");
+        // A named one with the first one's name: the first one steps aside.
+        let clash = Config::parse("[mail]\naddress = \"me@qq.com\"\n[mail.accounts.qq]\naddress = \"two@qq.com\"")
+            .expect("settings")
+            .mail;
+        let names: Vec<String> = clash.mailboxes().into_iter().map(|mailbox| mailbox.name).collect();
+        assert_eq!(names, ["qq-1", "qq"]);
+        // Only named ones, and none at all.
+        let only_named = Config::parse("[mail.accounts.a]\naddress = \"a@example.com\"").expect("settings").mail;
+        assert_eq!(only_named.mailboxes().len(), 1);
+        assert!(Config::default().mail.mailboxes().is_empty());
+        let said = |text: &str| format!("{:#}", Config::parse(text).expect_err("refused"));
+        assert!(said("[mail.accounts.Work]\naddress = \"a@example.com\"").contains("small letters"));
+        assert!(said("[mail.accounts.a]\nimap = \"x:1\"").contains("has no address"));
+        assert!(
+            said("[mail.accounts.a]\naddress = \"a@example.com\"\nproxy = \"x\"").contains("mail.accounts.a.proxy")
+        );
+        assert!(said("[mail.accounts.a]\naddress = \"a@example.com\"\ndays = 0").contains("mail.accounts.a.days"));
+        assert!(
+            said("[mail]\naddress = \"A@example.com\"\n[mail.accounts.b]\naddress = \"a@example.com\"")
+                .contains("set twice")
+        );
+        assert!(said("[mail.accounts.a]\naddress = \"a@example.com\"\npassword = \"x\"").contains("unknown field"));
+        assert!(said("[mail]\nauth = \"token\"").contains("auth"));
+        assert!(
+            is_mailbox_name("qq-2")
+                && !is_mailbox_name("")
+                && !is_mailbox_name("a b")
+                && !is_mailbox_name(&"a".repeat(33))
+        );
     }
 
     #[test]

@@ -7,7 +7,8 @@
 //!
 //! The account is `me@example.com`, password `s3cret`; the SMTP port is
 //! printed. With `LATER_SECONDS`, one more mail comes that many seconds after
-//! the start. It runs until stopped.
+//! the start. `FAKE_MAILBOX_LOGIN` lets another login in, for a second mailbox;
+//! `FAKE_MAILBOX_IDS` (first letters of the mails' ids: `abg`) puts only those mails in. It runs until stopped.
 
 use std::fmt::Write as _;
 use std::time::Duration;
@@ -53,7 +54,20 @@ const WANG: &str = "王工 <wang@example.com>";
 const LIN_SUBJECT: &str = "周五的发布，能不能提前到周四？";
 const LIN_ANSWER: &str = "Re: 周五的发布，能不能提前到周四？";
 
-const LETTERS: [Letter; 9] = [
+const LETTERS: [Letter; 10] = [
+    // Sent, not answered yet: the newest mail of its conversation is mine.
+    Letter {
+        folder: "Sent Messages",
+        id: "e1@example.com",
+        from: ME,
+        to: "印刷厂 <print@example.com>",
+        cc: "",
+        subject: "贴纸的报价请再确认一下",
+        answers: &[],
+        date: "Thu, 26 Nov 2026 18:20:00 +0800",
+        text: "500 张圆形贴纸，直径 5 厘米，含运费一共多少？下周三之前能到吗？",
+        read: Read::Seen,
+    },
     Letter {
         folder: "INBOX",
         id: "w1@example.com",
@@ -181,11 +195,15 @@ const LATER: Letter = Letter {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let imap = args.first().and_then(|port| port.parse::<u16>().ok()).unwrap_or(0);
-    let fake = Fake::start_at(ME, "s3cret", imap).expect("the pretend servers");
+    let login = std::env::var("FAKE_MAILBOX_LOGIN").unwrap_or_else(|_| ME.to_owned());
+    let fake = Fake::start_at(&login, "s3cret", imap).expect("the pretend servers");
+    let only = std::env::var("FAKE_MAILBOX_IDS").ok();
     for letter in &LETTERS {
-        fake.deliver(letter.folder, &letter.bytes(), letter.read);
+        if only.as_ref().is_none_or(|only| letter.id.chars().next().is_some_and(|first| only.contains(first))) {
+            fake.deliver(letter.folder, &letter.bytes(), letter.read);
+        }
     }
-    println!("imap 127.0.0.1:{} smtp 127.0.0.1:{} ({ME} / s3cret)", fake.imap_port, fake.smtp_port);
+    println!("imap 127.0.0.1:{} smtp 127.0.0.1:{} ({login} / s3cret)", fake.imap_port, fake.smtp_port);
     if let Some(seconds) = args.get(1).and_then(|seconds| seconds.parse::<u64>().ok()) {
         std::thread::sleep(Duration::from_secs(seconds));
         fake.deliver(LATER.folder, &LATER.bytes(), LATER.read);

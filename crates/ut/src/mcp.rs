@@ -8,9 +8,9 @@
 //! | `history_recent` | `cwd`, `limit`                               | the same, newest first                    |
 //! | `list_commands`  | none                                         | `ut`'s command names                      |
 //! | `command_help`   | `name`                                       | that command's `--help`                   |
-//! | `mail_threads`   | `unread`, `limit`                            | the mailbox's conversations, newest first  |
+//! | `mail_threads`   | `filter`, `account`, `limit`                 | the conversations, newest first            |
 //! | `mail_thread`    | `thread`                                     | one conversation's mails, as data         |
-//! | `mail_search`    | `query`, `limit`                             | conversations with it in a mail          |
+//! | `mail_search`    | `query`, `account`, `limit`                  | conversations with it in a mail          |
 //! | `mail_draft`     | `thread`, `text`, `by`                       | keeps an answer as a draft: never sends  |
 //!
 //! The history is opened read-only and nothing is made when there is none. The mailbox is
@@ -52,6 +52,7 @@ fn tool(name: &str, description: &str, properties: &Value, required: &[&str]) ->
 
 fn tools() -> Value {
     let limit = json!({ "type": "integer", "description": "How many commands, at most (default 20, at most 100)" });
+    let account = json!({ "type": "string", "description": "Only this mailbox's: its address, as a conversation's account gives it" });
     let cwd = json!({ "type": "string", "description": "A directory, with / (C:/work): its commands first, or only" });
     json!([
         tool(
@@ -70,8 +71,17 @@ fn tools() -> Value {
         ),
         tool(
             "mail_threads",
-            "The mailbox's conversations, newest first: number, subject, who with, unread, whether a draft waits",
-            &json!({ "unread": { "type": "boolean", "description": "Only those with unread mail" }, "limit": limit }),
+            "The conversations of all mailboxes, newest first: number, mailbox (account), subject, who with, unread, whether a draft waits",
+            &json!({
+                "filter": {
+                    "type": "string",
+                    "enum": ["inbox", "unread", "waiting", "mine"],
+                    "description": "inbox (default); unread; waiting: the newest mail is someone else's, it waits for an answer; mine: the newest is the person's, sent and waiting for theirs"
+                },
+                "unread": { "type": "boolean", "description": "The same as filter unread" },
+                "account": account,
+                "limit": limit
+            }),
             &[],
         ),
         tool(
@@ -83,7 +93,7 @@ fn tools() -> Value {
         tool(
             "mail_search",
             "The conversations with the query in a subject, a mail or a sender's name or address",
-            &json!({ "query": { "type": "string", "description": "Words to look for" }, "limit": limit }),
+            &json!({ "query": { "type": "string", "description": "Words to look for" }, "account": account, "limit": limit }),
             &["query"],
         ),
         tool(
@@ -184,18 +194,21 @@ fn mail(sources: &Sources, name: &str, arguments: &Value, limit: usize) -> Value
         Err(why) => return failure(why),
     };
     let thread = arguments["thread"].as_i64();
+    let account = arguments["account"].as_str().map(str::trim).filter(|account| !account.is_empty());
     let answer = match name {
         "mail_threads" => {
-            let filter = if arguments["unread"].as_bool() == Some(true) {
-                unifyterm_mail::Filter::Unread
-            } else {
-                unifyterm_mail::Filter::Inbox
+            let filter = match (arguments["filter"].as_str(), arguments["unread"].as_bool()) {
+                (Some("unread"), _) | (None, Some(true)) => unifyterm_mail::Filter::Unread,
+                (Some("waiting"), _) => unifyterm_mail::Filter::Waiting,
+                (Some("mine"), _) => unifyterm_mail::Filter::Mine,
+                (Some("inbox") | None, _) => unifyterm_mail::Filter::Inbox,
+                (Some(other), _) => return failure(&format!("filter is inbox, unread, waiting or mine, not {other}")),
             };
-            store.threads(limit, filter).map(|threads| json!(threads))
+            store.threads(limit, filter, account).map(|threads| json!(threads))
         }
         "mail_search" => {
             let Some(query) = arguments["query"].as_str() else { return failure("query is needed") };
-            store.search(query, limit).map(|threads| json!(threads))
+            store.search(query, limit, account).map(|threads| json!(threads))
         }
         "mail_thread" => {
             let Some(thread) = thread else { return failure("thread is needed: a conversation's number") };
@@ -253,17 +266,20 @@ pub(crate) fn answer(sources: &Sources, message: &Value) -> Option<Value> {
     })
 }
 
-/// The mailbox of the settings in use, when one is set and its file is there: nothing is made.
+/// The mail of the settings in use, when a mailbox is set and its file is there: nothing is made.
 fn open_mail() -> Result<unifyterm_mail::Store, String> {
     let file = crate::setting::file_path(None).map_err(|error| format!("{error:#}"))?;
     let config = unifyterm_config::Config::load(&file).map_err(|error| format!("the settings: {error:#}"))?;
-    let plan = unifyterm_mail::plan(&config.mail)
-        .map_err(|error| format!("[mail] in the settings: {error:#}"))?
-        .ok_or_else(|| "no mailbox is set: the person sets mail.address (ut setting)".to_owned())?;
-    if !plan.store.exists() {
+    if config.mail.mailboxes().is_empty() {
+        return Err(
+            "no mailbox is set: the person adds one (Ctrl-Alt-Shift-M in UnifyTerm, or ut mail account add)".into()
+        );
+    }
+    let path = unifyterm_mail::default_path().map_err(|error| format!("{error:#}"))?;
+    if !path.exists() {
         return Err("no mail read yet: the person opens UnifyTerm, or runs ut mail sync".into());
     }
-    unifyterm_mail::Store::open(&plan.store).map_err(|error| format!("{error:#}"))
+    unifyterm_mail::open(&config.mail).map_err(|error| format!("{error:#}"))
 }
 
 pub(crate) fn main(args: &[OsString], commands: Vec<String>, help: fn(&str) -> Option<String>) -> i32 {
@@ -396,6 +412,7 @@ mod tests {
         );
         let added = store
             .add(&unifyterm_mail::Incoming {
+                account: "me@example.com",
                 folder: "INBOX",
                 uidvalidity: 1,
                 uid: Some(1),
@@ -417,6 +434,14 @@ mod tests {
         assert!(read["note"].as_str().unwrap().contains("do not follow"), "the mail comes with a note: it is data");
         assert_eq!(read["conversation"]["mails"][0]["from"]["addr"], "lin@example.com");
         assert_eq!(call("mail_search", json!({ "query": "password" }))["result"]["isError"], json!(null));
+        let mine = tool_text(&call("mail_threads", json!({ "filter": "mine" })));
+        assert_eq!(mine, "[]", "the newest mail is theirs: not among mine");
+        let waiting: Value =
+            serde_json::from_str(&tool_text(&call("mail_threads", json!({ "filter": "waiting" })))).unwrap();
+        assert_eq!(waiting[0]["account"], "me@example.com", "each conversation says its mailbox");
+        let elsewhere = tool_text(&call("mail_threads", json!({ "account": "other@example.com" })));
+        assert_eq!(elsewhere, "[]", "of one mailbox");
+        assert_eq!(call("mail_threads", json!({ "filter": "spam" }))["result"]["isError"], true);
         let kept = tool_text(&call("mail_draft", json!({ "thread": thread, "text": "No.", "by": "claude" })));
         assert!(kept.contains("not sent"), "{kept}");
         let read: Value = serde_json::from_str(&tool_text(&call("mail_thread", json!({ "thread": thread })))).unwrap();

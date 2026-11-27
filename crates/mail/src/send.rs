@@ -10,7 +10,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 
 use crate::account::{Account, Security};
 use crate::message::{self, Address};
-use crate::net::{self, Stream};
+use crate::net::{self, Credential, Stream};
 use crate::store::Thread;
 
 /// The most message ids an answer names in `References`.
@@ -110,12 +110,33 @@ pub fn write(answer: &Answer, message_id: &str) -> Result<lettre::Message> {
 }
 
 /// Sends a mail through the account's SMTP server, through its proxy when it has one. The
-/// conversation is SMTP's own (RFC 5321): EHLO, STARTTLS on 587, AUTH PLAIN or LOGIN, MAIL,
-/// RCPT for each one it goes to, DATA.
-pub fn send(account: &Account, password: &str, mail: &lettre::Message) -> Result<()> {
+/// conversation is SMTP's own (RFC 5321): EHLO, STARTTLS on 587, AUTH (PLAIN, LOGIN or `XOAUTH2`),
+/// MAIL, RCPT for each one it goes to, DATA.
+pub fn send(account: &Account, credential: &Credential, mail: &lettre::Message) -> Result<()> {
     let envelope = mail.envelope();
     let from = envelope.from().map(ToString::to_string).unwrap_or_default();
     let to: Vec<String> = envelope.to().iter().map(ToString::to_string).collect();
+    let mut smtp = logged_in(account, credential)?;
+    smtp.say(&format!("MAIL FROM:<{from}>"), 250)?;
+    for one in &to {
+        smtp.say(&format!("RCPT TO:<{one}>"), 250)?;
+    }
+    smtp.say("DATA", 354)?;
+    smtp.write(&stuffed(&mail.formatted()))?;
+    smtp.expect(250)?;
+    smtp.say("QUIT", 221).ok();
+    Ok(())
+}
+
+/// Logs in to the SMTP server and out again, sending nothing: whether mail could be sent.
+pub fn check(account: &Account, credential: &Credential) -> Result<()> {
+    let mut smtp = logged_in(account, credential)?;
+    smtp.say("QUIT", 221).ok();
+    Ok(())
+}
+
+/// An SMTP conversation, logged in.
+fn logged_in(account: &Account, credential: &Credential) -> Result<Smtp> {
     let server = &account.smtp;
     let tcp = net::open(server, account.proxy.as_ref())?;
     let mut smtp = Smtp {
@@ -134,23 +155,31 @@ pub fn send(account: &Account, password: &str, mail: &lettre::Message) -> Result
     }
     let mechanisms =
         offered.iter().find_map(|line| line.strip_prefix("AUTH ")).unwrap_or_default().to_ascii_uppercase();
-    if mechanisms.split_whitespace().any(|mechanism| mechanism == "PLAIN") {
-        let token = BASE64.encode(format!("\u{0}{}\u{0}{password}", account.login));
-        smtp.say(&format!("AUTH PLAIN {token}"), 235).map_err(|error| refused(&error))?;
-    } else {
-        smtp.say("AUTH LOGIN", 334)?;
-        smtp.say(&BASE64.encode(&account.login), 334)?;
-        smtp.say(&BASE64.encode(password), 235).map_err(|error| refused(&error))?;
+    match credential {
+        Credential::Token(token) => {
+            let message = BASE64.encode(net::xoauth2(&account.login, token));
+            smtp.write(format!("AUTH XOAUTH2 {message}\r\n").as_bytes())?;
+            let (code, said) = smtp.reply()?;
+            if code != 235 {
+                // 334 with what went wrong: an empty line, and the server ends with 535.
+                if code == 334 {
+                    smtp.write(b"\r\n")?;
+                    smtp.reply().ok();
+                }
+                return Err(refused(&anyhow::anyhow!("the SMTP server said {code} {}", said.join(" "))));
+            }
+        }
+        Credential::Password(password) if mechanisms.split_whitespace().any(|mechanism| mechanism == "PLAIN") => {
+            let token = BASE64.encode(format!("\u{0}{}\u{0}{password}", account.login));
+            smtp.say(&format!("AUTH PLAIN {token}"), 235).map_err(|error| refused(&error))?;
+        }
+        Credential::Password(password) => {
+            smtp.say("AUTH LOGIN", 334)?;
+            smtp.say(&BASE64.encode(&account.login), 334)?;
+            smtp.say(&BASE64.encode(password), 235).map_err(|error| refused(&error))?;
+        }
     }
-    smtp.say(&format!("MAIL FROM:<{from}>"), 250)?;
-    for one in &to {
-        smtp.say(&format!("RCPT TO:<{one}>"), 250)?;
-    }
-    smtp.say("DATA", 354)?;
-    smtp.write(&stuffed(&mail.formatted()))?;
-    smtp.expect(250)?;
-    smtp.say("QUIT", 221).ok();
-    Ok(())
+    Ok(smtp)
 }
 
 /// What a client says it is: an address of this machine's own, the same for everyone, no machine's name.
@@ -191,6 +220,15 @@ impl Smtp {
 
     /// The server's answer: its lines without the code, when the code is `wanted`.
     fn expect(&mut self, wanted: u16) -> Result<Vec<String>> {
+        let (code, lines) = self.reply()?;
+        if code != wanted {
+            bail!("the SMTP server said {code} {}", lines.join(" "));
+        }
+        Ok(lines)
+    }
+
+    /// The server's answer, all its lines: its code and the lines without it.
+    fn reply(&mut self) -> Result<(u16, Vec<String>)> {
         let mut lines = Vec::new();
         loop {
             let mut line = String::new();
@@ -204,12 +242,9 @@ impl Smtp {
                 .with_context(|| format!("the SMTP server said \"{line}\""))?;
             let rest = line.get(4..).unwrap_or_default().to_owned();
             let last = line.as_bytes().get(3) != Some(&b'-');
-            if code != wanted {
-                bail!("the SMTP server said {code} {rest}");
-            }
             lines.push(rest);
             if last {
-                return Ok(lines);
+                return Ok((code, lines));
             }
         }
     }
@@ -252,6 +287,7 @@ mod tests {
 
     fn thread(mails: Vec<Mail>) -> Thread {
         let summary = Summary {
+            account: "me@example.com".to_owned(),
             id: 1,
             subject: String::new(),
             with: String::new(),

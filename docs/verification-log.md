@@ -1,5 +1,38 @@
 # 验收记录
 
+## 2026-11-27 · 0.9.0：多个邮箱、在邮箱界面里添加、Outlook 浏览器登录
+
+用户："只支持一个邮箱吗？同时有多个呢？"、"对于 outlook 这种 oauth2 认证的，是否需要支持"、"最方便应该是进入邮箱界面，然后添加，添加的时候可以选择方式。原来加邮箱命令也可以"、"就在面板里写吧……其他按推荐来"、"我怎么区分收件箱和已发送"（定为四个筛选：全部 / 未读 / 待我回复 / 我发出的）、"做完发版，然后更新网站里的邮箱截图"。
+
+做了什么：
+
+- 设置：`[mail.accounts.NAME]` 一个邮箱一张表（地址、服务器、登录名、密码命令、代理、天数、登录方式各自设）；`[mail]` 里原来的写法算第一个邮箱，名字取域名第一段。新增 `mail.auth`（auto / password / oauth2）、`mail.oauth_client_id`、`keys.mail_add`（Ctrl+Alt+Shift+M），共 91 项。同一地址设两次、名字不合规、缺地址都在读设置时拒绝。`File::set_mailbox` / `remove_mailbox` 写表、删表，保留注释和原有顺序；改第一个邮箱时把它挪进自己的表。
+- 存储：`mail.db` 升到第 2 版，每封信、每个对话、每个文件夹、每条状态都记属于哪个邮箱（地址）；同一封信在两个邮箱里各存一份。第 1 版文件打开时原地迁移，旧行由 `[mail]` 的邮箱接收，不重新下载。`threads` 新增「待我回复」「我发出的」两种筛选。
+- 同步：每个邮箱一个线程、一把锁（`mail-<地址>.lock`）、一条状态；一个出错不影响别的。回复从对话所在的邮箱发出。`mail.on_new` 多一个 `{account}`。
+- OAuth2（微软）：设备码登录（`/devicecode`、`/token`，可走邮箱的代理），刷新令牌分段存钥匙串，访问令牌在进程里缓存、快到期时自动换；IMAP 用 `AUTHENTICATE XOAUTH2`，SMTP 用 `AUTH XOAUTH2`。Outlook.com 等域名自动选 OAuth2，服务器 outlook.office365.com:993 / smtp-mail.outlook.com:587（来自微软的 Outlook.com 设置页）。UnifyTerm 自己的微软应用还没注册：没有 `mail.oauth_client_id` 时明确提示，不发请求。
+- 窗口：左上角邮箱名（全部混排，对话带邮箱标签；右键：重新登录 / 修改 / 移除，移除要点两次）；四个筛选；`+` 或 Ctrl+Alt+Shift+M 在右栏打开添加表单：按地址识别服务器、推荐登录方式（授权码 / 浏览器登录 / 手动服务器 / 程序给密码），直连或代理，"测试并添加"逐项显示连接、登录、已发送文件夹、SMTP，全部通过才写设置和钥匙串，失败把那一步的原因写在底部。没有邮箱时打开邮件界面就是这个表单。
+- `ut mail account add/list/remove`，`login`/`logout`/`sync`/`list`/`search` 加 `--account`，`list` 加 `--waiting`/`--mine`；`ut mcp` 的 `mail_threads` 加 `filter`、`account`。README、skill、网页（版本、91 项、邮箱一句和限制一条按事实改；邮箱截图换成两个邮箱的新图）。版本 0.9.0。
+
+过程中发现并修掉的（发现问题的轮不计数）：
+
+| 问题 | 定性 | 修法 |
+|---|---|---|
+| 两个邮箱同时同步，状态行出现 `database is locked` | 共性（store 里 5 处先读后写的事务），结构缺陷：默认 DEFERRED 事务在另一个写入者提交后升级为写会立即失败，0.8 只有一个写入者时成立的前提失效 | 所有写事务收到 `writing()`，一律 IMMEDIATE；8 线程×300 次并发写的测试：改回 DEFERRED 时复现同样的报错，IMMEDIATE 通过 |
+| 窄窗口里四个登录方式一行一个 | 个性，边界遗漏（固定 312 像素宽） | 改成按比例宽 |
+| 加完邮箱后右边还停在旧对话；筛选为空时右边仍显示列表里没有的对话；加完后沿用 Sent 筛选 | 共性（"选中的对话必须在列表里"这个不变量在三个入口没执法） | 切邮箱、换筛选、加完邮箱都重新选，列表空时清掉 |
+| 授权码错时底部只写 "nothing was kept"，原因在被挤出视野的步骤列表里 | 个性 | 失败那一步的原因写进底部提示 |
+| 第一轮静态检查：rustfmt、clippy `single_match_else`、`crates/mail/Cargo.toml` 混进 CRLF | 写法问题 | 修掉；换行检查改成只看文本文件 |
+| docs-check 把 `examples/` 里的测试用环境变量当成要写进 README 的变量 | 检查脚本的期望写错，不是代码的问题 | `examples/` 和 `tests/` 一样排除 |
+
+我自己的两次失误（已恢复，记下）：一次命令里误带 `git stash` 把 store.rs 的改动收进了 stash，立刻 `git stash pop` 恢复并核对；一次修 CRLF 时把 `site/img/mail.webp` 当文本重写，从原始截图重新生成，大小和第一次一致（61486 字节）、能解码。
+
+验收（最后一次改代码之后，三轮各换视角）：
+
+1. 静态一致性：fmt、clippy `-D warnings`（config、mail、ut、unifyterm 四个包）退出码 0；docs-check、site-check、scripts-check 各 0 失败；第三方许可证清单最新；diff 里隐私词 0 处；改过的文本文件 CRLF 0 个；webp 能解码；新设置都有人读（`keys.mail_add` 绑在 main.rs，`oauth_client_id` 在 mail/lib.rs）。
+2. 测试 + 机制通路：unifyterm 158、config 46、mail 25 + 7、ut 118 + 4 + 4 + 3，全过。实机（两个本机假邮箱）：添加第三个邮箱（手动服务器）→ 写进设置、开始同步、标签栏 ✉ 5 = 全部 5、无锁错误；`ut mail account remove third --yes` 后设置和钥匙串都无残留；授权码错时底部写出 `[AUTHENTICATIONFAILED]`，设置和钥匙串都没有写入。
+3. 可复现 + 边界：mail 测试连跑 3 次，3 次都是 25/0、7/0；没有任何邮箱时 Ctrl+Shift+M 直接是添加表单，Esc 回终端，不建 `mail.db`。
+
+遗留：Outlook 浏览器登录只对本机假登录服务测过，等用户发版后用自己的应用 ID 实测；macOS、Linux 的界面没看过。
 ## 2026-11-27 · 0.8.0 发布；第三支宣传视频，发到 B 站和 YouTube
 
 发布：CI（4e496b8）三个系统全绿；标签 `v0.8.0`，release 工作流成功，Release 18 个文件；Homebrew formula 3 个哈希、Scoop 1 个哈希和 Release 的 `.sha256` 一致（第一次读哈希时有一个文件网络 EOF，换 `gh release download` 重读后 3/3）；网页显示 0.8.0，有"终端旁边的邮箱"一节。

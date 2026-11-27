@@ -59,7 +59,8 @@ actions!(
         ToggleFullScreen,
         ToggleTabBar,
         Explain,
-        ToggleMail
+        ToggleMail,
+        AddMail
     ]
 );
 
@@ -333,8 +334,8 @@ struct Workspace {
 struct Mail {
     view: Entity<mailbox::MailView>,
     shown: bool,
-    /// The sync running for this window, when a mailbox is set.
-    sync: Option<Arc<unifyterm_mail::Stopper>>,
+    /// The syncs running for this window: one for each mailbox.
+    sync: Vec<Arc<unifyterm_mail::Stopper>>,
     unread: usize,
     /// The newest mail from someone else seen so far: a newer one is told of.
     newest: Option<i64>,
@@ -504,11 +505,10 @@ impl Workspace {
         } else {
             settings
         };
-        let mail_view = cx.new(|cx| mailbox::MailView::new(Arc::clone(&settings), cx));
+        let settings_path = file.as_ref().map(|file| file.path.clone());
+        let mail_view = cx.new(|cx| mailbox::MailView::new(Arc::clone(&settings), settings_path, cx));
         let mail_events = cx.subscribe_in(&mail_view, window, Self::mail_event);
-        let mail_sync = mailbox::plan_of(&settings.config.mail)
-            .ok()
-            .map(|plan| mailbox::start_sync(plan, settings.config.mail.on_new.clone()));
+        let mail_sync = mailbox::start_syncs(&settings.config.mail);
         let mut workspace = Self {
             tabs: Vec::new(),
             active: 0,
@@ -632,12 +632,28 @@ impl Workspace {
         self.mail.shown = !self.mail.shown;
         if self.mail.shown {
             self.mail.note = None;
-            self.mail.view.update(cx, mailbox::MailView::shown);
+            self.mail.view.update(cx, |view, cx| view.shown(window, cx));
             window.focus(&self.mail.view.read(cx).focus);
         } else if let Some(tab) = self.tabs.get(self.active) {
             window.focus(&tab.view.read(cx).focus);
         }
         cx.notify();
+    }
+
+    /// The mail, with the form that adds a mailbox.
+    fn add_mail(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if !self.mail.shown {
+            self.toggle_mail(window, cx);
+        }
+        self.mail.view.update(cx, |view, cx| view.open_form(mailbox::Purpose::Add, window, cx));
+    }
+
+    /// Every mailbox's sync stops and starts again: with new settings, or a new sign-in.
+    fn restart_mail(&mut self, config: &unifyterm_config::Config) {
+        for old in self.mail.sync.drain(..) {
+            old.stop();
+        }
+        self.mail.sync = mailbox::start_syncs(&config.mail);
     }
 
     /// The note of new mail was clicked: the mail, at that conversation.
@@ -660,6 +676,10 @@ impl Workspace {
         match event {
             mailbox::MailEvent::Leave if self.mail.shown => self.toggle_mail(window, cx),
             mailbox::MailEvent::Leave => {}
+            mailbox::MailEvent::SignedIn => {
+                let config = self.settings.config.clone();
+                self.restart_mail(&config);
+            }
         }
     }
 
@@ -786,11 +806,7 @@ impl Workspace {
         }
         // Another mailbox, or another way to it: the sync starts again with it.
         if config.mail != self.settings.config.mail {
-            if let Some(old) = self.mail.sync.take() {
-                old.stop();
-            }
-            self.mail.sync =
-                mailbox::plan_of(&config.mail).ok().map(|plan| mailbox::start_sync(plan, config.mail.on_new.clone()));
+            self.restart_mail(&config);
             (self.mail.unread, self.mail.newest) = (0, None);
         }
         self.settings = Arc::new(Settings { config, theme, backdrop, prompt });
@@ -1273,7 +1289,7 @@ impl Workspace {
                 .child(SharedString::from(newer.text()))
         });
         // The mail's button, when a mailbox is set: the unread count, and pressed while the mail shows.
-        let mail = (!self.settings.config.mail.address.trim().is_empty()).then(|| {
+        let mail = (!self.settings.config.mail.mailboxes().is_empty()).then(|| {
             let (well, muted) = (solid(theme.well()), solid(theme.muted()));
             div()
                 .id("mail")
@@ -1557,6 +1573,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
             .on_action(cx.listener(|this, _: &ToggleTabBar, _, cx| this.toggle_tab_bar(cx)))
             .on_action(cx.listener(|this, _: &ToggleMail, window, cx| this.toggle_mail(window, cx)))
+            .on_action(cx.listener(|this, _: &AddMail, window, cx| this.add_mail(window, cx)))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.pointer_moved(event.position, window, cx);
             }))
@@ -1608,6 +1625,7 @@ fn key_bindings(keys: &config::KeysConfig) -> Vec<KeyBinding> {
                 "full_screen" => KeyBinding::new(chord, ToggleFullScreen, None),
                 "explain" => KeyBinding::new(chord, Explain, None),
                 "mail" => KeyBinding::new(chord, ToggleMail, None),
+                "mail_add" => KeyBinding::new(chord, AddMail, None),
                 _ => continue,
             });
         }

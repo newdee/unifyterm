@@ -1,7 +1,9 @@
 //! A pretend IMAP and SMTP server on this machine (127.0.0.1, no TLS), for
 //! the tests and for looking at the window with mail in it. It speaks the
 //! part of each protocol UnifyTerm uses: LOGIN, LIST, SELECT, UID SEARCH,
-//! UID FETCH, UID STORE, APPEND, IDLE; EHLO, AUTH PLAIN, MAIL, RCPT, DATA.
+//! UID FETCH, UID STORE, APPEND, IDLE; EHLO, AUTH PLAIN, MAIL, RCPT, DATA; `XOAUTH2` in both,
+//! with the password as the one access token they take. [`FakeAuthority`] is a sign-in service
+//! for `OAuth2`'s device code flow.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -146,6 +148,21 @@ impl Fake {
         }
     }
 
+    /// `XOAUTH2`'s message (base64): the login with the password as its bearer token.
+    fn bearer_lets_in(&self, given: &str) -> bool {
+        let text = String::from_utf8_lossy(&decode_base64(given)).into_owned();
+        let mut user = "";
+        let mut token = "";
+        for part in text.split('\u{1}') {
+            if let Some(name) = part.strip_prefix("user=") {
+                user = name;
+            } else if let Some(bearer) = part.strip_prefix("auth=Bearer ") {
+                token = bearer;
+            }
+        }
+        format!("{user}\u{0}{token}") == *self.password
+    }
+
     fn imap(&self, stream: TcpStream) {
         let _ = self.serve_imap(stream);
     }
@@ -169,7 +186,20 @@ impl Fake {
             let (tag, rest) = line.split_once(' ').unwrap_or((&line, ""));
             let (command, arguments) = rest.split_once(' ').unwrap_or((rest, ""));
             let reply: String = match command.to_ascii_uppercase().as_str() {
-                "CAPABILITY" => format!("* CAPABILITY IMAP4rev1 IDLE\r\n{tag} OK done\r\n"),
+                "CAPABILITY" => format!("* CAPABILITY IMAP4rev1 IDLE AUTH=XOAUTH2\r\n{tag} OK done\r\n"),
+                "AUTHENTICATE" if arguments.eq_ignore_ascii_case("XOAUTH2") => {
+                    out.write_all(b"+ \r\n")?;
+                    let mut given = String::new();
+                    reader.read_line(&mut given)?;
+                    if self.bearer_lets_in(&given) {
+                        format!("{tag} OK authenticated\r\n")
+                    } else {
+                        // What went wrong, as a challenge; the client answers with nothing.
+                        out.write_all(b"+ eyJzdGF0dXMiOiI0MDEifQ==\r\n")?;
+                        reader.read_line(&mut String::new())?;
+                        format!("{tag} NO [AUTHENTICATIONFAILED] AUTHENTICATE failed\r\n")
+                    }
+                }
                 "LOGIN" => {
                     let words: Vec<String> =
                         arguments.split(' ').map(|word| word.trim_matches('"').replace("\\\"", "\"")).collect();
@@ -372,7 +402,15 @@ impl Fake {
             }
             let upper = line.trim_end().to_ascii_uppercase();
             let reply: &[u8] = if upper.starts_with("EHLO") || upper.starts_with("HELO") {
-                b"250-fake\r\n250 AUTH PLAIN LOGIN\r\n"
+                b"250-fake\r\n250 AUTH PLAIN LOGIN XOAUTH2\r\n"
+            } else if let Some(given) = line.trim_end().strip_prefix("AUTH XOAUTH2 ") {
+                if self.bearer_lets_in(given) {
+                    b"235 ok\r\n"
+                } else {
+                    out.write_all(b"334 eyJzdGF0dXMiOiI0MDEifQ==\r\n")?;
+                    reader.read_line(&mut String::new())?;
+                    b"535 5.7.3 Authentication unsuccessful\r\n"
+                }
             } else if let Some(given) = line.trim_end().strip_prefix("AUTH PLAIN ") {
                 let decoded = decode_plain(given);
                 if *decoded == *self.password { b"235 ok\r\n" } else { b"535 no\r\n" }
@@ -495,6 +533,11 @@ fn in_set(set: &str, uid: u32, last: u32) -> bool {
 
 /// AUTH PLAIN's base64 as `login\0password` (the first part, who acts for whom, left out).
 fn decode_plain(given: &str) -> String {
+    let text = String::from_utf8_lossy(&decode_base64(given)).into_owned();
+    text.split_once('\u{0}').map_or(text.clone(), |(_, rest)| rest.to_owned())
+}
+
+fn decode_base64(given: &str) -> Vec<u8> {
     let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let (mut bytes, mut buffer, mut held) = (Vec::new(), 0u32, 0u32);
     for c in given.trim().bytes().filter(|c| *c != b'=') {
@@ -506,6 +549,164 @@ fn decode_plain(given: &str) -> String {
             bytes.push(u8::try_from((buffer >> held) & 0xff).unwrap_or(0));
         }
     }
-    let text = String::from_utf8_lossy(&bytes).into_owned();
-    text.split_once('\u{0}').map_or(text.clone(), |(_, rest)| rest.to_owned())
+    bytes
+}
+
+/// A sign-in service for `OAuth2`'s device code flow, on this machine: `/devicecode` gives a code,
+/// `/token` says the person is not done until [`FakeAuthority::approve`], then gives `access`
+/// and a refresh token; a refresh token gets a new pair (the old one no longer works), until
+/// [`FakeAuthority::revoke`].
+#[derive(Debug, Clone)]
+pub struct FakeAuthority {
+    /// What [`crate::oauth::Provider::authority`] is for it.
+    pub url: String,
+    access: Arc<str>,
+    state: Arc<Mutex<Authority>>,
+}
+
+#[derive(Debug, Default)]
+struct Authority {
+    approved: bool,
+    revoked: bool,
+    /// The refresh token that works now; each use gives the next.
+    refresh: u32,
+    asked: Vec<String>,
+}
+
+impl FakeAuthority {
+    /// It gives `access` as the access token: the fake servers' password lets it in.
+    pub fn start(access: &str) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let authority = Self {
+            url: format!("http://127.0.0.1:{}", listener.local_addr()?.port()),
+            access: Arc::from(access),
+            state: Arc::new(Mutex::new(Authority { refresh: 1, ..Authority::default() })),
+        };
+        let served = authority.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let authority = served.clone();
+                std::thread::spawn(move || {
+                    let _ = authority.serve(stream);
+                });
+            }
+        });
+        Ok(authority)
+    }
+
+    /// The person signed in and agreed.
+    pub fn approve(&self) {
+        self.held().approved = true;
+    }
+
+    /// The sign-in is taken back: refresh tokens no longer work.
+    pub fn revoke(&self) {
+        self.held().revoked = true;
+    }
+
+    /// What was asked: `devicecode`, `device_code`, `refresh_token r1` ...
+    pub fn asked(&self) -> Vec<String> {
+        self.held().asked.clone()
+    }
+
+    fn held(&self) -> std::sync::MutexGuard<'_, Authority> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn serve(&self, stream: TcpStream) -> std::io::Result<()> {
+        let mut out = stream.try_clone()?;
+        let mut reader = BufReader::new(stream);
+        let mut first = String::new();
+        reader.read_line(&mut first)?;
+        let mut length = 0usize;
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line)? == 0 || line == "\r\n" {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                length = value.trim().parse().unwrap_or(0);
+            }
+        }
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body)?;
+        let form: BTreeMap<String, String> = String::from_utf8_lossy(&body)
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .map(|(name, value)| (unescape(name), unescape(value)))
+            .collect();
+        let (status, answer) = self.answer(first.split_whitespace().nth(1).unwrap_or_default(), &form);
+        let reply = format!(
+            "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+            answer.len()
+        );
+        out.write_all(reply.as_bytes())
+    }
+
+    fn answer(&self, path: &str, form: &BTreeMap<String, String>) -> (u16, String) {
+        let mut held = self.held();
+        let grant = form.get("grant_type").map_or("", String::as_str);
+        let error = |name: &str| (400, format!(r#"{{"error":"{name}","error_description":"{name} (fake)"}}"#));
+        if path.ends_with("/devicecode") {
+            held.asked.push("devicecode".into());
+            return (
+                200,
+                r#"{"user_code":"WDJB-MJHT","device_code":"dc1","verification_uri":"http://127.0.0.1/devicelogin","expires_in":60,"interval":1}"#
+                    .into(),
+            );
+        }
+        let refresh = form.get("refresh_token").cloned().unwrap_or_default();
+        let given = match grant {
+            "urn:ietf:params:oauth:grant-type:device_code" => {
+                held.asked.push("device_code".into());
+                if form.get("device_code").map(String::as_str) != Some("dc1") {
+                    return error("bad_verification_code");
+                }
+                if !held.approved {
+                    return error("authorization_pending");
+                }
+                true
+            }
+            "refresh_token" => {
+                held.asked.push(format!("refresh_token {refresh}"));
+                !held.revoked && refresh == format!("r{}", held.refresh)
+            }
+            _ => return error("unsupported_grant_type"),
+        };
+        if !given {
+            return error("invalid_grant");
+        }
+        if grant == "refresh_token" {
+            held.refresh += 1;
+        }
+        (
+            200,
+            format!(
+                r#"{{"token_type":"Bearer","access_token":"{}","refresh_token":"r{}","expires_in":3600}}"#,
+                self.access, held.refresh
+            ),
+        )
+    }
+}
+
+/// A form's word: `+` is a space, `%XX` a byte.
+fn unescape(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'+' => out.push(b' '),
+            b'%' if at + 2 < bytes.len() => {
+                let byte = u8::from_str_radix(&text[at + 1..at + 3], 16).unwrap_or(b'?');
+                out.push(byte);
+                at += 2;
+            }
+            other => out.push(other),
+        }
+        at += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

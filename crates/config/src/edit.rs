@@ -100,6 +100,105 @@ impl File {
         Ok(())
     }
 
+    /// Puts the mailbox `name` in the file as `[mail.accounts.NAME]`, in place of one with that
+    /// name. The mailbox in `[mail]` (version 0.8's one), given here by its name, moves to a table
+    /// of its own: `[mail]` keeps what all mailboxes share. Nothing is changed when the settings
+    /// would be refused with it (an address set twice, a name a mailbox may not have).
+    pub fn set_mailbox(&mut self, name: &str, mailbox: &crate::MailAccount) -> Result<()> {
+        if !crate::is_mailbox_name(name) {
+            bail!("\"{name}\": a mailbox's name is small letters, digits and -");
+        }
+        let before = self.document.clone();
+        if self.first_mailbox().as_deref() == Some(name) {
+            self.clear_first_mailbox();
+        }
+        let mut table = Table::new();
+        let texts = [
+            ("address", &mailbox.address),
+            ("imap", &mailbox.imap),
+            ("smtp", &mailbox.smtp),
+            ("login", &mailbox.login),
+            ("proxy", &mailbox.proxy),
+        ];
+        for (field, text) in texts {
+            if !text.trim().is_empty() {
+                table.insert(field, toml_edit::value(text.trim()));
+            }
+        }
+        if !mailbox.password_command.is_empty() {
+            table.insert("password_command", Item::Value(Value::Array(mailbox.password_command.iter().collect())));
+        }
+        if let Some(days) = mailbox.days {
+            table.insert("days", toml_edit::value(i64::from(days)));
+        }
+        match mailbox.auth {
+            crate::MailAuth::Auto => {}
+            crate::MailAuth::Password => drop(table.insert("auth", toml_edit::value("password"))),
+            crate::MailAuth::Oauth2 => drop(table.insert("auth", toml_edit::value("oauth2"))),
+        }
+        let mail = self.document.entry("mail").or_insert_with(|| implicit(Table::new()));
+        let Some(mail) = mail.as_table_mut() else { bail!("[mail] is not a table in the file") };
+        let accounts = mail.entry("accounts").or_insert_with(|| implicit(Table::new()));
+        let Some(accounts) = accounts.as_table_mut() else { bail!("mail.accounts is not a table in the file") };
+        accounts.insert(name, Item::Table(table));
+        if let Err(error) = Config::parse(&self.document.to_string()) {
+            self.document = before;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Takes the mailbox `name` out of the file: its table, or the first one's settings in `[mail]`.
+    pub fn remove_mailbox(&mut self, name: &str) -> Result<()> {
+        let before = self.document.clone();
+        let named = self
+            .document
+            .get_mut("mail")
+            .and_then(|mail| mail.get_mut("accounts"))
+            .and_then(Item::as_table_like_mut)
+            .and_then(|accounts| accounts.remove(name))
+            .is_some();
+        if !named {
+            if self.first_mailbox().as_deref() != Some(name) {
+                bail!("there is no mailbox {name}");
+            }
+            self.clear_first_mailbox();
+        }
+        let accounts_empty = self
+            .document
+            .get("mail")
+            .and_then(|mail| mail.get("accounts"))
+            .and_then(Item::as_table_like)
+            .is_some_and(toml_edit::TableLike::is_empty);
+        if accounts_empty && let Some(mail) = self.document.get_mut("mail").and_then(Item::as_table_like_mut) {
+            mail.remove("accounts");
+        }
+        self.tidy("mail");
+        if let Err(error) = Config::parse(&self.document.to_string()) {
+            self.document = before;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The name of the mailbox in `[mail]`, when it has one.
+    fn first_mailbox(&self) -> Option<String> {
+        let config = Config::parse(&self.document.to_string()).ok()?;
+        if config.mail.address.trim().is_empty() {
+            return None;
+        }
+        config.mail.mailboxes().into_iter().next().map(|mailbox| mailbox.name)
+    }
+
+    /// The first mailbox's own settings leave `[mail]`; what all mailboxes share stays.
+    fn clear_first_mailbox(&mut self) {
+        if let Some(mail) = self.document.get_mut("mail").and_then(Item::as_table_like_mut) {
+            for field in ["address", "imap", "smtp", "login", "password_command", "proxy", "auth"] {
+                mail.remove(field);
+            }
+        }
+    }
+
     /// A table left with nothing in it goes: the file does not keep empty headings.
     fn tidy(&mut self, section: &str) {
         let empty =
@@ -136,6 +235,12 @@ impl File {
         self.saved = text;
         Ok(())
     }
+}
+
+/// A table with no heading of its own: `[mail.accounts.qq]` alone, not `[mail]` and `[mail.accounts]` above it.
+fn implicit(mut table: Table) -> Item {
+    table.set_implicit(true);
+    Item::Table(table)
 }
 
 /// The value `key` has when the file leaves it out, written the way
@@ -334,7 +439,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (51, 37), "51 with a default written, 37 that are not set");
+        assert_eq!((written.len(), unset_by_default), (54, 37), "54 with a default written, 37 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -348,8 +453,52 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (66, 4, 2, 16)
+            (69, 4, 2, 16)
         );
+    }
+
+    #[test]
+    fn mailboxes_are_added_moved_and_removed() {
+        let (_directory, mut file) =
+            opened("# mine\n[mail]\naddress = \"me@qq.com\"\nproxy = \"socks5://127.0.0.1:7890\"\nnotify = false\n");
+        let gmail = crate::MailAccount {
+            address: "me@gmail.com".into(),
+            proxy: "socks5://127.0.0.1:7890".into(),
+            ..crate::MailAccount::default()
+        };
+        file.set_mailbox("gmail", &gmail).expect("added");
+        assert_eq!(
+            file.text(),
+            "# mine\n[mail]\naddress = \"me@qq.com\"\nproxy = \"socks5://127.0.0.1:7890\"\nnotify = false\n\n\
+             [mail.accounts.gmail]\naddress = \"me@gmail.com\"\nproxy = \"socks5://127.0.0.1:7890\"\n"
+        );
+        // The first one, edited: it moves to a table of its own; [mail] keeps what is shared.
+        let qq = crate::MailAccount { address: "me@qq.com".into(), ..crate::MailAccount::default() };
+        file.set_mailbox("qq", &qq).expect("moved");
+        let mail = Config::parse(&file.text()).expect("settings").mail;
+        assert_eq!((mail.address.as_str(), mail.proxy.as_str(), mail.notify), ("", "", false));
+        let names: Vec<String> = mail.mailboxes().into_iter().map(|mailbox| mailbox.name).collect();
+        assert_eq!(names, ["gmail", "qq"]);
+        assert!(file.set_mailbox("again", &qq).is_err(), "one address, one mailbox");
+        assert!(file.set_mailbox("Bad Name", &qq).is_err());
+        let work = crate::MailAccount {
+            address: "me@outlook.com".into(),
+            auth: crate::MailAuth::Oauth2,
+            password_command: vec!["pass".into(), "work".into()],
+            days: Some(7),
+            ..crate::MailAccount::default()
+        };
+        file.set_mailbox("work", &work).expect("added");
+        assert_eq!(Config::parse(&file.text()).expect("settings").mail.accounts["work"], work, "read back the same");
+        file.remove_mailbox("gmail").expect("removed");
+        file.remove_mailbox("qq").expect("removed");
+        file.remove_mailbox("work").expect("removed");
+        assert_eq!(file.text(), "# mine\n[mail]\nnotify = false\n", "only what is shared stays");
+        assert!(file.remove_mailbox("work").is_err(), "no such mailbox");
+        // The first one, removed where it is.
+        let (_directory, mut file) = opened("[mail]\naddress = \"me@qq.com\"\n");
+        file.remove_mailbox("qq").expect("removed");
+        assert_eq!(file.text(), "");
     }
 
     #[test]

@@ -25,6 +25,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "1"
 # Reading a mail: MIME, the charsets (GBK, Big5, ...), encoded words.
 mail-parser = { version = "1", features = ["full_encoding"] }
+# OAuth2's requests to Microsoft (the sign-in), through the mailbox's proxy too.
+ureq = { version = "3.5", features = ["json", "socks-proxy"] }
 # The answer written with its headers (UnifyTerm speaks SMTP itself: through a proxy too).
 lettre = { version = "0.11", default-features = false, features = ["builder"] }
 # AUTH PLAIN, and a proxy's login.
