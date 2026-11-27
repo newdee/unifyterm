@@ -288,9 +288,12 @@ if ($Section -in 'all', 'themes') {
         $ok = @($seen.Keys | Where-Object { -not (SameColor $seen[$_] $keepane[$name][$_]) }).Count -eq 0 -and $mark -ge 40
         Report "${name}: the window has keepane's colors" $ok "bar $($seen.bar) (keepane $($keepane[$name].bar)), text's background $($seen.screen) ($($keepane[$name].screen)), mark: $mark pixels of $($keepane[$name].accent)"
     }
-    # The default theme gives no colors for what is around the text: they are worked out.
+    # No theme named: the default one, Paper Dark, with its own bar.
     Run 'theme-default' '{WAIT:500}' $quiet | Out-Null
-    Report 'no theme named: Tokyo Night, its bar worked out' ((SameColor (PixelAt 'theme-default' @InText) '#16161e') -and (SameColor (PixelAt 'theme-default' @InBar) '#1c1c26')) "text's background $(PixelAt 'theme-default' @InText) (#16161e), bar $(PixelAt 'theme-default' @InBar) (#1c1c26)"
+    Report 'no theme named: Paper Dark' ((SameColor (PixelAt 'theme-default' @InText) '#171716') -and (SameColor (PixelAt 'theme-default' @InBar) '#121212')) "text's background $(PixelAt 'theme-default' @InText) (#171716), bar $(PixelAt 'theme-default' @InBar) (#121212)"
+    # Tokyo Night gives no colors for what is around the text: they are worked out.
+    Run 'theme-tokyo' '{WAIT:500}' "[theme]`nname = `"tokyo-night`"`n$quiet" | Out-Null
+    Report 'tokyo-night: its bar worked out' ((SameColor (PixelAt 'theme-tokyo' @InText) '#16161e') -and (SameColor (PixelAt 'theme-tokyo' @InBar) '#1c1c26')) "text's background $(PixelAt 'theme-tokyo' @InText) (#16161e), bar $(PixelAt 'theme-tokyo' @InBar) (#1c1c26)"
 
     # ut theme NAME, in a tab: the window changes at once, the settings file has the name, and a
     # theme that is not there changes neither.

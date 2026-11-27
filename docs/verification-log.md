@@ -1,5 +1,15 @@
 # 验收记录
 
+## 2026-11-27 · 未发布：默认主题改成 paper-dark
+
+用户："默认主题改成 paper dark 吧，不过现在不用发版"。
+
+做了什么：`themes::DEFAULT` 改成 `paper-dark`；列表里默认主题排第一，`paper-dark` 挪到第一位。`Config::look` 没写主题名时，按默认名去找主题，和写了名字走同一条路（原来是只用设置自己的颜色，下面垫着窗口写死的 tokyo-night）。`ut setting` 的说明、README、`tools/verify.ps1` 的默认主题检查跟着改；原来那项检查"没指定主题时 bar 由程序推算"改成指定 tokyo-night 来测，这条行为还在。
+
+验收（改动小，只测受影响的部分）：配置 43/43、`ut` 117/117、窗口 154/154，clippy、fmt、docs-check 干净。真实窗口（release 版，设置里不写主题名）：文字区 `#171716`、标签栏 `#121212`，是 paper-dark 的颜色。
+
+不是代码的问题：`verify.ps1 -Section themes` 里"no theme named: Paper Dark"一项失败，读到的是 tokyo-night 的颜色。原因是脚本默认用 `target\debug\unifyterm.exe`，那是 2026-11-25 编的旧程序，这次只编了 release 版。用 release 版单独重拍这一项，通过（数字见上）。
+
 ## 2026-11-27 · 0.7.3：角色主题的背景图换成整屏大小
 
 用户："感觉全屏的时候背景有点糊，是不是分辨率太低了"；看过方案后"按推荐来吧"（用 Real-ESRGAN 放大）。

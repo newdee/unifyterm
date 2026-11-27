@@ -339,16 +339,16 @@ mod tests {
         assert_eq!(code.expect("runs"), 0);
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), themes::BUILT_IN.len());
-        assert_eq!(lines[0], "* tokyo-night  built in", "nothing named: the default one is in use");
-        assert_eq!(lines[1], "  aurora       built in");
+        assert_eq!(lines[0], "* paper-dark   built in", "nothing named: the default one is in use");
+        assert_eq!(lines[1], "  tokyo-night  built in");
         assert!(!out.contains('\x1b'), "no colors through a pipe");
         assert!(!file.exists(), "listing writes nothing");
 
         let mut colored = Vec::new();
         run(&[], &file, Samples::Shown, &mut colored).expect("runs");
         let colored = String::from_utf8(colored).expect("text");
-        // Tokyo Night's text on its background, then its red.
-        assert!(colored.contains("\x1b[38;2;192;202;245;48;2;22;22;30m Aa \x1b[38;2;247;118;142m█"), "{colored:?}");
+        // Paper Dark's text on its background, then its red.
+        assert!(colored.contains("\x1b[38;2;206;202;190;48;2;23;23;22m Aa \x1b[38;2;220;105;108m█"), "{colored:?}");
     }
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
         let (folder, file) = settings("[theme]\nname = \"night\"\n");
         let before = std::fs::read_to_string(&file).expect("there");
         let said = format!("{:#}", ran(&["nosuch"], &file).0.expect_err("refused"));
-        assert!(said.starts_with("no theme is called nosuch: there is tokyo-night, aurora"), "{said}");
+        assert!(said.starts_with("no theme is called nosuch: there is paper-dark, tokyo-night"), "{said}");
         let themes_folder = folder.path().join("themes");
         std::fs::create_dir_all(&themes_folder).expect("a folder");
         std::fs::write(themes_folder.join("broken.toml"), "[theme]\nforeground = \"#111111\"\n").expect("write");

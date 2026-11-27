@@ -501,9 +501,9 @@ mod tests {
     #[test]
     fn the_palette_is_the_looks_with_the_built_in_theme_under_it_and_the_bar_worked_out() {
         let none = Palette::of(&crate::ThemeConfig::default());
-        assert_eq!((none.foreground, none.background), ([0xc0, 0xca, 0xf5], [0x16, 0x16, 0x1e]), "tokyo-night's");
-        assert_eq!(none.ansi[4], [0x7a, 0xa2, 0xf7], "its blue");
-        assert_eq!(none.bar, [0x1c, 0x1c, 0x26], "worked out: the window's bar for this theme");
+        assert_eq!((none.foreground, none.background), ([0xce, 0xca, 0xbe], [0x17, 0x17, 0x16]), "paper-dark's");
+        assert_eq!(none.ansi[4], [0x4f, 0x95, 0xcf], "its blue");
+        assert_eq!(none.bar, [0x1d, 0x1d, 0x1c], "worked out from the look's own: it gives no bar");
         let aurora = crate::themes::find("aurora", None).expect("built in");
         let palette = Palette::of(&aurora);
         assert_eq!((palette.background, palette.bar), ([0x0c, 0x1c, 0x24], [0x10, 0x25, 0x2d]), "the theme's own bar");

@@ -18,7 +18,7 @@ use crate::ThemeConfig;
 use crate::prompt::{Layer, PromptConfig};
 
 /// The theme in use when the settings name none.
-pub const DEFAULT: &str = "tokyo-night";
+pub const DEFAULT: &str = "paper-dark";
 /// What a theme file's name ends in.
 const EXTENSION: &str = "toml";
 /// A name is a file's name too: not longer than this.
@@ -32,6 +32,7 @@ macro_rules! built_in {
 
 /// The themes UnifyTerm brings, in the order they are listed: each one's name and its file.
 pub const BUILT_IN: [(&str, &str); 17] = [
+    built_in!("paper-dark"),
     built_in!("tokyo-night"),
     built_in!("aurora"),
     built_in!("eclipse"),
@@ -39,7 +40,6 @@ pub const BUILT_IN: [(&str, &str); 17] = [
     built_in!("riso"),
     built_in!("night"),
     built_in!("day"),
-    built_in!("paper-dark"),
     built_in!("paper"),
     built_in!("whale"),
     built_in!("clay"),
@@ -407,7 +407,7 @@ mod tests {
             assert_eq!(given.map(|color| color.expect("given")), colors.map(str::to_owned), "{name}");
         }
         assert_eq!(find("eclipse", None).expect("there").symbol.as_deref(), Some("#ffa6a0"));
-        assert_eq!(find(DEFAULT, None).expect("there").bar, None, "left to be worked out");
+        assert_eq!(find("tokyo-night", None).expect("there").bar, None, "left to be worked out");
     }
 
     #[test]
@@ -519,7 +519,7 @@ mod tests {
         );
         let over = look("[theme]\nname = \"mine\"\n[prompt]\nenabled = true\nstyle = \"plain\"");
         assert_eq!((over.style, over.gradient, over.enabled), (Style::Plain, Gradient::Segments, true));
-        assert_eq!(look("").style, Style::Lean, "no theme named: the defaults");
+        assert_eq!(look("").style, Style::Classic, "no theme named: the default theme's, paper-dark's");
 
         let said = |text: &str| format!("{:#}", read(text).expect_err("not a theme"));
         assert!(
@@ -628,6 +628,7 @@ mod tests {
         let names: Vec<(String, bool)> =
             list(here).into_iter().map(|theme| (theme.name, theme.source == Source::BuiltIn)).collect();
         let wanted = [
+            ("paper-dark", true),
             ("tokyo-night", true),
             ("aurora", true),
             ("eclipse", true),
@@ -635,7 +636,6 @@ mod tests {
             ("riso", true),
             ("night", true),
             ("day", false),
-            ("paper-dark", true),
             ("paper", true),
             ("whale", true),
             ("clay", true),
@@ -658,7 +658,7 @@ mod tests {
         let said = |name: &str| format!("{:#}", find(name, Some(folder.path())).expect_err("refused"));
         assert_eq!(
             said("nosuch"),
-            "no theme is called nosuch: there is tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper-dark, paper, whale, clay, mint, twin, void, lyre, prism, drake"
+            "no theme is called nosuch: there is paper-dark, tokyo-night, aurora, eclipse, phosphor, riso, night, day, paper, whale, clay, mint, twin, void, lyre, prism, drake"
         );
         assert!(said("../day").contains("is not a theme's name"), "a name never leaves the folder");
         std::fs::write(file_of("broken", folder.path()), "[theme]\nforeground = 1").expect("write");
@@ -676,8 +676,15 @@ mod tests {
         assert_eq!((look.colors.opacity, look.colors.blur), (Some(0.5), None));
         assert_eq!(look.picture, Some(Picture::BuiltIn("day.png")), "the theme's picture");
         let plain = Config::parse("[theme]\ncursor = \"#ff0000\"").expect("settings");
-        let look = plain.look(None).expect("nothing to find");
-        assert_eq!((look.colors, look.picture), (plain.theme, None), "no theme named: what the settings give");
+        let look = plain.look(None).expect("the default theme is there");
+        let default = Config::parse("[theme]\nname = \"paper-dark\"\ncursor = \"#ff0000\"").expect("settings");
+        let named_default = default.look(None).expect("there");
+        assert_eq!(
+            (look.colors.background.as_deref(), look.colors.cursor.as_deref(), look.picture),
+            (Some("#171716"), Some("#ff0000"), None),
+            "no theme named: the default theme, the settings' own over it"
+        );
+        assert_eq!(look.colors.foreground, named_default.colors.foreground, "as if it were named");
         let lost = Config::parse("[theme]\nname = \"nosuch\"").expect("a name is not looked up when the file is read");
         assert!(lost.look(None).is_err());
         assert!(Config::parse("[theme]\nname = \"No Such\"").is_err(), "but it must be a name");

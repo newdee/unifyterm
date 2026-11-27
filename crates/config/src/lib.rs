@@ -674,22 +674,17 @@ impl Config {
 
     /// The look in use: the named theme's, with what the settings give
     /// themselves over it. `themes` is the folder of the user's own themes
-    /// (`themes` beside the settings file). No theme named: what the settings
-    /// give alone (the built-in theme is under it).
+    /// (`themes` beside the settings file). No theme named: the default one
+    /// ([`themes::DEFAULT`]), found as a named one is.
     ///
     /// A picture is looked for beside the file that names it: the settings
     /// file for the settings' own, the theme's file for the theme's.
     pub fn look(&self, themes: Option<&Path>) -> Result<Look> {
-        let (under, their_prompt, theme_folder) = match &self.theme.name {
-            Some(name) => {
-                let (under, their_prompt, source) = themes::found_whole(name, themes)?;
-                let folder = match source {
-                    themes::Source::File(file) => file.parent().map(Path::to_path_buf),
-                    themes::Source::BuiltIn => None,
-                };
-                (Some(under), their_prompt, folder)
-            }
-            None => (None, PromptConfig::default(), None),
+        let name = self.theme.name.as_deref().unwrap_or(themes::DEFAULT);
+        let (under, their_prompt, source) = themes::found_whole(name, themes)?;
+        let theme_folder = match source {
+            themes::Source::File(file) => file.parent().map(Path::to_path_buf),
+            themes::Source::BuiltIn => None,
         };
         // A picture's file: the settings' own goes first, looked for beside the settings file;
         // else the theme's, beside the theme's file.
@@ -698,13 +693,9 @@ impl Config {
             (None, Some(theirs)) => themes::picture(theirs, theme_folder.as_deref()),
             (None, None) => None,
         };
-        let theirs = under.as_ref();
-        let picture = found(self.theme.picture.as_deref(), theirs.and_then(|under| under.picture.as_deref()));
-        let wallpaper = found(self.theme.wallpaper.as_deref(), theirs.and_then(|under| under.wallpaper.as_deref()));
-        let colors = match under {
-            Some(under) => self.theme.clone().over(under),
-            None => self.theme.clone(),
-        };
+        let picture = found(self.theme.picture.as_deref(), under.picture.as_deref());
+        let wallpaper = found(self.theme.wallpaper.as_deref(), under.wallpaper.as_deref());
+        let colors = self.theme.clone().over(under);
         let prompt = self.prompt.clone().over(their_prompt).resolved();
         Ok(Look { colors, picture, wallpaper, prompt })
     }

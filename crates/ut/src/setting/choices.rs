@@ -157,8 +157,8 @@ mod tests {
             themes(settings).items.into_iter().map(|choice| (choice.value, choice.note)).collect()
         };
         let built_in = listed(&settings);
-        assert_eq!(built_in[0], (String::new(), "tokyo-night".to_owned()), "not set: the default one");
-        assert_eq!(built_in[1], ("tokyo-night".to_owned(), "built in".to_owned()));
+        assert_eq!(built_in[0], (String::new(), "paper-dark".to_owned()), "not set: the default one");
+        assert_eq!(built_in[1], ("paper-dark".to_owned(), "built in".to_owned()));
         assert_eq!(built_in.len(), unifyterm_config::themes::BUILT_IN.len() + 1);
         std::fs::create_dir_all(folder.path().join("themes")).unwrap();
         std::fs::write(folder.path().join("themes").join("mine.toml"), "").unwrap();

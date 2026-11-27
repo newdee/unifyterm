@@ -104,10 +104,12 @@ mod tests {
 
     #[test]
     fn the_settings_colors_go_over_the_built_in_theme() {
-        assert_eq!(made(""), Theme::default(), "nothing set: the built-in theme");
+        let default = made("[theme]\nname = \"paper-dark\"");
+        assert_eq!(made(""), default, "nothing set: the default theme, paper-dark");
+        assert_eq!((default.background, default.bar()), (Rgb(0x17, 0x17, 0x16), Rgb(0x12, 0x12, 0x12)));
         let made_of = made("[theme]\nbackground = \"#000000\"\ncursor = \"#ff8800\"");
         assert_eq!((made_of.background, made_of.cursor), (Rgb(0, 0, 0), Rgb(0xff, 0x88, 0)));
-        assert_eq!(made_of.foreground, Theme::default().foreground, "not set: the built-in one");
+        assert_eq!(made_of.foreground, default.foreground, "not set: the default theme's");
         let colors: Vec<String> = (0..16).map(|index| format!("\"#0000{index:02x}\"")).collect();
         let all = made(&format!("[theme]\nansi = [{}]", colors.join(", ")));
         assert_eq!(all.ansi[15], Rgb(0, 0, 15), "the 16 colors, in order");

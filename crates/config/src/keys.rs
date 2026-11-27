@@ -167,7 +167,7 @@ pub const KEYS: [Key; 78] = [
     setting(
         "theme.name",
         Kind::OptionalText,
-        "The theme: one of UnifyTerm's, or a file in the themes folder (ut theme). Not set: tokyo-night.",
+        "The theme: one of UnifyTerm's, or a file in the themes folder (ut theme). Not set: paper-dark.",
     ),
     setting("theme.foreground", Kind::Color, "The color of text."),
     setting("theme.background", Kind::Color, "The color behind it."),
