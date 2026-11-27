@@ -169,7 +169,9 @@ a:hover {
   letter-spacing: -0.01em;
 }
 .brand__name b {
-  color: var(--ink-blue);
+  /* One colour, as the wordmark: the name is not split in two. */
+  color: inherit;
+  font-weight: inherit;
 }
 
 .top nav {

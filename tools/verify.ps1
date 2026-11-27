@@ -554,16 +554,16 @@ if ($Section -in 'all', 'edges') {
     Report '--cwd DIRECTORY: the tab is there' ($where.asked.Contains($work)) "the directory asked for printed: $($where.asked.Contains($work))"
 
     # The program file carries its icon: the window, the taskbar and Explorer take it
-    # from there. Counted: pixels of the logo's dark ground and of its three strands.
+    # from there. Counted: pixels of the logo's warm black ground and of its cream U.
     Add-Type -AssemblyName System.Drawing
     $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($Exe).ToBitmap()
     $ground = 0; $strands = 0
     for ($y = 0; $y -lt $icon.Height; $y++) { for ($x = 0; $x -lt $icon.Width; $x++) {
         $c = $icon.GetPixel($x, $y); if ($c.A -lt 200) { continue }
-        if ($c.R -lt 0x30 -and $c.G -lt 0x30 -and $c.B -ge 0x20 -and $c.B -lt 0x40) { $ground++ }
-        elseif ($c.B -ge 0xE0 -and $c.G -ge 0x80) { $strands++ }
+        if ($c.R -lt 0x20 -and $c.G -lt 0x20 -and $c.B -lt 0x20) { $ground++ }
+        elseif ($c.R -ge 0xB8 -and $c.G -ge 0xB4 -and $c.B -ge 0xA8) { $strands++ }
     } }
-    Report 'the program file carries its icon' ($ground -ge 300 -and $strands -ge 20) "of $($icon.Width * $icon.Height) pixels: $ground of the logo's dark ground, $strands of its strands"
+    Report 'the program file carries its icon' ($ground -ge 300 -and $strands -ge 20) "of $($icon.Width * $icon.Height) pixels: $ground of the logo's ground, $strands of its U"
 
     # The row of tabs is the title bar. Each part says what it is when Windows asks
     # (the pointer is moved there first, as a hand moves it), and the three buttons act.

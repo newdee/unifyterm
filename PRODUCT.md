@@ -46,7 +46,7 @@ Not part of the product: an own shell (a separate project, UnifyShell, not start
 ## Brand Commitments
 
 - Name: UnifyTerm where people read it, `unifyterm` where machines do. The command is `ut`.
-- Logo: three strands (blue #7aa2f7, purple #bb9af7, cyan #7dcfff) meeting in a prompt, then an amber cursor (#e0af68), on #1b1e2b. Files in `docs/brand/`.
+- Logo: a U on its side, open to the left (UnifyTerm's U, and a prompt's `>`), in cream #cecabe, then a red underline cursor #dd625e, on warm black #171716: the colours of paper-dark, the default theme. Files in `docs/brand/`; `mark-small.svg` (thicker, to the edge) is drawn for 32 px and down.
 - Voice (user, 2026-11-18): plain, the way a person says it; no marketing tone, nothing that reads as machine-written; well ordered.
 - Author and copyright holder: newdee.
 

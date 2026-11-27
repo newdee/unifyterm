@@ -204,7 +204,7 @@ $mono = '"Cascadia Code","JetBrains Mono",Consolas,monospace'
 
 function Save-Card([string]$name, [string]$body) {
     $page = Join-Path $work "$name.html"
-    $html = "<!doctype html><html><head><meta charset='utf-8'><style>html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 30% 0%,#252a40 0%,#11131c 70%);color:#c0caf5;font-family:$font}b{color:#7aa2f7}code{font-family:$mono;color:#e0af68}</style></head><body>$body</body></html>"
+    $html = "<!doctype html><html><head><meta charset='utf-8'><style>html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 30% 0%,#2a2925 0%,#121211 70%);color:#cecabe;font-family:$font}b{color:#ece7dc}code{font-family:$mono;color:#dd625e}</style></head><body>$body</body></html>"
     [IO.File]::WriteAllText($page, $html, [Text.UTF8Encoding]::new($false))
     $png = Join-Path $work "$name.png"
     & $edge --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1280,720 --screenshot="$png" "file:///$($page -replace '\\', '/')" 2>&1 | Out-Null
@@ -291,7 +291,7 @@ function Join-Card([string]$card, [double]$seconds, [string]$name, [string]$part
 $clips = @()
 # 1. The name and what it is.
 if (-not $Only) {
-    $title = Save-Card 'title' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px'><div style='width:200px;height:200px'>$mark</div><div style='font-size:76px;font-weight:700;letter-spacing:-2px;color:#e6e9f5'>Unify<b>Term</b></div><div style='font-size:30px;opacity:.9'>$($caption.subtitle)</div><div style='font-size:21px;opacity:.6'>$($caption.points)</div></div>"
+    $title = Save-Card 'title' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px'><div style='width:200px;height:200px'>$mark</div><div style='font-size:76px;font-weight:700;letter-spacing:-2px;color:#ece7dc'>Unify<b>Term</b></div><div style='font-size:30px;opacity:.9'>$($caption.subtitle)</div><div style='font-size:21px;opacity:.6'>$($caption.points)</div></div>"
     $clips += Join-Card $title 3.2 'c-title' 'title'
 }
 
@@ -585,7 +585,7 @@ if (Wanted 'setup') {
 
 # 7. How to get it.
 if (-not $Only) {
-    $end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#e6e9f5'>Unify<b>Term</b></div></div><div style='font-size:28px'>$($caption.install)</div><div style='font-size:26px;line-height:1.7;text-align:center'><b>https://dfine.tech/unifyterm/</b><br>https://github.com/newdee/unifyterm</div></div>"
+    $end = Save-Card 'end' "<div style='height:720px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px'><div style='display:flex;align-items:center;gap:18px'><div style='width:84px;height:84px'>$mark</div><div style='font-size:56px;font-weight:700;letter-spacing:-1.5px;color:#ece7dc'>Unify<b>Term</b></div></div><div style='font-size:28px'>$($caption.install)</div><div style='font-size:26px;line-height:1.7;text-align:center'><b>https://dfine.tech/unifyterm/</b><br>https://github.com/newdee/unifyterm</div></div>"
     $clips += Join-Card $end 3.4 'c-end' 'end'
 }
 

@@ -118,11 +118,11 @@ Ink (`#151a2e` on light, `#ece7d6` on dark) for all running text, on paper (`#f2
 
 ### Secondary
 
-The logo's three strands, as stamp inks: blue, purple, teal. On light paper they are darkened until each passes 4.5:1 (`#2c4bbd`, `#6a3cb4`, `#0a6672`); on dark paper they are the logo's own values (`#7aa2f7`, `#bb9af7`, `#7dcfff`). The line work is drawn in the same three inks at 20% (ground) and 50 to 60% (band).
+Three stamp inks, from the first logo's strands: blue, purple, teal. On light paper they are darkened until each passes 4.5:1 (`#2c4bbd`, `#6a3cb4`, `#0a6672`); on dark paper they are those strands' own values (`#7aa2f7`, `#bb9af7`, `#7dcfff`). The line work is drawn in the same three inks at 20% (ground) and 50 to 60% (band).
 
 ### Tertiary
 
-Foil (`#7b4e06` light, `#d9b160` dark), from the logo's amber cursor: the seal, the selected tab, focus rings, "Copied". On dark it also colours the titling.
+Foil (`#7b4e06` light, `#d9b160` dark), from the first logo's amber cursor: the seal, the selected tab, focus rings, "Copied". On dark it also colours the titling.
 
 ### Neutral
 
