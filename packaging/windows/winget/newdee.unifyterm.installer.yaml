@@ -3,14 +3,14 @@
 # to https://github.com/microsoft/winget-pkgs (that needs the user's account).
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: newdee.unifyterm
-PackageVersion: 0.9.1
+PackageVersion: 0.9.2
 InstallerType: wix
 Scope: machine
 UpgradeBehavior: install
-ProductCode: '{814357D5-DC7A-45ED-A8E0-05C1CBA6904F}'
+ProductCode: '{06EBE7C3-B72C-4490-881F-31EDD76392A8}'
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/newdee/unifyterm/releases/download/v0.9.1/unifyterm-0.9.1-x64.msi
-    InstallerSha256: 0AAE830D6BB937BC5A6F22DDC165C99D6B0D8BBE59B0C8BA4489FB1D870293AA
+    InstallerUrl: https://github.com/newdee/unifyterm/releases/download/v0.9.2/unifyterm-0.9.2-x64.msi
+    InstallerSha256: 5A03439DC0E8E784A9DCA7112CEDA10B1BA733D5A58456DFAC571A2868175066
 ManifestType: installer
 ManifestVersion: 1.6.0
