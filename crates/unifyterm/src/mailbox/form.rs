@@ -686,6 +686,31 @@ fn try_and_keep(
 
 /// The narrowest a way of logging in is drawn before the four go one to a row.
 const WAY_WIDTH: f32 = 230.;
+/// The gap between two ways in a row, and what a way takes around its words (padding, border).
+const WAY_GAP: f32 = 8.;
+const WAY_INSIDE: f32 = 2. * 12. + 2.;
+/// A character of the sign-in code (22 px, bold, the terminal's font), guessed wide, and the gap after the code.
+const CODE_CELL: f32 = 15.;
+const CODE_GAP: f32 = 16.;
+
+/// A way's width in a form `form` wide: two to a row when two fit, else one. A definite width,
+/// as GPUI measures words that wrap in a row on one line otherwise (and they then overlap
+/// what comes after them, as they did in a full-screen window on macOS).
+/// The width the words beside the code get in a form `form` wide: what the box leaves after its
+/// padding, border, the code (guessed on the wide side: the words then have a little room to
+/// spare, never too little) and the gap.
+fn sign_in_words(form: f32, code: &str) -> f32 {
+    let code_room = if code.is_empty() {
+        0.
+    } else {
+        f32::from(u16::try_from(code.chars().count()).unwrap_or(u16::MAX)) * CODE_CELL + CODE_GAP
+    };
+    (form - WAY_INSIDE - code_room).max(0.)
+}
+
+fn way_width(form: f32) -> f32 {
+    if form >= 2. * WAY_WIDTH + WAY_GAP { (form - WAY_GAP) / 2. } else { form }
+}
 
 /// Whether the settings file is saved after the test: not for a sign-in, which changes no setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -714,12 +739,14 @@ impl MailView {
             Purpose::Change(name) => format!("Change {name}"),
             Purpose::SignIn(name) => format!("Sign {name} in again"),
         };
-        let mut body = div().max_w(px(640.)).flex().flex_col().gap_3();
+        let beside = if self.plans.is_empty() { 0. } else { self.widths.list };
+        let width = self.widths.form(beside);
+        let mut body = div().w(px(width)).flex().flex_col().gap_3();
         if !form.signing_in() {
             body = body.child(self.field(form, Field::Address, cx)).child(self.found_line(form));
-            body = body.child(self.ways(form, cx));
+            body = body.child(self.ways(form, way_width(width), cx));
         }
-        body = body.child(self.way_panel(form, cx));
+        body = body.child(self.way_panel(form, width, cx));
         if !form.signing_in() {
             body = body.child(self.connection(form, cx));
         }
@@ -828,17 +855,16 @@ impl MailView {
     }
 
     /// The four ways in, two by two: the one in use pressed, the likely one marked.
-    fn ways(&self, form: &Form, cx: &mut Context<'_, Self>) -> gpui::Div {
+    fn ways(&self, form: &Form, wide: f32, cx: &mut Context<'_, Self>) -> gpui::Div {
         let colors = self.colors();
         let theme = &self.settings.theme;
         let (now, likely) = (form.way(), form.recommended());
-        div().flex().flex_wrap().gap_2().children(Way::ALL.into_iter().enumerate().map(|(at, way)| {
+        let inside = wide - WAY_INSIDE;
+        div().flex().flex_wrap().gap(px(WAY_GAP)).children(Way::ALL.into_iter().enumerate().map(|(at, way)| {
             let on = way == now;
             div()
                 .id(("way", at))
-                // Two to a row when there is room, one when there is not: each grows from this width.
-                .flex_grow()
-                .flex_basis(px(WAY_WIDTH))
+                .w(px(wide))
                 .px_3()
                 .py_2()
                 .rounded(px(theme.panel_rounding()))
@@ -850,6 +876,7 @@ impl MailView {
                 .on_click(cx.listener(move |this, _, _, cx| this.choose_way(way, cx)))
                 .child(
                     div()
+                        .w(px(inside))
                         .flex()
                         .justify_between()
                         .gap_2()
@@ -866,12 +893,12 @@ impl MailView {
                             line.child(div().flex_none().text_size(px(10.5)).text_color(colors.fine).child("likely"))
                         }),
                 )
-                .child(div().text_size(px(11.5)).text_color(colors.muted).child(way.says()))
+                .child(div().w(px(inside)).text_size(px(11.5)).text_color(colors.muted).child(way.says()))
         }))
     }
 
     /// What the way in use needs.
-    fn way_panel(&self, form: &Form, cx: &mut Context<'_, Self>) -> gpui::Div {
+    fn way_panel(&self, form: &Form, width: f32, cx: &mut Context<'_, Self>) -> gpui::Div {
         let colors = self.colors();
         let hint = |text: String| {
             div()
@@ -893,7 +920,7 @@ impl MailView {
                 .children(secret_note.map(|note| div().text_size(px(11.5)).text_color(colors.muted).child(SharedString::from(note)))),
             Way::Browser => panel.child(hint(
                 "Microsoft's page opens in the browser: sign in there and enter the code shown here. UnifyTerm keeps the token Microsoft gives (in the system's keychain), never your password.".to_owned(),
-            )).child(self.sign_in_box(form)),
+            )).child(self.sign_in_box(form, width)),
             Way::Manual if form.signing_in() => panel.child(self.field(form, Field::Secret, cx)),
             Way::Manual => panel
                 .child(div().flex().gap_2().child(div().flex_1().child(self.field(form, Field::Imap, cx))).child(div().flex_1().child(self.field(form, Field::Smtp, cx))))
@@ -906,7 +933,7 @@ impl MailView {
     }
 
     /// The code to enter in the browser, and whether the sign-in is done.
-    fn sign_in_box(&self, form: &Form) -> gpui::Div {
+    fn sign_in_box(&self, form: &Form, width: f32) -> gpui::Div {
         let colors = self.colors();
         let theme = &self.settings.theme;
         let (big, small, color) = match (&form.stage, &form.tokens) {
@@ -919,6 +946,7 @@ impl MailView {
             (Stage::SigningIn(None), _) => (String::new(), "asking Microsoft for a code…".to_owned(), colors.muted),
             _ => (String::new(), "Press Sign in below: the code shows here.".to_owned(), colors.muted),
         };
+        let words = sign_in_words(width, &big);
         div()
             .flex()
             .items_center()
@@ -939,7 +967,7 @@ impl MailView {
                         .child(SharedString::from(big)),
                 )
             })
-            .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(color).child(SharedString::from(small)))
+            .child(div().w(px(words)).text_size(px(12.)).text_color(color).child(SharedString::from(small)))
     }
 
     /// Directly, or through a proxy.
@@ -1069,6 +1097,22 @@ impl MailView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_ways_and_the_words_beside_the_code_have_widths_that_fit_the_form() {
+        assert!((way_width(640.) - (640. - WAY_GAP) / 2.).abs() < 0.01, "two to a row in a wide form");
+        let edge = 2. * WAY_WIDTH + WAY_GAP;
+        assert!((way_width(edge) - WAY_WIDTH).abs() < 0.01, "two just fit");
+        assert!((way_width(edge - 1.) - (edge - 1.)).abs() < 0.01, "one to a row below that");
+        for form in [200., 467., 468., 640.] {
+            let way = way_width(form);
+            let row = if way < form { 2. * way + WAY_GAP } else { way };
+            assert!(row <= form + 0.01, "a row is never wider than the form: {row} of {form}");
+        }
+        assert!((sign_in_words(640., "") - (640. - WAY_INSIDE)).abs() < 0.01, "no code: the box's width");
+        let code = sign_in_words(640., "ABCD-EFGH");
+        assert!((code - (640. - WAY_INSIDE - 9. * CODE_CELL - CODE_GAP)).abs() < 0.01, "{code}");
+        assert!(sign_in_words(30., "ABCD-EFGH") >= 0., "never less than nothing");
+    }
     use super::*;
 
     fn typed(address: &str) -> Form {

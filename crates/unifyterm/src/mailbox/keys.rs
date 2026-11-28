@@ -114,6 +114,20 @@ enum Use {
     Preview,
 }
 
+/// An overlay's share of the window, and the widest it is drawn: the keys, and the rest.
+const CARD_SHARE: f32 = 0.92;
+const HELP_WIDEST: f32 = 1100.;
+const CARD_WIDEST: f32 = 720.;
+/// A group of keys in the help: its width, a key's column and the gap after it.
+const HELP_GROUP: f32 = 320.;
+const HELP_KEY: f32 = 130.;
+const HELP_GAP: f32 = 12.;
+
+/// An overlay's width in a window `window` wide.
+fn card_width(window: f32, widest: f32) -> f32 {
+    (window * CARD_SHARE).min(widest).max(0.)
+}
+
 /// How many files of the same name Downloads may have before saving gives up.
 const SAME_NAMES: usize = 1000;
 /// How many mails or conversations Ctrl+d and Ctrl+u move by.
@@ -710,10 +724,12 @@ impl MailView {
         let overlay = self.overlay.as_ref()?;
         let colors = self.colors();
         let theme = &self.settings.theme;
+        // A definite width (GPUI measures words that wrap on one line otherwise): the window's share, up to a
+        // width that reads well; the keys take more.
+        let widest = if matches!(overlay, Overlay::Help) { HELP_WIDEST } else { CARD_WIDEST };
         let card = div()
             .id("overlay-card")
-            .min_w(px(380.))
-            .max_w(gpui::relative(0.92))
+            .w(px(card_width(self.widths.window, widest)))
             .max_h(gpui::relative(0.88))
             .overflow_y_scroll()
             .p_4()
@@ -829,14 +845,14 @@ impl MailView {
                 div()
                     .flex()
                     .flex_col()
-                    .min_w(px(300.))
+                    .w(px(HELP_GROUP))
                     .child(div().text_color(colors.accent).font_weight(FontWeight::SEMIBOLD).child(title))
                     .children(keys.iter().map(|(key, what)| {
                         div()
                             .flex()
-                            .gap_3()
-                            .child(div().w(px(130.)).flex_none().text_color(cyan).child(*key))
-                            .child(div().text_color(colors.ink).child(*what))
+                            .gap(px(HELP_GAP))
+                            .child(div().w(px(HELP_KEY)).flex_none().text_color(cyan).child(*key))
+                            .child(div().w(px(HELP_GROUP - HELP_KEY - HELP_GAP)).text_color(colors.ink).child(*what))
                     }))
             },
         ))
@@ -930,6 +946,15 @@ fn line_step(chars: &[char], at: usize, way: Direction) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_overlay_is_as_wide_as_the_window_allows_up_to_what_reads_well() {
+        assert!((card_width(2560., CARD_WIDEST) - CARD_WIDEST).abs() < 0.01);
+        assert!((card_width(2560., HELP_WIDEST) - HELP_WIDEST).abs() < 0.01, "the keys take more");
+        assert!((card_width(600., CARD_WIDEST) - 600. * CARD_SHARE).abs() < 0.01, "a narrow window: its share");
+        assert!(card_width(0., CARD_WIDEST) >= 0.);
+        const { assert!(HELP_GROUP - HELP_KEY - HELP_GAP > 0., "room for what a key does") };
+    }
 
     #[test]
     fn a_file_saved_stays_in_downloads_under_a_name_not_taken() {

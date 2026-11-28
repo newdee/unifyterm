@@ -44,6 +44,8 @@ const LIST_WIDEST: f32 = 340.;
 const BUBBLE_SHARE: f32 = 0.8;
 const BUBBLE_WIDEST: f32 = 880.;
 const BUBBLE_NARROWEST: f32 = 200.;
+/// The widest the form that adds a mailbox is drawn.
+const FORM_WIDEST: f32 = 640.;
 /// The conversation's padding on each side, and a circle with the gap after it.
 const STREAM_PADDING: f32 = 20.;
 const CIRCLE_ROOM: f32 = 28. + 8.;
@@ -171,6 +173,7 @@ pub(crate) struct MailView {
 /// is given a definite width (GPUI measures text in a row on one line otherwise): this one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Widths {
+    window: f32,
     list: f32,
     bubble: f32,
 }
@@ -180,7 +183,13 @@ impl Widths {
         let list = (window * LIST_SHARE).clamp(LIST_NARROWEST, LIST_WIDEST);
         let room = (window - list - 2. * STREAM_PADDING - CIRCLE_ROOM).max(BUBBLE_INSIDE * 2.);
         let bubble = (room * BUBBLE_SHARE).clamp(room.min(BUBBLE_NARROWEST), BUBBLE_WIDEST);
-        Self { list, bubble }
+        Self { window, list, bubble }
+    }
+
+    /// The form's width: the room beside the list (`beside`: its width, 0 when it is not
+    /// there), less the padding, no wider than reads well.
+    fn form(self, beside: f32) -> f32 {
+        (self.window - beside - 2. * STREAM_PADDING).clamp(0., FORM_WIDEST)
     }
 
     /// Whether `text` wraps in a bubble this wide: by the guess, which errs on the side of wrapping.
@@ -1537,6 +1546,14 @@ mod tests {
         assert!(narrow.bubble <= room, "a bubble never wider than its room: {} of {room}", narrow.bubble);
         let tiny = Widths::of(300.);
         assert!(tiny.bubble >= BUBBLE_INSIDE, "something to draw in: {}", tiny.bubble);
+        // The form beside the list, or alone: full screen it stops at the widest that reads well.
+        assert!((full.form(full.list) - FORM_WIDEST).abs() < 0.5);
+        let small = Widths::of(800.);
+        let beside = small.form(small.list);
+        assert!((beside - (800. - small.list - 2. * STREAM_PADDING)).abs() < 0.5, "the room beside the list: {beside}");
+        assert!(small.form(0.) > beside, "no list: more room");
+        assert!((usual.form(usual.list) - FORM_WIDEST).abs() < 0.5, "no wider than reads well");
+        assert!(tiny.form(tiny.list) >= 0., "never less than nothing");
     }
 
     #[test]
