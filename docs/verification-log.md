@@ -1,5 +1,27 @@
 # 验收记录
 
+## 2026-11-28 · 0.9.5：升级不再让设置失效；Mac 上添加邮箱的表单不重叠；更新时提示重开
+
+用户（Mac，0.9.4）："打开就报错，然后删了toml文件后，原来配置的邮箱又没了。UnifyTerm: settings not used: in …/config.toml: keys.select_all and keys.agents both have "cmd-a": a key does one thing"；"mac全屏下，imap server和servers by hand样式重叠了"；"在已有邮箱的情况下，add a mailbox的样式也是重叠"；"每次更新后，原来的任务栏图标都不能用，变成？"。
+
+定性：
+
+1. 设置失效：共性、结构缺陷。用户以前把 `keys.agents` 设成了 `cmd-a`；0.9.4 给新命令 select_all 的 macOS 默认键也是 `cmd-a`。检查把"程序补上的默认键"和"用户写的键"同等对待，一处冲突就整份文件不用，邮箱也跟着不见。每次给新命令加默认键都可能这样。改为：用户写的键优先，只有默认键的命令让出那个键（保留它别的键），窗口第一个标签、`ut setting set/reset`、设置界面都说出让了什么；两个都是用户写的仍是错误。所有读设置的地方（32 处）都经 `Config::parse`，一处修好。另外"settings not used"改为说明文件原样保留、改好就恢复（用户删文件是因为不知道这一点）。
+2. 表单重叠：共性，同 0.9.1、0.9.3 的根（会折行的字没有确定宽度，GPUI 按一行量高）。登录方式的格子用 `flex_grow` 分宽，字宽的 Mac 上说明折行、高度量少，压住下面的 IMAP server。改为按窗口算表单宽度（`Widths::form`，列表在时扣掉列表）和格子宽度（两格放得下就两格），格子里的字给确定宽度；同类的还有浏览器登录码旁边的字、键盘方案新加的遮罩卡片和帮助（都改为确定宽度）。Mac 上的原因是推断：Windows 上旧代码在 770 宽也没有重叠（旧布局把前两格各放一行），复现不出；能证明的是新布局在字折行时高度对（770 宽，标题和说明各折两行，下面不压）。
+3. Dock 显示 "?"：运行中的旧 UnifyTerm 的应用被删掉换新（install.sh 是 `rm -rf` 再复制；brew 升级删掉旧版本目录），macOS 找不到它的图标。试过原地更新（`rsync -a -c --delete`）：WSL 上 6 项都对（目录保留、文件换新、多余的删掉、同大小同秒的文件也更新、运行中的不受影响、和新版一致），但在 Mac 上 openrsync 写应用包里的文件被拒（"Operation not permitted"，推断是 macOS 的 App 管理保护），会让更新半途失败，所以撤回。改为 install.sh 发现 UnifyTerm 正在运行时，提示退出再打开（Mac 上 `pgrep -x unifyterm` 能认出正在运行的 UnifyTerm，已核对）。在 Mac 上只用了自己开的 pane、临时目录，做完关掉。
+
+新 bug 风险：用户没写 `[keys]` 时没有任何键让出（测试）；键写成自己的默认键时不算让出（测试）；两个都是用户写的仍然拒绝（测试），edit.rs 里原来"agents 设成 ctrl-tab 被拒"的用例按新规则改为"接受并说出 next_tab 让出"，另加两个都写时拒绝的用例。
+
+验收（前两次有发现，之后连续三轮干净）：
+
+1. 变异 + 全量：3 个变异都被抓到；全量 1 个失败：edit.rs 的旧用例（见上），同时发现 `ut setting` 改键时不说让出了什么，补上 `File::keys_given_way` 并在命令行、设置界面说出。不计数。
+2. 变异 + 全量：4 个变异都被抓到（不让出、连用户写的也让出、登录码宽度不扣码、表单宽度不扣列表），文件按字节还原；379 通过 0 失败。计 1。
+3. 实机复现（Windows，`agents = ["ctrl-shift-a"]` 加两个邮箱）：窗口打开，顶部一行说 select_all 让出、没有键了；Ctrl+Shift+A 开侧栏；邮件两个邮箱都在。计 2。
+4. 静态 + 可复现：workspace clippy 有 1 处（测试里的常量断言，之前只对两个包跑了 clippy）。不计数，改为 `const { assert!(..) }`。
+5. 静态（干净）：fmt、workspace clippy 0；docs、site、scripts 检查 0 失败；隐私 0；真写错的文件显示 "settings not used (the file is kept as it is): … both have …"。
+6. 不变量（干净）：读设置 32 处都经 `parse`；让出（第 926 行）在检查（第 958 行）之前，都只在 `parse` 里；说出让出的地方 5 处（窗口启动、重读日志、set、reset、设置界面）。
+7. 可复现（干净）：4 个 crate 的测试连跑 3 次，结果行哈希都是 `50-AB-F6-B0-DF-4F`，每次 379 通过 0 失败。
+
 ## 2026-11-28 · CI 提速：release 四个系统同时构建，Windows 用 main 的缓存，每个任务有超时
 
 用户："看看能不能用这个skill加速ci"（actions-speedup），看完报告后："按推荐来把"。
