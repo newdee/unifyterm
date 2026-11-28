@@ -2,6 +2,8 @@
 
 ## 2026-11-28 · 0.9.4：邮件全键盘操作、附件、抄送和新邮件；全选；侧栏换键
 
+发布：CI 三个系统全绿（b7d65ca）；标签 `v0.9.4`；release 成功（runner 排队 17 分钟），Release 18 个文件，正文写了改动和迁移方法（迁移命令在临时配置上实测：直接改 agents 被拒，先改 select_all 再改 agents 成功）；formula 3/3、Scoop 1/1 哈希一致；线上 index 有 0.9.4 三处、无 0.9.3，印章 92 SETTINGS，site.js 同步。
+
 用户："现在邮箱界面只能鼠标点击吗？不能用按键操作吗？"，要一套类似 keepane dashboard 的按键：分区、NORMAL/INSERT 模式、选中邮件内容复制或引用、抄送、添加联系人时列出联系人、查看附件。HTML demo（`keys-demo.html`）看过后："html的demo可以，就这样做吧，做完发版"。同一轮里用户指出 Ctrl+Shift+A 开侧栏和"全选"冲突，选了 Ctrl+Shift+J。
 
 做了什么：
