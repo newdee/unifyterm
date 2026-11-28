@@ -24,6 +24,8 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
+    # The slowest run so far took 18 minutes; a hung one stops here, not after six hours.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
