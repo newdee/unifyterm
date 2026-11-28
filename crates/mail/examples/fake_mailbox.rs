@@ -218,6 +218,23 @@ const WITH_FILES: &str = concat!(
     "--b--\r\n",
 );
 
+/// A mail with more files than a window shows at once: the list of files scrolls. Its id begins with m.
+fn many_files() -> String {
+    let mut mail = String::from(
+        "Message-ID: <m1@example.com>\r\nFrom: Scanner <scans@example.com>\r\nTo: me@example.com\r\n\
+         Subject: 25 scans\r\nDate: Fri, 27 Nov 2026 08:00:00 +0800\r\nMIME-Version: 1.0\r\n\
+         Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nThe scans.\r\n",
+    );
+    for n in 1..=25 {
+        let _ = write!(
+            mail,
+            "--b\r\nContent-Type: text/plain; name=\"scan-{n:02}.txt\"\r\nContent-Disposition: attachment; filename=\"scan-{n:02}.txt\"\r\n\r\npage {n}\r\n"
+        );
+    }
+    mail.push_str("--b--\r\n");
+    mail
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let imap = args.first().and_then(|port| port.parse::<u16>().ok()).unwrap_or(0);
@@ -231,6 +248,9 @@ fn main() {
     }
     if only.as_ref().is_none_or(|only| only.contains('p')) {
         fake.deliver("INBOX", WITH_FILES.as_bytes(), Read::Unseen);
+    }
+    if only.as_ref().is_none_or(|only| only.contains('m')) {
+        fake.deliver("INBOX", many_files().as_bytes(), Read::Unseen);
     }
     println!("imap 127.0.0.1:{} smtp 127.0.0.1:{} ({login} / s3cret)", fake.imap_port, fake.smtp_port);
     if let Some(seconds) = args.get(1).and_then(|seconds| seconds.parse::<u64>().ok()) {
