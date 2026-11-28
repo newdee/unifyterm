@@ -63,7 +63,13 @@ jobs:
 
       - name: The toolchain rust-toolchain.toml names
         run: rustup show active-toolchain || rustup toolchain install
+      # The cache CI keeps on main for its Windows job (a tag's run may read main's
+      # caches, not another tag's): the same toolchain, lock file and folder.
+      # Nothing is saved from a tag: no later run could read it.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+          save-if: false
 
       - name: Build
         shell: pwsh
@@ -148,9 +154,11 @@ jobs:
         run: |
           rustup show active-toolchain || rustup toolchain install
           rustup target add ${{ matrix.target }}
+      # Nothing is saved from a tag: no later run could read it.
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          save-if: false
 
       - name: Build
         run: cargo build --workspace --release --locked --target ${{ matrix.target }}
