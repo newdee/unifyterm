@@ -35,6 +35,8 @@
 7. 端到端（干净）：实机发新信（c，To 选林晓，主题 keys test，Ctrl+Enter，y），列表出现新会话，Sent 2→3；回复 "second line"，Sent 3→4，To answer 12→11。此前一轮的 3 个变异（联系人不排除已选、VISUAL 少一个字、`server_seen` 不跳过 `seen_told=2`）都被测试抓到，文件按字节还原；全选后空行像素 23,23,22 → 60,59,56。
 8. 可复现（干净）：4 个 crate 的测试连跑 3 次，10 个套件的结果行哈希相同（`64-FD-15-DF-AB-D8`）；fmt、workspace clippy 0；docs-check、site-check、scripts-check 0 失败；隐私 0、CRLF 0。
 
+另：0.9.3 的文档提交（70fa37c）CI 在 Windows 上失败，`agents::tests::the_command_is_run_and_its_trouble_named` 得到 TooSlow：用 findstr 读文件，产品的超时是 1 秒，忙碌的 runner 启动程序超过了 1 秒。判断为外因：失败的数据就是"超时"；a9ad0f8 没有改 agents.rs，同一测试通过。加固测试：只在 TooSlow 时重问，最多 3 次，其他回答照原样比较。变异（文件里的 pane 改成 %4）仍被抓到；agents 测试连跑 3 次 8/8。
+
 ## 2026-11-28 · 0.9.3：邮箱界面跟着窗口宽度排
 
 发布：CI 三个系统全绿；标签 `v0.9.3`；release 成功，Release 18 个文件。keepane 维护者在 #unifyterm-keepane 转达用户的要求（用户随后确认

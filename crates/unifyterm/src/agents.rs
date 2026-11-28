@@ -485,6 +485,9 @@ mod tests {
         vec![SHELL[0].into(), SHELL[1].into(), script.into()]
     }
 
+    /// How many times a test asks a program that a busy machine may start too slowly.
+    const TRIES: usize = 3;
+
     #[test]
     fn the_command_is_run_and_its_trouble_named() {
         let dir = tempfile::tempdir().unwrap();
@@ -495,7 +498,11 @@ mod tests {
         let print = vec!["findstr".to_owned(), ".".to_owned(), file.display().to_string()];
         #[cfg(not(windows))]
         let print = vec!["cat".to_owned(), file.display().to_string()];
-        assert_eq!(ask(&print), Agents::listed(vec![Agent { pane: "%3".into(), ..Agent::default() }]));
+        // A busy machine (a CI runner) may take more than the second to start a program: only that
+        // is asked again, and any other answer is checked as it is.
+        let listed =
+            (0..TRIES).map(|_| ask(&print)).find(|agents| *agents != Agents::TooSlow).unwrap_or(Agents::TooSlow);
+        assert_eq!(listed, Agents::listed(vec![Agent { pane: "%3".into(), ..Agent::default() }]));
         assert_eq!(ask(&["unifyterm-no-such-program".into()]), Agents::NoProgram("unifyterm-no-such-program".into()));
         assert_eq!(
             ask(&shell("echo keepane: no server running 1>&2 && exit 1")),
