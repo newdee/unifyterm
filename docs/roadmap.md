@@ -24,6 +24,7 @@
 - 已发布：**0.9.2**，2026-11-28，标签 `v0.9.2`（提交 `e617f73`）：新应用图标（横着的 U 加红色下划线光标，paper-dark 配色），程序、安装包、网站标志、标签页图标、视频封面都换了。Release 18 个文件，正文写了改动；formula 3 个、Scoop 1 个哈希和 Release 一致；线上网页 0.9.2、新标志、新封面（169763 字节，和本地一致）。
 - 已发布：**0.9.3**，2026-11-28，标签 `v0.9.3`（提交 `214af0a`）：邮箱界面的列表、气泡、草稿框宽度跟着窗口算；带上 keepane 维护者的 3cfe2ed（`ut view` 在 keepane 0.99 的 pane 里用 kitty 显示原图）。Release 18 个文件，正文写了这两项；formula 3 个、Scoop 1 个哈希一致；网页 0.9.3。已在 #unifyterm-keepane 告诉 keepane。Mac 上的效果待用户确认。
 - 已发布：**0.9.4**，2026-11-28，标签 `v0.9.4`（提交 `b7d65ca`）：邮件全键盘操作（四个区、NORMAL/INSERT/VISUAL、底部状态行、`?` 帮助）；To/Cc 联系人自动列出、新邮件、发信一律先确认；标为未读同步到服务器；附件打开、存到 Downloads、预览；终端全选 Ctrl+Shift+A（Cmd+A），侧栏改为 Ctrl+Shift+J。Release 18 个文件，正文写了改动和迁移方法；formula 3 个、Scoop 1 个哈希一致；线上网页 0.9.4、92 个设置项。
+- 已发布：**0.9.5**，2026-11-28，标签 `v0.9.5`（提交 `88ea0d8`）：用户写的键优先于后来版本新加的默认键，设置不再因此整份失效（Mac 上 0.9.4 的 Cmd-A 冲突）；添加邮箱的表单、登录码、键盘方案的遮罩给折行的字确定宽度；邮件的列表、会话、附件列表跟着键滚动，会话里 Ctrl-d/u 半屏；搜索后的键只作用在看得见的会话上；install.sh 在 UnifyTerm 运行时提示重开。第一次用新的 release 流程：从标签到发布 11m36s（以前中位数 27m29s，n=9），Windows 用上 main 的缓存（Build 233 秒）。Release 18 个文件，正文写了改动；formula 3 个、Scoop 1 个、仓库里的 scoop 和 winget 清单哈希一致（清单无 CR）；线上网页 0.9.5，install.sh 已是新的。Mac 上的效果待用户确认。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。

@@ -2,6 +2,8 @@
 
 ## 2026-11-28 · 0.9.5：升级不再让设置失效；Mac 上添加邮箱的表单不重叠；更新时提示重开
 
+发布：CI 三个系统全绿（88ea0d8）；标签 `v0.9.5`。新的 release 流程第一次运行，逐项核对：草稿在 5 秒内建好；四个系统同时在 07:49:08–09 开始；Windows 日志 "Restored from cache key v0-rust-build-Windows_NT-x64-a276d52a-3a7f7f73 full match: true"，Build 233 秒（前两次冷编 691、896 秒），四个任务都没有再存缓存（Post 0–1 秒，原来 35–58 秒）；发布任务数到 18 个文件才发布，草稿转正；清单提交 1aed34e 到 main（从 Linux 提交，原始字节无 CR）。从标签到结束 11m36s（07:48:58–08:00:34），以前中位数 27m29s（n=9）；现在最慢的是 macOS aarch64（11m09s，无缓存可用，如预期）。`gh` 按标签找草稿 Release 可行（view、upload、edit 都成功）。Release 正文写了改动；formula 3/3、Scoop 1/1、仓库清单哈希一致；线上 index 有 0.9.5 三处、无 0.9.4，raw install.sh 是新的。
+
 用户（Mac，0.9.4）："打开就报错，然后删了toml文件后，原来配置的邮箱又没了。UnifyTerm: settings not used: in …/config.toml: keys.select_all and keys.agents both have "cmd-a": a key does one thing"；"mac全屏下，imap server和servers by hand样式重叠了"；"在已有邮箱的情况下，add a mailbox的样式也是重叠"；"每次更新后，原来的任务栏图标都不能用，变成？"。
 
 定性：
