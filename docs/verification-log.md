@@ -1,8 +1,28 @@
 # 验收记录
 
+## 2026-11-28 · CI 提速：release 四个系统同时构建，Windows 用 main 的缓存，每个任务有超时
+
+用户："看看能不能用这个skill加速ci"（actions-speedup），看完报告后："按推荐来把"。
+
+诊断（`ci_diagnose.py`，最近 60 次运行；首次成功的运行才计时）：
+
+- release：从建立到结束中位数 27m29s（n=9，样本少）。`unix` 写了 `needs: windows`，三个系统要等 Windows 任务结束才开始：0.9.4 的 Windows 05:40:52–05:57:44，其余 05:57:47 才开始。
+- release 的 4 个任务在 0.9.3、0.9.4 两次都是 "No cache found"，Build 10–15 分钟。原因：标签上的运行只能读 main 的缓存，release 的缓存键在 main 上从没存过；每个标签又存约 3 GB 只有它自己能读的缓存，仓库缓存合计约 10.3 GB，到了 10 GB 上限，会挤掉 main 的 CI 缓存。
+- CI：中位数 13m42s（n=32），最慢的是 Windows（13m32s）。Tests 315 秒里编译 262 秒、运行 53 秒，其中 mail 的 27 个测试在 Windows 上 31 秒（macOS 0.9 秒、Linux 0.5 秒）。
+- 线索：PR 运行不取消——不适用（37 次全是 push）；cargo-about、cargo-deb 每次编译——排除（日志 "already installed"，来自缓存；66 秒是生成许可证清单）；apt——确认 30 秒，GPUI 要这些头文件；release 缓存键不变——确认有缓存问题，原因是标签范围（上面），不是键。
+
+改了什么（一个改动一个提交）：
+
+1. `7a4586c`：先等 CI 通过并建一个草稿 Release；四个系统同时构建、各自上传；最后一个任务数到 18 个文件才发布，再把 scoop/winget 清单提交到 main（清单由 Windows 任务作为 artifact 传过去；仓库 `eol=lf`，在 Linux 上提交不会带入 CR）。以前 macOS/Linux 的文件要在已公开的 Release 出现后约 12 分钟才上传完。
+2. `7b8bb5e`：Windows 任务 `shared-key: build`，和 CI 在 main 上的 Windows 缓存同一个键（日志里两边只有任务名不同，环境哈希 a276d52a、lock 哈希 3a7f7f73 相同）；所有任务 `save-if: false`。macOS/Linux 不共用：release 用 `--target`、Linux 是 22.04（CI 是 24.04，共用会让编译脚本在旧 glibc 上出错）。
+3. `3b80964`：每个任务有 `timeout-minutes`（CI 60、release 100/60/60/15、pages 10）。
+
+检查：scripts-check 0 失败（4 个工作流，45 项）；三个提交的 release.yml 各自能解析，任务为 draft、windows、unix、publish；github 上下文只出现在 `env:` 里；权限不变；没有 `pull_request_target`、`workflow_run`。actionlint 没跑：下载它的命令被权限拒绝，没有绕开。
+
+未在真实运行上验证：release 只在打标签时运行，下次发版时核对——草稿建立、四个任务同时开始、Windows 日志里 "Restored from cache key v0-rust-build-Windows_NT-…"、18 个文件后才发布、清单提交到 main，以及总时长（估计约 13 分钟）。gh 按标签找草稿 Release 的行为也在那时确认。
 ## 2026-11-28 · 0.9.4：邮件全键盘操作、附件、抄送和新邮件；全选；侧栏换键
 
-发布：CI 三个系统全绿（b7d65ca）；标签 `v0.9.4`；release 成功（runner 排队 17 分钟），Release 18 个文件，正文写了改动和迁移方法（迁移命令在临时配置上实测：直接改 agents 被拒，先改 select_all 再改 agents 成功）；formula 3/3、Scoop 1/1 哈希一致；线上 index 有 0.9.4 三处、无 0.9.3，印章 92 SETTINGS，site.js 同步。
+发布：CI 三个系统全绿（b7d65ca）；标签 `v0.9.4`；release 成功（共 29 分钟：Windows 任务 17 分钟，另外三个系统按 `needs: windows` 等它结束才开始；起初误记为 runner 排队，看任务起止时间后更正），Release 18 个文件，正文写了改动和迁移方法（迁移命令在临时配置上实测：直接改 agents 被拒，先改 select_all 再改 agents 成功）；formula 3/3、Scoop 1/1 哈希一致；线上 index 有 0.9.4 三处、无 0.9.3，印章 92 SETTINGS，site.js 同步。
 
 用户："现在邮箱界面只能鼠标点击吗？不能用按键操作吗？"，要一套类似 keepane dashboard 的按键：分区、NORMAL/INSERT 模式、选中邮件内容复制或引用、抄送、添加联系人时列出联系人、查看附件。HTML demo（`keys-demo.html`）看过后："html的demo可以，就这样做吧，做完发版"。同一轮里用户指出 Ctrl+Shift+A 开侧栏和"全选"冲突，选了 Ctrl+Shift+J。
 
