@@ -160,6 +160,10 @@ pub(crate) struct MailView {
     note: Option<(String, Tone)>,
     sending: bool,
     stream: ScrollHandle,
+    /// The list of conversations, scrolled to keep the one chosen by keys in sight.
+    list_scroll: ScrollHandle,
+    /// What is over the mail, scrolled to keep the file chosen by keys in sight.
+    overlay_scroll: ScrollHandle,
     /// Where the line being typed on is, for the input method's window.
     input_bounds: Option<Bounds<Pixels>>,
     /// The form that adds a mailbox, or changes one: in place of the conversation.
@@ -250,6 +254,8 @@ impl MailView {
             note: None,
             sending: false,
             stream: ScrollHandle::new(),
+            list_scroll: ScrollHandle::new(),
+            overlay_scroll: ScrollHandle::new(),
             input_bounds: None,
             form: None,
             menu: None,
@@ -332,10 +338,7 @@ impl MailView {
             return;
         }
         self.version = version;
-        self.threads = match self.searching.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
-            Some(text) => store.search(text, LIST_MOST, self.showing.as_deref()).unwrap_or_default(),
-            None => store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default(),
-        };
+        self.threads = self.read_threads(store);
         self.contacts = store.contacts(&self.addresses(), CONTACTS_MOST).unwrap_or_default();
         self.statuses = self
             .addresses()
@@ -357,6 +360,15 @@ impl MailView {
     /// The conversation of a mail's row, as the window's note of new mail names it.
     pub(crate) fn newest(&self) -> Option<Summary> {
         self.threads.iter().max_by_key(|summary| summary.last_at_ms).cloned()
+    }
+
+    /// The conversations of the mailbox shown, or those the search finds: one reading for the list
+    /// whether it is read again or a conversation is chosen.
+    fn read_threads(&self, store: &Store) -> Vec<Summary> {
+        match self.searching.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => store.search(text, LIST_MOST, self.showing.as_deref()).unwrap_or_default(),
+            None => store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default(),
+        }
     }
 
     /// The conversations the list shows: those of the mailbox shown that the filter keeps, and
@@ -386,7 +398,11 @@ impl MailView {
         self.chosen = Some(id);
         self.thread = store.thread(id).ok().flatten();
         self.mail_cursor = self.thread.as_ref().map_or(0, |thread| thread.mails.len().saturating_sub(1));
-        self.threads = store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default();
+        self.threads = self.read_threads(store);
+        // Chosen by keys too (j, k, Ctrl+d): the list follows, as the mouse's wheel would.
+        if let Some(at) = self.listed().iter().position(|summary| summary.id == id) {
+            self.list_scroll.scroll_to_item(at);
+        }
         self.note = None;
         self.stream.scroll_to_bottom();
         cx.notify();
@@ -718,6 +734,7 @@ impl MailView {
             .child(
                 div()
                     .id("threads")
+                    .track_scroll(&self.list_scroll)
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()

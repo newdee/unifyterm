@@ -130,7 +130,7 @@ fn card_width(window: f32, widest: f32) -> f32 {
 
 /// How many files of the same name Downloads may have before saving gives up.
 const SAME_NAMES: usize = 1000;
-/// How many mails or conversations Ctrl+d and Ctrl+u move by.
+/// How many conversations Ctrl+d and Ctrl+u move by in the list (in a conversation: half a page).
 const PAGE: usize = 5;
 /// The longest a text attachment's preview reads.
 const PREVIEW_CHARS: usize = 6000;
@@ -265,8 +265,19 @@ impl MailView {
 
     fn list_key(&mut self, keys: &Keystroke, cx: &mut Context<'_, Self>) -> bool {
         let listed: Vec<i64> = self.listed().iter().map(|summary| summary.id).collect();
-        let at = self.chosen.and_then(|id| listed.iter().position(|one| *one == id)).unwrap_or(0);
-        if let Some(next) = Self::moved(keys, at, listed.len()) {
+        // The conversation chosen, when the list shows it: a search or a filter may show others,
+        // and no key acts on a conversation that is not in sight.
+        let at = self.chosen.and_then(|id| listed.iter().position(|one| *one == id));
+        let current = at.and_then(|at| listed.get(at)).copied();
+        let next = match at {
+            Some(at) => Self::moved(keys, at, listed.len()),
+            // None in sight: the keys start at the first (G at the last).
+            None => Self::moved(keys, 0, listed.len()).map(|_| match (keys.key.as_str(), typed(keys)) {
+                ("end", _) | (_, Some('G')) => listed.len().saturating_sub(1),
+                _ => 0,
+            }),
+        };
+        if let Some(next) = next {
             if let Some(id) = listed.get(next) {
                 self.choose(*id, cx);
             }
@@ -274,39 +285,47 @@ impl MailView {
         }
         match (keys.key.as_str(), typed(keys)) {
             ("enter", _) => {
-                if let Some(id) = self.chosen.or_else(|| listed.first().copied()) {
+                if let Some(id) = current.or_else(|| listed.first().copied()) {
                     self.choose(id, cx);
                     self.zone = Zone::Conversation;
                     self.mail_cursor = self.thread.as_ref().map_or(0, |thread| thread.mails.len().saturating_sub(1));
                 }
             }
-            (_, Some('e')) => {
-                if let Some(id) = self.chosen {
-                    self.archive(cx);
-                    self.undo = Some(Undo::Archived(id));
-                    self.note = Some(("archived · u brings it back".into(), Tone::Fine));
-                }
-            }
             (_, Some('u')) => self.undo(cx),
-            (_, Some('U')) => {
-                if let (Some(store), Some(id)) = (&self.store, self.chosen) {
-                    if let Err(error) = store.mark_unread(id) {
-                        self.note = Some((format!("{error:#}"), Tone::Wrong));
+            (_, Some(what @ ('e' | 'U' | 'r'))) => {
+                let Some(id) = current else {
+                    self.note =
+                        Some(("no conversation chosen in the list: j or Enter chooses one".into(), Tone::Wrong));
+                    return true;
+                };
+                match what {
+                    'e' => {
+                        self.archive(cx);
+                        self.undo = Some(Undo::Archived(id));
+                        self.note = Some(("archived · u brings it back".into(), Tone::Fine));
                     }
-                    self.refresh(Read::Always);
-                    self.note = Some(("unread again: the server is told at the next sync".into(), Tone::Fine));
+                    'U' => {
+                        let Some(store) = &self.store else { return true };
+                        let done = store.mark_unread(id);
+                        self.refresh(Read::Always);
+                        self.note = Some(match done {
+                            Ok(()) => ("unread again: the server is told at the next sync".into(), Tone::Fine),
+                            Err(error) => (format!("{error:#}"), Tone::Wrong),
+                        });
+                    }
+                    _ => self.start_reply(Everyone::One),
                 }
             }
-            (_, Some('r')) => self.start_reply(Everyone::One),
             _ => return false,
         }
         true
     }
-
     fn conversation_key(&mut self, keys: &Keystroke, cx: &mut Context<'_, Self>) -> bool {
         let Some(thread) = self.thread.clone() else { return false };
         if let Some(at) = Self::moved(keys, self.mail_cursor, thread.mails.len()) {
             self.mail_cursor = at;
+            // The conversation follows the mail the keys are on.
+            self.stream.scroll_to_item(at);
             return true;
         }
         let Some(mail) = thread.mails.get(self.mail_cursor).cloned() else { return false };
@@ -474,6 +493,8 @@ impl MailView {
                 let count = self.current_mail().map_or(0, |mail| mail.attachments.len());
                 if let Some(at) = Self::moved(keys, cursor, count) {
                     self.overlay = Some(Overlay::Files { cursor: at });
+                    // The card's first child is its title, the files after it: at the first, the title shows too.
+                    self.overlay_scroll.scroll_to_item(if at == 0 { 0 } else { at + 1 });
                 } else {
                     match (keys.key.as_str(), typed(keys)) {
                         ("escape", _) => self.overlay = None,
@@ -512,21 +533,32 @@ impl MailView {
         self.thread.as_ref().and_then(|thread| thread.mails.get(self.mail_cursor))
     }
 
-    /// Ctrl+d and Ctrl+u: several mails, or several conversations, at once.
+    /// Ctrl+d and Ctrl+u: several conversations at once, or half a page of a conversation.
     fn page(&mut self, way: Direction, cx: &mut Context<'_, Self>) {
         let step = |at: usize, count: usize| match way {
             Direction::Forward => (at + PAGE).min(count.saturating_sub(1)),
             Direction::Back => at.saturating_sub(PAGE),
         };
         match self.zone {
+            // Half a page, as in vim: a mail longer than the window is read by this; the keys are
+            // then on the mail at the top.
             Zone::Conversation => {
+                let at = self.stream.offset();
+                let view = f32::from(self.stream.bounds().size.height);
+                let most = f32::from(self.stream.max_offset().height);
+                let y = half_page(f32::from(at.y), view, most, way);
+                self.stream.set_offset(gpui::point(at.x, px(y)));
                 let count = self.thread.as_ref().map_or(0, |thread| thread.mails.len());
-                self.mail_cursor = step(self.mail_cursor, count);
+                self.mail_cursor = self.stream.top_item().min(count.saturating_sub(1));
             }
             Zone::List => {
                 let listed: Vec<i64> = self.listed().iter().map(|summary| summary.id).collect();
-                let at = self.chosen.and_then(|id| listed.iter().position(|one| *one == id)).unwrap_or(0);
-                if let Some(id) = listed.get(step(at, listed.len())) {
+                // None in sight: from the first.
+                let next = match self.chosen.and_then(|id| listed.iter().position(|one| *one == id)) {
+                    Some(at) => step(at, listed.len()),
+                    None => 0,
+                };
+                if let Some(id) = listed.get(next) {
                     self.choose(*id, cx);
                 }
             }
@@ -732,6 +764,7 @@ impl MailView {
             .w(px(card_width(self.widths.window, widest)))
             .max_h(gpui::relative(0.88))
             .overflow_y_scroll()
+            .track_scroll(&self.overlay_scroll)
             .p_4()
             .rounded(px(theme.panel_rounding() + 2.))
             .border_1()
@@ -907,6 +940,16 @@ fn free_name(folder: &std::path::Path, name: &str) -> Option<PathBuf> {
         .find(|candidate| !candidate.exists())
 }
 
+/// Where a list scrolled to `y` (0 at the top, down to `-most`) is after half a page `view` high.
+fn half_page(y: f32, view: f32, most: f32, way: Direction) -> f32 {
+    let half = view / 2.;
+    let next = match way {
+        Direction::Forward => y - half,
+        Direction::Back => y + half,
+    };
+    next.clamp(-most.max(0.), 0.)
+}
+
 /// The start of the next word (or the one before), as `w` and `b` move.
 fn word_step(chars: &[char], at: usize, way: Direction) -> usize {
     let word = |c: char| {
@@ -946,6 +989,15 @@ fn line_step(chars: &[char], at: usize, way: Direction) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn half_a_page_down_and_up_stays_within_the_conversation() {
+        assert!((half_page(0., 600., 2000., Direction::Forward) + 300.).abs() < 0.01, "down half a page");
+        assert!((half_page(-300., 600., 2000., Direction::Back)).abs() < 0.01, "and up again");
+        assert!((half_page(-1900., 600., 2000., Direction::Forward) + 2000.).abs() < 0.01, "never past the end");
+        assert!((half_page(-100., 600., 2000., Direction::Back)).abs() < 0.01, "never above the top");
+        assert!((half_page(0., 600., 0., Direction::Forward)).abs() < 0.01, "nothing to scroll: stays");
+    }
 
     #[test]
     fn an_overlay_is_as_wide_as_the_window_allows_up_to_what_reads_well() {
