@@ -22,6 +22,7 @@
 - 已发布：**0.9.0**，2026-11-27，标签 `v0.9.0`（提交 `f16f88d`）：多个邮箱（`[mail.accounts.NAME]`，全部混排、按邮箱看，四个筛选）；在邮箱界面里添加邮箱（Ctrl+Alt+Shift+M，测试通过才保存），右键重新登录、修改、移除；Outlook 等微软邮箱用浏览器登录（OAuth2 设备码，UnifyTerm 自己的微软应用 `aee8de56-…`）；`ut mail account`。Release 18 个文件，正文写了这一版的改动；formula 3 个、Scoop 1 个哈希和 Release 一致；网页显示 0.9.0，邮箱截图换成两个邮箱。Outlook 完整登录待用户实测。
 - 已发布：**0.9.1**，2026-11-27，标签 `v0.9.1`（提交 `aa3074b`）：添加邮箱的表单在 macOS 和窄窗口里文字压到下一行、卡片标题越界、同步报错越出列表，三处一起修。Release 18 个文件，正文写了修了什么；formula 3 个、Scoop 1 个哈希和 Release 一致；网页和 site.js 都显示 0.9.1。Mac 上的效果待用户确认。
 - 已发布：**0.9.2**，2026-11-28，标签 `v0.9.2`（提交 `e617f73`）：新应用图标（横着的 U 加红色下划线光标，paper-dark 配色），程序、安装包、网站标志、标签页图标、视频封面都换了。Release 18 个文件，正文写了改动；formula 3 个、Scoop 1 个哈希和 Release 一致；线上网页 0.9.2、新标志、新封面（169763 字节，和本地一致）。
+- 已发布：**0.9.3**，2026-11-28，标签 `v0.9.3`（提交 `214af0a`）：邮箱界面的列表、气泡、草稿框宽度跟着窗口算；带上 keepane 维护者的 3cfe2ed（`ut view` 在 keepane 0.99 的 pane 里用 kitty 显示原图）。Release 18 个文件，正文写了这两项；formula 3 个、Scoop 1 个哈希一致；网页 0.9.3。已在 #unifyterm-keepane 告诉 keepane。Mac 上的效果待用户确认。
 - 还没做、要用户来做的发布步骤：签名（Windows、macOS）、提交到 winget、在干净的机器上各装一次，见 `docs/release.md`。
 - 2026-11-18 改名为 UnifyTerm（原名 uni-term），加上 brew、scoop、curl 安装方式和宣传视频。
 - 未做：无。
