@@ -3,6 +3,10 @@
 # back to main. Homebrew's formula follows the release by itself (the tap's
 # own workflow, newdee/homebrew-tap). install.sh and install.ps1 take the
 # latest release.
+#
+# The release is made as a draft once CI has passed on the tagged commit; the
+# four systems build at the same time and upload to it; it is published only
+# when all 18 files are there, so nobody installs from a release half made.
 name: release
 
 on:
@@ -18,12 +22,10 @@ env:
   UNIFYTERM_DATA_DIR: ${{ github.workspace }}/ci-data
 
 jobs:
-  windows:
-    name: build and publish (windows x86_64)
-    runs-on: windows-latest
+  draft:
+    name: CI passed, draft release
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Wait for CI on this commit
         # A tag is released only once CI has passed on the very commit it names.
         # One run that passed is enough; it waits while a run is still going, and
@@ -31,18 +33,33 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
-          $sha = "${{ github.sha }}"
           $deadline = (Get-Date).AddMinutes(90)
           while ($true) {
-            $runs = @(gh run list --workflow ci --commit $sha --json status,conclusion | ConvertFrom-Json)
-            if ($runs | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' }) { "CI passed on $sha"; break }
+            $runs = @(gh run list --workflow ci --commit $env:SHA --json status,conclusion | ConvertFrom-Json)
+            if ($runs | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' }) { "CI passed on $env:SHA"; break }
             if ($runs.Count -gt 0 -and -not ($runs | Where-Object { $_.status -ne 'completed' })) {
-              throw "CI did not pass on ${sha} ($(($runs.conclusion | Sort-Object -Unique) -join ', ')): fix main and tag again"
+              throw "CI did not pass on $($env:SHA) ($(($runs.conclusion | Sort-Object -Unique) -join ', ')): fix main and tag again"
             }
-            if ((Get-Date) -gt $deadline) { throw "gave up waiting for CI on $sha" }
+            if ((Get-Date) -gt $deadline) { throw "gave up waiting for CI on $env:SHA" }
             Start-Sleep -Seconds 30
           }
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --draft --verify-tag --title "UnifyTerm $TAG" --generate-notes
+
+  windows:
+    name: build and publish (windows x86_64)
+    needs: draft
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: The toolchain rust-toolchain.toml names
         run: rustup show active-toolchain || rustup toolchain install
@@ -56,9 +73,10 @@ jobs:
 
       - name: Package (zip)
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          $name = "unifyterm-$tag-windows-x86_64"
+          $name = "unifyterm-$env:TAG-windows-x86_64"
           New-Item -ItemType Directory -Force "dist/$name" | Out-Null
           Copy-Item target/release/unifyterm.exe, target/release/ut.exe, target/release/conpty.dll, target/release/OpenConsole.exe, README.md, LICENSE, THIRD-PARTY-NOTICES "dist/$name/"
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
@@ -67,8 +85,10 @@ jobs:
 
       - name: Package (MSI)
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
+          $version = $env:TAG.TrimStart('v')
           dotnet tool install --global wix --version 5.0.2
           $msi = "dist/unifyterm-$version-x64.msi"
           wix build packaging/windows/unifyterm.wxs -arch x64 -d Version=$version -d BinDir=target/release -d Root=. -o $msi
@@ -76,44 +96,35 @@ jobs:
 
       - name: Manifests (scoop, winget)
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"; $version = $tag.TrimStart('v')
-          pwsh tools/package-manifests.ps1 -Version $version -ZipPath "dist/unifyterm-$tag-windows-x86_64.zip" -MsiPath "dist/unifyterm-$version-x64.msi"
+          $version = $env:TAG.TrimStart('v')
+          pwsh tools/package-manifests.ps1 -Version $version -ZipPath "dist/unifyterm-$env:TAG-windows-x86_64.zip" -MsiPath "dist/unifyterm-$version-x64.msi"
 
-      - name: Release
+      - name: Upload to the release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"
           # PowerShell passes a * to a program as it is: the files are named here.
           $files = @(Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(zip|msi|sha256)$' } | ForEach-Object FullName)
           if ($files.Count -ne 4) { throw "expected the zip, the MSI and their two .sha256, found $($files.Count): $($files -join ', ')" }
-          gh release create $tag @files --title "UnifyTerm $tag" --generate-notes
+          gh release upload $env:TAG @files --clobber
 
-      - name: Commit the manifests to main
-        # packaging/scoop is what `scoop install <raw url>` reads: it follows every release.
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          $keep = Join-Path $env:RUNNER_TEMP 'manifests'
-          New-Item -ItemType Directory -Force $keep | Out-Null
-          Copy-Item packaging/scoop, packaging/windows/winget $keep -Recurse -Force
-          git checkout -- packaging
-          git fetch origin main
-          git checkout -B main origin/main
-          Copy-Item "$keep/scoop/*" packaging/scoop -Force
-          Copy-Item "$keep/winget/*" packaging/windows/winget -Force
-          git add packaging/scoop packaging/windows/winget
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { 'manifests unchanged'; exit 0 }
-          git commit -m "build: package manifests for ${{ github.ref_name }}"
-          git push origin main
+      # The manifests name the files' hashes: they go to main once the release is published.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifests
+          if-no-files-found: error
+          path: |
+            packaging/scoop
+            packaging/windows/winget
 
   unix:
     name: build and publish (${{ matrix.name }})
-    needs: windows
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -147,9 +158,10 @@ jobs:
       - name: Package and upload
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${{ github.ref_name }}"; version="${tag#v}"
-          name="unifyterm-$tag-${{ matrix.name }}"
+          version="${TAG#v}"
+          name="unifyterm-$TAG-${{ matrix.name }}"
           out="target/${{ matrix.target }}/release"
           mkdir -p "dist/$name"
           cp "$out/unifyterm" "$out/ut" README.md LICENSE THIRD-PARTY-NOTICES "dist/$name/"
@@ -168,15 +180,16 @@ jobs:
           for file in *.tar.gz *.dmg; do
             [ -f "$file" ] || continue
             shasum -a 256 "$file" > "$file.sha256"
-            gh release upload "$tag" "$file" "$file.sha256" --clobber
+            gh release upload "$TAG" "$file" "$file.sha256" --clobber
           done
 
       - name: Linux packages (.deb, AppImage)
         if: runner.os == 'Linux'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${{ github.ref_name }}"; version="${tag#v}"
+          version="${TAG#v}"
           mkdir -p target/release
           cp target/${{ matrix.target }}/release/unifyterm target/${{ matrix.target }}/release/ut target/release/
           cargo install cargo-deb --locked
@@ -186,5 +199,51 @@ jobs:
           LINUXDEPLOY="$PWD/linuxdeploy" APPIMAGE_EXTRACT_AND_RUN=1 bash packaging/linux/appimage.sh "$version"
           for file in target/debian/*.deb unifyterm-*.AppImage; do
             shasum -a 256 "$file" | sed "s|  .*/|  |" > "$file.sha256"
-            gh release upload "$tag" "$file" "$file.sha256" --clobber
+            gh release upload "$TAG" "$file" "$file.sha256" --clobber
           done
+
+  publish:
+    name: publish the release, manifests to main
+    needs: [windows, unix]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish once every file is there
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Windows: zip, MSI; Linux: tar.gz, .deb, AppImage; each macOS: tar.gz, .dmg; each with a .sha256.
+          count=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          if [ "$count" -ne 18 ]; then
+            echo "the draft has $count files, not 18: it stays a draft" >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false --latest
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifests
+          path: ${{ runner.temp }}/manifests
+
+      - name: Commit the manifests to main
+        # packaging/scoop is what `scoop install <raw url>` reads: it follows every release.
+        env:
+          TAG: ${{ github.ref_name }}
+          MANIFESTS: ${{ runner.temp }}/manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$MANIFESTS"/scoop/* packaging/scoop/
+          cp "$MANIFESTS"/windows/winget/* packaging/windows/winget/
+          git add packaging/scoop packaging/windows/winget
+          if git diff --cached --quiet; then
+            echo "manifests unchanged"
+            exit 0
+          fi
+          git commit -m "build: package manifests for $TAG"
+          git push origin main
