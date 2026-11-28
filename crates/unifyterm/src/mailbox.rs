@@ -33,15 +33,25 @@ use crate::terminal::{Backdrop, Settings};
 use crate::theme::{Rgb, Theme};
 use crate::{seen_through, solid};
 
-/// The list of conversations: its width.
-const LIST_WIDTH: f32 = 300.;
-/// The widest a bubble grows.
-const BUBBLE_WIDTH: f32 = 560.;
-/// Words wider than this many cells make a bubble as wide as it grows: text that wraps is
-/// measured at the width it has.
-const WRAPS_AT: usize = 56;
+/// The list of conversations: this share of the window, within these widths.
+const LIST_SHARE: f32 = 0.26;
+const LIST_NARROWEST: f32 = 240.;
+const LIST_WIDEST: f32 = 340.;
+/// A bubble grows to this share of the room beside a person's circle, and no wider than
+/// `BUBBLE_WIDEST` (lines longer than that are hard to read); never narrower than `BUBBLE_NARROWEST`
+/// unless the room itself is.
+const BUBBLE_SHARE: f32 = 0.8;
+const BUBBLE_WIDEST: f32 = 880.;
+const BUBBLE_NARROWEST: f32 = 200.;
+/// The conversation's padding on each side, and a circle with the gap after it.
+const STREAM_PADDING: f32 = 20.;
+const CIRCLE_ROOM: f32 = 28. + 8.;
 /// What a bubble takes from its width around its words: its padding and border.
 const BUBBLE_INSIDE: f32 = 2. * 12. + 2.;
+/// A guess of a half-width character's width in a bubble's 13.5 px text, on the wide side of
+/// every system's fonts: a line guessed to wrap is given the bubble's width, which is always safe;
+/// one guessed not to, and wrapping after all, would be measured short.
+const CELL_GUESS: f32 = 8.;
 /// The most conversations the list shows.
 const LIST_MOST: usize = 200;
 /// The colors a person's circle, or a mailbox's dot, may have: red, green, yellow, blue, magenta, cyan of the theme.
@@ -136,6 +146,34 @@ pub(crate) struct MailView {
     /// The form that adds a mailbox, or changes one: in place of the conversation.
     form: Option<Form>,
     menu: Option<Menu>,
+    /// The widths of the window as last drawn.
+    widths: Widths,
+}
+
+/// The widths that follow the window: the list, and the widest a bubble grows. Text that wraps
+/// is given a definite width (GPUI measures text in a row on one line otherwise): this one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Widths {
+    list: f32,
+    bubble: f32,
+}
+
+impl Widths {
+    fn of(window: f32) -> Self {
+        let list = (window * LIST_SHARE).clamp(LIST_NARROWEST, LIST_WIDEST);
+        let room = (window - list - 2. * STREAM_PADDING - CIRCLE_ROOM).max(BUBBLE_INSIDE * 2.);
+        let bubble = (room * BUBBLE_SHARE).clamp(room.min(BUBBLE_NARROWEST), BUBBLE_WIDEST);
+        Self { list, bubble }
+    }
+
+    /// Whether `text` wraps in a bubble this wide: by the guess, which errs on the side of wrapping.
+    fn wraps(self, text: &str) -> bool {
+        let inside = self.bubble - BUBBLE_INSIDE;
+        text.lines().any(|line| {
+            let cells = unicode_width::UnicodeWidthStr::width(line);
+            f32::from(u16::try_from(cells).unwrap_or(u16::MAX)) * CELL_GUESS > inside
+        })
+    }
 }
 
 /// Whether a note is good news.
@@ -180,6 +218,7 @@ impl MailView {
             input_bounds: None,
             form: None,
             menu: None,
+            widths: Widths::of(LIST_WIDEST / LIST_SHARE),
         };
         view.refresh(Read::Always);
         view
@@ -597,7 +636,7 @@ impl MailView {
         let colors = self.colors();
         let rows: Vec<_> = self.listed().into_iter().map(|summary| self.row(summary, cx)).collect();
         div()
-            .w(px(LIST_WIDTH))
+            .w(px(self.widths.list))
             .flex_none()
             .h_full()
             .flex()
@@ -949,10 +988,11 @@ impl MailView {
         let open = self.quotes_open.contains(&mail.id);
         let id = mail.id;
         let words = if open { mail.text.clone() } else { own };
-        let wraps = words.lines().any(|line| unicode_width::UnicodeWidthStr::width(line) > WRAPS_AT);
+        let widest = self.widths.bubble;
+        let wraps = self.widths.wraps(&words);
         let mut bubble = div()
-            .max_w(px(BUBBLE_WIDTH))
-            .when(wraps, |bubble| bubble.w(px(BUBBLE_WIDTH)))
+            .max_w(px(widest))
+            .when(wraps, |bubble| bubble.w(px(widest)))
             .px_3()
             .py_2()
             .rounded(px(theme.panel_rounding() + 4.))
@@ -978,7 +1018,7 @@ impl MailView {
                 div()
                     .text_size(px(13.5))
                     // Words that wrap are given the width they wrap at: measured and drawn alike.
-                    .when(wraps, |text| text.w(px(BUBBLE_WIDTH - BUBBLE_INSIDE)))
+                    .when(wraps, |text| text.w(px(widest - BUBBLE_INSIDE)))
                     .child(SharedString::from(words)),
             );
         if quoted > 0 {
@@ -1033,7 +1073,7 @@ impl MailView {
             .child(
                 div()
                     // As wide as it grows: its words wrap, and the buttons go under them.
-                    .w(px(BUBBLE_WIDTH))
+                    .w(px(self.widths.bubble))
                     .px_3()
                     .py_2()
                     .rounded(px(theme.panel_rounding() + 4.))
@@ -1326,7 +1366,9 @@ struct Colors {
 }
 
 impl Render for MailView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        // The widths follow the window, each time it is drawn: resized, full screen, another display.
+        self.widths = Widths::of(f32::from(window.viewport_size().width));
         let colors = self.colors();
         let right = if self.form.is_some() {
             self.form_panel(cx)
@@ -1402,4 +1444,36 @@ pub(crate) fn start_sync(plan: Plan, on_new: Vec<String>) -> Arc<Stopper> {
         log::warn!("mail: the sync could not start: {error}");
     }
     stopper
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_widths_follow_the_window_within_their_bounds() {
+        let full = Widths::of(1920.);
+        assert!((full.list - LIST_WIDEST).abs() < 0.5, "a wide window: the widest list, {}", full.list);
+        assert!((full.bubble - BUBBLE_WIDEST).abs() < 0.5, "and bubbles as wide as is readable, {}", full.bubble);
+        let usual = Widths::of(1100.);
+        assert!(usual.list > LIST_NARROWEST && usual.list < LIST_WIDEST);
+        assert!(usual.bubble > 560., "more than the old fixed width when there is room: {}", usual.bubble);
+        let narrow = Widths::of(640.);
+        assert!((narrow.list - LIST_NARROWEST).abs() < 0.5);
+        let room = 640. - narrow.list - 2. * STREAM_PADDING - CIRCLE_ROOM;
+        assert!(narrow.bubble <= room, "a bubble never wider than its room: {} of {room}", narrow.bubble);
+        let tiny = Widths::of(300.);
+        assert!(tiny.bubble >= BUBBLE_INSIDE, "something to draw in: {}", tiny.bubble);
+    }
+
+    #[test]
+    fn a_line_is_guessed_to_wrap_by_the_bubbles_width_and_errs_on_wrapping() {
+        let usual = Widths::of(1100.);
+        assert!(!usual.wraps("好，周四 10 点。"), "a short line fits");
+        assert!(usual.wraps(&"可以接受，公告里写一句就行。".repeat(6)), "a long one wraps");
+        let narrow = Widths::of(640.);
+        let line = "0.8 的发布原来定在周五。市场那边希望周四上午就能发公告。";
+        assert!(narrow.wraps(line) && !Widths::of(1920.).wraps(line), "the same line wraps when the window is narrow");
+        assert_eq!(usual.wraps("short\nshort"), usual.wraps("short"), "each line on its own");
+    }
 }

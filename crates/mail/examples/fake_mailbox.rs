@@ -54,7 +54,20 @@ const WANG: &str = "王工 <wang@example.com>";
 const LIN_SUBJECT: &str = "周五的发布，能不能提前到周四？";
 const LIN_ANSWER: &str = "Re: 周五的发布，能不能提前到周四？";
 
-const LETTERS: [Letter; 10] = [
+const LETTERS: [Letter; 11] = [
+    // A long one, newest: how bubbles wrap at each width.
+    Letter {
+        folder: "INBOX",
+        id: "n1@example.com",
+        from: ALEX,
+        to: ME,
+        cc: "",
+        subject: "0.9 的发布说明，帮我看一下",
+        answers: &[],
+        date: "Fri, 27 Nov 2026 12:30:00 +0800",
+        text: "发布说明我先写了一版：多邮箱、在邮箱界面里添加、Outlook 用浏览器登录，再加上四个筛选。有两处我拿不准：一是 Outlook 的那段要不要写明需要管理员同意，二是 mail.db 升到第 2 版那段，要不要提醒大家先备份。你看完直接在这里回我就行，不急，今天下班前给我就好。\r\nThe English version follows the same order; the line about the database moving to version 2 is the one I am least sure of, so please read that one twice before we ship it.",
+        read: Read::Unseen,
+    },
     // Sent, not answered yet: the newest mail of its conversation is mine.
     Letter {
         folder: "Sent Messages",
