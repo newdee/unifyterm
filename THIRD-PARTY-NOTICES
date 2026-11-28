@@ -11667,13 +11667,13 @@ SOFTWARE.
 ====================================================================
 MIT License (MIT)
 Used by:
-  unifyterm-assist 0.9.3
-  unifyterm-config 0.9.3
-  unifyterm-history 0.9.3
-  unifyterm-mail 0.9.3
-  unifyterm-programs 0.9.3
-  unifyterm 0.9.3
-  ut 0.9.3
+  unifyterm-assist 0.9.4
+  unifyterm-config 0.9.4
+  unifyterm-history 0.9.4
+  unifyterm-mail 0.9.4
+  unifyterm-programs 0.9.4
+  unifyterm 0.9.4
+  ut 0.9.4
   base64-simd 0.8.0  https://github.com/Nugine/simd
   blade-graphics 0.7.1  https://github.com/kvark/blade
   blade-macros 0.3.0  https://github.com/kvark/blade

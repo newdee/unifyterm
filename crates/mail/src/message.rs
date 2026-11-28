@@ -101,6 +101,13 @@ pub fn parse(raw: &[u8]) -> Parsed {
     }
 }
 
+/// The `index`th attachment of the mail in `raw`, as [`parse`] lists them: its name and bytes.
+pub fn attachment(raw: &[u8], index: usize) -> Option<(String, Vec<u8>)> {
+    let message = MessageParser::new().parse(raw)?;
+    let part = message.attachments().nth(index)?;
+    Some((part.attachment_name().unwrap_or("attachment").to_owned(), part.decoded().into_owned()))
+}
+
 /// A message id without its angle brackets and blanks.
 fn bare_id(id: &str) -> String {
     id.trim().trim_start_matches('<').trim_end_matches('>').trim().to_owned()

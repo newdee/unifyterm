@@ -374,10 +374,12 @@ impl Fake {
                 Ok(bytes)
             }
             "STORE" => {
-                let (set, _) = rest.split_once(' ').unwrap_or((rest, ""));
+                let (set, change) = rest.split_once(' ').unwrap_or((rest, ""));
+                // +FLAGS (\Seen) marks the mails read, -FLAGS (\Seen) unread.
+                let seen = !change.trim_start().starts_with('-');
                 for mail in &mut folder.mails {
                     if in_set(set, mail.uid, last) {
-                        mail.seen = true;
+                        mail.seen = seen;
                     }
                 }
                 Err(format!("{tag} OK stored\r\n"))

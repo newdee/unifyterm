@@ -10,7 +10,9 @@
 //! own (see [`start_syncs`]). Sending runs in the background, and only on the
 //! person's own press: of Send, or of Ctrl-Enter.
 
+mod compose;
 mod form;
+mod keys;
 
 use std::collections::HashSet;
 use std::ops::Range;
@@ -19,9 +21,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, Context, ElementInputHandler, EntityInputHandler, EventEmitter, FocusHandle, FontWeight, Hsla,
-    KeyDownEvent, MouseButton, Pixels, Point, ScrollHandle, SharedString, UTF16Selection, Window, anchored, canvas,
-    deferred, div, prelude::*, px,
+    App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, FontWeight, Hsla, KeyDownEvent, MouseButton,
+    Pixels, Point, ScrollHandle, SharedString, UTF16Selection, Window, anchored, deferred, div, prelude::*, px,
 };
 use unifyterm_config::{MailConfig, MailboxSettings};
 use unifyterm_mail::{Filter, Plan, Status, Stopper, Store, Summary, Thread, message};
@@ -52,6 +53,8 @@ const BUBBLE_INSIDE: f32 = 2. * 12. + 2.;
 /// every system's fonts: a line guessed to wrap is given the bubble's width, which is always safe;
 /// one guessed not to, and wrapping after all, would be measured short.
 const CELL_GUESS: f32 = 8.;
+/// The most people To and Cc list from.
+const CONTACTS_MOST: usize = 500;
 /// The most conversations the list shows.
 const LIST_MOST: usize = 200;
 /// The colors a person's circle, or a mailbox's dot, may have: red, green, yellow, blue, magenta, cyan of the theme.
@@ -132,9 +135,23 @@ pub(crate) struct MailView {
     thread: Option<Thread>,
     /// The mails whose quoted part is shown.
     quotes_open: HashSet<i64>,
-    /// The answer being written, and what an input method is still composing.
-    compose: String,
+    /// The mail being written, and what an input method is still composing.
+    compose: compose::Compose,
     composing: String,
+    /// Where keys go, and how they are taken.
+    zone: keys::Zone,
+    mode: keys::Mode,
+    /// The mailbox the keys of [1] are on: 0 is All, then the settings' order.
+    box_cursor: usize,
+    /// The mail of the conversation the keys of [3] are on.
+    mail_cursor: usize,
+    visual: Option<keys::Visual>,
+    overlay: Option<keys::Overlay>,
+    undo: Option<keys::Undo>,
+    /// What the search has, while there is one.
+    searching: Option<String>,
+    /// The people the mailboxes have written with, for To and Cc.
+    contacts: Vec<unifyterm_mail::Contact>,
     /// What each mailbox's sync last said, by address.
     statuses: Vec<(String, Status)>,
     /// What the last press did: sent, or why not.
@@ -209,8 +226,17 @@ impl MailView {
             chosen: None,
             thread: None,
             quotes_open: HashSet::new(),
-            compose: String::new(),
+            compose: compose::Compose::default(),
             composing: String::new(),
+            zone: keys::Zone::List,
+            mode: keys::Mode::Normal,
+            box_cursor: 0,
+            mail_cursor: 0,
+            visual: None,
+            overlay: None,
+            undo: None,
+            searching: None,
+            contacts: Vec::new(),
             statuses: Vec::new(),
             note: None,
             sending: false,
@@ -259,6 +285,15 @@ impl MailView {
             .map_or_else(|| address.to_owned(), |(mailbox, _)| mailbox.name.clone())
     }
 
+    /// The edge of a zone: marked when the keys go there.
+    fn zone_edge(&self, zone: keys::Zone) -> Hsla {
+        if self.zone == zone && self.form.is_none() && self.overlay.is_none() {
+            self.colors().accent.opacity(0.5)
+        } else {
+            gpui::transparent_black()
+        }
+    }
+
     /// The color of the mailbox at `address`'s dot.
     fn dot(&self, address: &str) -> Hsla {
         let at = self.plans.iter().position(|(mailbox, _)| mailbox.address == address).unwrap_or(0);
@@ -288,7 +323,11 @@ impl MailView {
             return;
         }
         self.version = version;
-        self.threads = store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default();
+        self.threads = match self.searching.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => store.search(text, LIST_MOST, self.showing.as_deref()).unwrap_or_default(),
+            None => store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default(),
+        };
+        self.contacts = store.contacts(&self.addresses(), CONTACTS_MOST).unwrap_or_default();
         self.statuses = self
             .addresses()
             .into_iter()
@@ -311,9 +350,10 @@ impl MailView {
         self.threads.iter().max_by_key(|summary| summary.last_at_ms).cloned()
     }
 
-    /// The conversations the list shows: those of the mailbox shown that the filter keeps.
+    /// The conversations the list shows: those of the mailbox shown that the filter keeps, and
+    /// the one shown (opening a conversation reads it: under Unread it stays until another is chosen).
     fn listed(&self) -> Vec<&Summary> {
-        self.threads.iter().filter(|summary| self.shown.keeps(summary)).collect()
+        self.threads.iter().filter(|summary| self.shown.keeps(summary) || self.chosen == Some(summary.id)).collect()
     }
 
     /// Shows a conversation: its mails are read now.
@@ -323,12 +363,20 @@ impl MailView {
             log::warn!("mail: could not mark conversation {id} read: {error:#}");
         }
         if self.chosen != Some(id) {
-            self.compose.clear();
             self.quotes_open.clear();
+            self.visual = None;
+            // An answer belongs to its conversation: another shown, it goes (as before); a new mail stays.
+            if self.compose.kind == compose::Kind::Reply {
+                self.compose = compose::Compose::default();
+                if self.zone == keys::Zone::Compose {
+                    self.mode = keys::Mode::Normal;
+                }
+            }
         }
         self.form = None;
         self.chosen = Some(id);
         self.thread = store.thread(id).ok().flatten();
+        self.mail_cursor = self.thread.as_ref().map_or(0, |thread| thread.mails.len().saturating_sub(1));
         self.threads = store.threads(LIST_MOST, Filter::Inbox, self.showing.as_deref()).unwrap_or_default();
         self.note = None;
         self.stream.scroll_to_bottom();
@@ -379,14 +427,6 @@ impl MailView {
         cx.notify();
     }
 
-    fn step(&mut self, by: isize, cx: &mut Context<'_, Self>) {
-        let listed: Vec<i64> = self.listed().iter().map(|summary| summary.id).collect();
-        let at = self.chosen.and_then(|id| listed.iter().position(|one| *one == id)).unwrap_or(0);
-        if let Some(id) = at.checked_add_signed(by).and_then(|next| listed.get(next)).copied() {
-            self.choose(id, cx);
-        }
-    }
-
     /// Sends `text` as the answer to the chosen conversation, from its mailbox, in the background.
     fn send(&mut self, text: String, cx: &mut Context<'_, Self>) {
         let Some(id) = self.chosen else { return };
@@ -402,10 +442,7 @@ impl MailView {
             let _ = this.update(cx, |this, cx| {
                 this.sending = false;
                 match sent {
-                    Ok(()) => {
-                        this.compose.clear();
-                        this.note = Some(("sent".into(), Tone::Fine));
-                    }
+                    Ok(()) => this.note = Some(("sent".into(), Tone::Fine)),
                     // The words stay where they were: nothing is lost, and nothing is sent twice by itself.
                     Err(error) => this.note = Some((format!("not sent: {error:#}"), Tone::Wrong)),
                 }
@@ -423,11 +460,14 @@ impl MailView {
         }
     }
 
-    /// The draft goes onto the answer line, to change before it is sent.
+    /// The draft becomes the answer being written (to the conversation's other person), to change
+    /// before it is sent: by E and by Edit alike.
     fn edit_draft(&mut self, cx: &mut Context<'_, Self>) {
-        let (Some(store), Some(id)) = (&self.store, self.chosen) else { return };
+        let Some(id) = self.chosen else { return };
         if let Some(draft) = self.thread.as_ref().and_then(|thread| thread.draft.clone()) {
-            self.compose = draft.text;
+            self.start_reply(keys::Everyone::One);
+            self.compose.body = draft.text;
+            let Some(store) = &self.store else { return };
             if let Err(error) = store.drop_draft(id) {
                 log::warn!("mail: {error:#}");
             }
@@ -459,20 +499,33 @@ impl MailView {
         cx.notify();
     }
 
-    /// The text being typed on: the answer line, or the form's field in use.
+    /// The text being typed on: the form's field in use, the search, or the mail being written.
     fn typed_mut(&mut self) -> &mut String {
-        match &mut self.form {
-            Some(form) => form.typed_mut(),
-            None => &mut self.compose,
+        let search = self.typing_search();
+        match (&mut self.form, search) {
+            (Some(form), _) => form.typed_mut(),
+            (None, true) => self.searching.get_or_insert_default(),
+            (None, false) => self.compose.text_mut(),
         }
+    }
+
+    /// Whether typed text is taken now: only where text is typed.
+    fn takes_text(&self) -> bool {
+        self.form.is_some() || (self.mode == keys::Mode::Insert && self.overlay.is_none())
     }
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<'_, Self>) {
         let keys = &event.keystroke;
         let held = keys.modifiers.control || keys.modifiers.platform;
-        if keys.key == "v" && held && !keys.modifiers.alt {
+        if keys.key == "v" && held && !keys.modifiers.alt && self.takes_text() {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                let text = if self.form.is_some() { text.trim().to_owned() } else { text };
+                let text = if self.form.is_some()
+                    || self.mode == keys::Mode::Insert && self.compose.part != compose::Part::Body
+                {
+                    text.trim().to_owned()
+                } else {
+                    text
+                };
                 self.typed_mut().push_str(&text);
             }
         } else if keys.key == "escape" && self.menu.is_some() {
@@ -481,21 +534,9 @@ impl MailView {
             if !self.form_key(keys, window, cx) {
                 return;
             }
-        } else {
-            match keys.key.as_str() {
-                "enter" if held => {
-                    let text = self.compose.clone();
-                    self.send(text, cx);
-                }
-                "enter" if !keys.modifiers.alt => self.compose.push('\n'),
-                "backspace" => {
-                    self.compose.pop();
-                }
-                "escape" => cx.emit(MailEvent::Leave),
-                "up" if self.compose.is_empty() => self.step(-1, cx),
-                "down" if self.compose.is_empty() => self.step(1, cx),
-                _ => return,
-            }
+        } else if !self.take_key(keys, window, cx) {
+            // Not the view's: typed where text is typed, and the window's keys go on to the window.
+            return;
         }
         cx.stop_propagation();
         cx.notify();
@@ -547,7 +588,12 @@ impl EntityInputHandler for MailView {
         cx: &mut Context<'_, Self>,
     ) {
         self.composing.clear();
-        self.typed_mut().push_str(text);
+        if self.takes_text() {
+            self.typed_mut().push_str(text);
+            if self.searching.is_some() {
+                self.refresh(Read::Always);
+            }
+        }
         cx.notify();
     }
 
@@ -644,9 +690,22 @@ impl MailView {
             .bg(seen_through(theme.bar(), theme.opacity))
             .border_r_1()
             .border_color(colors.rule)
-            .child(self.mailboxes(cx))
-            .child(self.status_line())
-            .child(self.filters(cx))
+            .child(
+                div()
+                    .flex_none()
+                    .border_1()
+                    .border_color(self.zone_edge(keys::Zone::Mailboxes))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.zone = keys::Zone::Mailboxes;
+                            cx.notify();
+                        }),
+                    )
+                    .child(self.mailboxes(cx))
+                    .child(self.status_line())
+                    .child(self.filters(cx)),
+            )
             .child(
                 div()
                     .id("threads")
@@ -657,6 +716,15 @@ impl MailView {
                     .flex()
                     .flex_col()
                     .gap_1()
+                    .border_1()
+                    .border_color(self.zone_edge(keys::Zone::List))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.zone = keys::Zone::List;
+                            cx.notify();
+                        }),
+                    )
                     .children(rows),
             )
     }
@@ -672,6 +740,8 @@ impl MailView {
     ) -> gpui::Stateful<gpui::Div> {
         let colors = self.colors();
         let on = press == Press::On;
+        // Where the keys of [1] are: Enter shows that mailbox.
+        let cursor = self.zone == keys::Zone::Mailboxes && id == self.box_at() && self.form.is_none();
         div()
             .id(("mailbox", id))
             .flex()
@@ -681,7 +751,14 @@ impl MailView {
             .py(px(2.))
             .rounded_full()
             .border_1()
-            .border_color(if on { colors.rule } else { gpui::transparent_black() })
+            .border_color(if cursor {
+                colors.accent
+            } else if on {
+                colors.rule
+            } else {
+                gpui::transparent_black()
+            })
+            .when(cursor, gpui::Styled::border_dashed)
             .when(on, |pill| pill.bg(colors.well))
             .text_size(px(12.))
             .text_color(if on { colors.ink } else { colors.muted })
@@ -961,7 +1038,8 @@ impl MailView {
                     ),
             )
             .child(self.button("archive", "Archive", Weight::Plain, cx.listener(|this, _, _, cx| this.archive(cx))));
-        let mut items: Vec<gpui::AnyElement> = thread.mails.iter().map(|mail| self.bubble(mail, cx)).collect();
+        let mut items: Vec<gpui::AnyElement> =
+            thread.mails.iter().enumerate().map(|(at, mail)| self.bubble(mail, at, cx)).collect();
         if let Some(draft) = &thread.draft {
             items.push(self.draft_box(draft, cx));
         }
@@ -976,12 +1054,40 @@ impl MailView {
             .flex()
             .flex_col()
             .gap_3()
+            .border_1()
+            .border_color(if self.zone == keys::Zone::Conversation {
+                colors.accent.opacity(0.5)
+            } else {
+                gpui::transparent_black()
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.zone = keys::Zone::Conversation;
+                    cx.notify();
+                }),
+            )
             .children(items);
-        div().flex_1().min_w_0().h_full().flex().flex_col().child(head).child(stream).child(self.answer_line(cx))
+        let compose = div()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.zone != keys::Zone::Compose {
+                        this.zone = keys::Zone::Compose;
+                        if this.compose.to.is_empty() && this.compose.kind == compose::Kind::Reply {
+                            this.start_reply(keys::Everyone::One);
+                        }
+                        this.mode = keys::Mode::Insert;
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(self.compose_area(cx));
+        div().flex_1().min_w_0().h_full().flex().flex_col().child(head).child(stream).child(compose)
     }
 
     /// One mail as a bubble: theirs on the left, yours on the right.
-    fn bubble(&self, mail: &unifyterm_mail::Mail, cx: &mut Context<'_, Self>) -> gpui::AnyElement {
+    fn bubble(&self, mail: &unifyterm_mail::Mail, at: usize, cx: &mut Context<'_, Self>) -> gpui::AnyElement {
         let colors = self.colors();
         let theme = &self.settings.theme;
         let (own, quoted) = message::fold_quote(&mail.text);
@@ -997,7 +1103,13 @@ impl MailView {
             .py_2()
             .rounded(px(theme.panel_rounding() + 4.))
             .border_1()
-            .border_color(if mail.outgoing { colors.blue_edge } else { colors.rule })
+            .border_color(if self.zone == keys::Zone::Conversation && at == self.mail_cursor {
+                colors.accent
+            } else if mail.outgoing {
+                colors.blue_edge
+            } else {
+                colors.rule
+            })
             .bg(if mail.outgoing { colors.blue } else { colors.panel })
             .flex()
             .flex_col()
@@ -1019,7 +1131,7 @@ impl MailView {
                     .text_size(px(13.5))
                     // Words that wrap are given the width they wrap at: measured and drawn alike.
                     .when(wraps, |text| text.w(px(widest - BUBBLE_INSIDE)))
-                    .child(SharedString::from(words)),
+                    .child(self.words(&words, at)),
             );
         if quoted > 0 {
             let label =
@@ -1120,75 +1232,30 @@ impl MailView {
                                 "send-draft",
                                 "Send",
                                 Weight::Strong,
-                                cx.listener(|this, _, _, cx| this.send_draft(cx)),
+                                cx.listener(|this, _, _, cx| {
+                                    this.ask_send_draft();
+                                    cx.notify();
+                                }),
                             )),
                     ),
             )
             .into_any_element()
     }
 
-    /// The line an answer is written on: what is typed, the cursor, and Send.
-    fn answer_line(&self, cx: &mut Context<'_, Self>) -> gpui::Div {
-        let colors = self.colors();
-        let theme = &self.settings.theme;
-        let empty = self.compose.is_empty() && self.composing.is_empty();
-        let shown: SharedString = if empty {
-            "Write an answer…  Ctrl+Enter sends".into()
-        } else {
-            format!("{}{}", self.compose, self.composing).into()
-        };
-        let (view, painted) = (cx.entity(), cx.entity());
-        let focus = self.focus.clone();
-        let note = self.note.clone().map(|(text, tone)| {
-            div()
-                .px_1()
-                .text_size(px(12.))
-                .text_color(if tone == Tone::Wrong { colors.wrong } else { colors.muted })
-                .child(SharedString::from(text))
-        });
-        div().flex_none().mx_5().mb_3().flex().flex_col().gap_1().children(note).child(
-            div()
-                .flex()
-                .items_end()
-                .gap_2()
-                .p_2()
-                .rounded(px(theme.panel_rounding() + 2.))
-                .border_1()
-                .border_color(colors.edge)
-                .bg(colors.panel)
-                .child(
-                    div()
-                        .relative()
-                        .flex_1()
-                        .min_h(px(40.))
-                        .max_h(px(160.))
-                        .px_1()
-                        .text_size(px(13.5))
-                        .text_color(if empty { colors.muted } else { colors.ink })
-                        .child(shown)
-                        .child(
-                            canvas(
-                                move |bounds, _, cx| view.update(cx, |view, _| view.input_bounds = Some(bounds)),
-                                move |bounds, (), window, cx| {
-                                    window.handle_input(&focus, ElementInputHandler::new(bounds, painted), cx);
-                                },
-                            )
-                            .absolute()
-                            .size_full(),
-                        ),
-                )
-                .child(self.button(
-                    "send",
-                    if self.sending { "Sending…" } else { "Send" },
-                    Weight::Strong,
-                    cx.listener(|this, _, _, cx| {
-                        let text = this.compose.clone();
-                        this.send(text, cx);
-                    }),
-                )),
-        )
+    /// A mail's words: the part selected in VISUAL, when it is this mail, marked.
+    fn words(&self, words: &str, at: usize) -> gpui::AnyElement {
+        let text = SharedString::from(words.to_owned());
+        match self.visual.filter(|visual| self.mode == keys::Mode::Visual && visual.mail == at) {
+            Some(visual) => {
+                let marked = gpui::HighlightStyle {
+                    background_color: Some(crate::solid(self.settings.theme.ansi[3]).opacity(0.45)),
+                    ..gpui::HighlightStyle::default()
+                };
+                gpui::StyledText::new(text).with_highlights(vec![(visual.bytes(words), marked)]).into_any_element()
+            }
+            None => text.into_any_element(),
+        }
     }
-
     /// The menu of a mailbox: sign in again, change it, remove it (asked twice).
     fn menu(&self, cx: &mut Context<'_, Self>) -> Option<gpui::AnyElement> {
         let menu = self.menu.clone()?;
@@ -1380,18 +1447,24 @@ impl Render for MailView {
         let body =
             div().flex_1().min_w_0().flex().when(!self.plans.is_empty(), |body| body.child(self.list(cx))).child(right);
         let menu = self.menu(cx);
+        let overlay = self.overlay_card();
+        let status = (!self.plans.is_empty() || self.form.is_some()).then(|| self.foot_line(cx));
         let theme = &self.settings.theme;
         div()
             .track_focus(&self.focus)
+            .relative()
             .size_full()
             .flex()
+            .flex_col()
             // As the terminal: the theme's color behind it, or, under a wallpaper, what the window drew.
             .when(self.settings.backdrop == Backdrop::Color, |view| {
                 view.bg(seen_through(theme.background, theme.opacity))
             })
             .text_color(colors.ink)
             .on_key_down(cx.listener(Self::key_down))
-            .child(body)
+            .child(body.min_h_0())
+            .children(status)
+            .children(overlay)
             .children(menu)
     }
 }

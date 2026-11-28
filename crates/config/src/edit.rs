@@ -439,7 +439,7 @@ mod tests {
             assert!(key(name).is_some(), "{name} has no entry in KEYS");
         }
         let unset_by_default = KEYS.iter().filter(|key| !written.iter().any(|name| name == key.name)).count();
-        assert_eq!((written.len(), unset_by_default), (54, 37), "54 with a default written, 37 that are not set");
+        assert_eq!((written.len(), unset_by_default), (55, 37), "55 with a default written, 37 that are not set");
         let mut names: Vec<&str> = KEYS.iter().map(|key| key.name).collect();
         names.sort_unstable();
         names.dedup();
@@ -453,7 +453,7 @@ mod tests {
                 used(crate::Applies::SidebarShown),
                 used(crate::Applies::NextStart)
             ),
-            (69, 4, 2, 16)
+            (70, 4, 2, 16)
         );
     }
 

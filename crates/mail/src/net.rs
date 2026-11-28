@@ -451,11 +451,17 @@ fn tell_seen(session: &mut Session, store: &Store, account: &str) -> Result<()> 
     let mut folders: Vec<&str> = untold.iter().map(|mail| mail.folder.as_str()).collect();
     folders.dedup();
     for folder in folders {
-        let these: Vec<&crate::store::Untold> = untold.iter().filter(|mail| mail.folder == folder).collect();
         session.select(folder)?;
-        let uids: Vec<u32> = these.iter().map(|mail| mail.uid).collect();
-        session.uid_store(uid_set(&uids), "+FLAGS (\\Seen)")?;
-        store.told(&these.iter().map(|mail| mail.id).collect::<Vec<_>>())?;
+        for (seen, change) in [(true, "+FLAGS (\\Seen)"), (false, "-FLAGS (\\Seen)")] {
+            let these: Vec<&crate::store::Untold> =
+                untold.iter().filter(|mail| mail.folder == folder && mail.seen == seen).collect();
+            if these.is_empty() {
+                continue;
+            }
+            let uids: Vec<u32> = these.iter().map(|mail| mail.uid).collect();
+            session.uid_store(uid_set(&uids), change)?;
+            store.told(&these.iter().map(|mail| mail.id).collect::<Vec<_>>())?;
+        }
     }
     Ok(())
 }

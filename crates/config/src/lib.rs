@@ -162,14 +162,16 @@ pub struct WindowConfig {
 /// macOS. Ctrl-Shift on Windows and Linux, where Ctrl alone belongs to the
 /// program in the terminal; Cmd on macOS. Full screen: F11 and Alt-Enter as
 /// in Windows Terminal; Cmd-Enter and Ctrl-Cmd-F, the Mac's own key.
-pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 12] = [
+pub const DEFAULT_KEYS: [(&str, &[&str], &[&str]); 13] = [
     ("new_tab", &["ctrl-shift-t"], &["cmd-t"]),
     ("close_tab", &["ctrl-shift-w"], &["cmd-w"]),
     ("next_tab", &["ctrl-tab"], &["ctrl-tab"]),
     ("previous_tab", &["ctrl-shift-tab"], &["ctrl-shift-tab"]),
     ("copy", &["ctrl-shift-c"], &["cmd-c"]),
     ("paste", &["ctrl-shift-v", "shift-insert"], &["cmd-v"]),
-    ("agents", &["ctrl-shift-a"], &["cmd-shift-a"]),
+    // Select all as Windows Terminal, GNOME Terminal and Konsole have it, and as every Mac program.
+    ("select_all", &["ctrl-shift-a"], &["cmd-a"]),
+    ("agents", &["ctrl-shift-j"], &["cmd-shift-j"]),
     ("tab_bar", &["ctrl-shift-b"], &["cmd-shift-b"]),
     ("full_screen", &["f11", "alt-enter"], &["cmd-enter", "ctrl-cmd-f"]),
     ("explain", &["ctrl-shift-e"], &["ctrl-shift-e"]),
@@ -189,6 +191,8 @@ pub struct KeysConfig {
     pub previous_tab: Vec<String>,
     pub copy: Vec<String>,
     pub paste: Vec<String>,
+    /// Select everything the tab holds, its history too: then copy takes it.
+    pub select_all: Vec<String>,
     /// Show or hide the agents' sidebar.
     pub agents: Vec<String>,
     /// The row of tabs out of the way, or always there again.
@@ -217,6 +221,7 @@ impl Default for KeysConfig {
             previous_tab: of("previous_tab"),
             copy: of("copy"),
             paste: of("paste"),
+            select_all: of("select_all"),
             agents: of("agents"),
             tab_bar: of("tab_bar"),
             full_screen: of("full_screen"),
@@ -230,7 +235,7 @@ impl Default for KeysConfig {
 impl KeysConfig {
     /// Every command with its keys, by its name in `[keys]`, in the file's order.
     #[must_use]
-    pub fn all(&self) -> [(&'static str, &Vec<String>); 12] {
+    pub fn all(&self) -> [(&'static str, &Vec<String>); 13] {
         [
             ("new_tab", &self.new_tab),
             ("close_tab", &self.close_tab),
@@ -238,6 +243,7 @@ impl KeysConfig {
             ("previous_tab", &self.previous_tab),
             ("copy", &self.copy),
             ("paste", &self.paste),
+            ("select_all", &self.select_all),
             ("agents", &self.agents),
             ("tab_bar", &self.tab_bar),
             ("full_screen", &self.full_screen),

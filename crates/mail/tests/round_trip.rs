@@ -342,3 +342,79 @@ fn fake_account(fake: &Fake, auth: MailAuth) -> Account {
     Account::new(ME, &format!("127.0.0.1:{}", fake.imap_port), &format!("127.0.0.1:{}", fake.smtp_port), "", "", auth)
         .expect("account")
 }
+
+#[test]
+fn answers_go_to_whom_the_person_chose_and_a_new_mail_starts_its_own_conversation() {
+    let fake = Fake::start(ME, PASSWORD).expect("servers");
+    let folder = tempfile::tempdir().expect("folder");
+    let plan = plan(&fake, folder.path(), PASSWORD);
+    fake.deliver("INBOX", &mail("a1@example.com", "林晓 <lin@example.com>", ME, "发布", "", "周四？"), Read::Unseen);
+    sync::once(&plan).expect("sync");
+    let store = Store::open(&plan.store).expect("store");
+    let thread = store.threads(5, Filter::Inbox, None).expect("list")[0].id;
+    let chosen = unifyterm_mail::Recipients {
+        to: vec![unifyterm_mail::Address::new("林晓", "lin@example.com")],
+        cc: vec![unifyterm_mail::Address::new("Alex", "alex@example.com")],
+    };
+    unifyterm_mail::send_answer_to(std::slice::from_ref(&plan), thread, "可以", Some(&chosen)).expect("sent");
+    let sent = fake.sent();
+    assert_eq!(sent[0].1, ["lin@example.com", "alex@example.com"], "To and the Cc chosen");
+    assert!(String::from_utf8_lossy(&sent[0].2).contains("Cc: Alex <alex@example.com>"));
+    let nobody = unifyterm_mail::Recipients::default();
+    assert!(unifyterm_mail::send_answer_to(std::slice::from_ref(&plan), thread, "x", Some(&nobody)).is_err());
+    let to_ops =
+        unifyterm_mail::Recipients { to: vec![unifyterm_mail::Address::new("", "ops@example.com")], cc: Vec::new() };
+    unifyterm_mail::send_new(&plan, &to_ops, "下载页", "恢复了吗？").expect("a new mail");
+    let sent = fake.sent();
+    assert_eq!(sent.len(), 2);
+    let raw = String::from_utf8_lossy(&sent[1].2).into_owned();
+    assert!(raw.contains("Subject:") && !raw.contains("In-Reply-To"), "a new mail answers nothing: {raw}");
+    let threads = store.threads(5, Filter::All, None).expect("list");
+    assert_eq!(threads.len(), 2, "a conversation of its own");
+    assert!(threads.iter().any(|summary| summary.subject == "下载页" && !summary.waiting));
+}
+
+#[test]
+fn unread_again_reaches_the_server_and_an_attachment_is_fetched_once() {
+    let fake = Fake::start(ME, PASSWORD).expect("servers");
+    let folder = tempfile::tempdir().expect("folder");
+    let plan = plan(&fake, folder.path(), PASSWORD);
+    let with_file = format!(
+        "Message-ID: <f1@example.com>\r\nFrom: lin@example.com\r\nTo: {ME}\r\nSubject: notes\r\nDate: Thu, 26 Nov 2026 10:42:00 +0800\r\n\
+         MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nsee the file\r\n\
+         --b\r\nContent-Type: text/plain; name=\"notes 1.txt\"\r\nContent-Disposition: attachment; filename=\"notes 1.txt\"\r\nContent-Transfer-Encoding: base64\r\n\r\naGVsbG8gZmlsZQ==\r\n--b--\r\n"
+    );
+    let uid = fake.deliver("INBOX", with_file.as_bytes(), Read::Seen);
+    sync::once(&plan).expect("sync");
+    let store = Store::open(&plan.store).expect("store");
+    let thread = store.threads(5, Filter::Inbox, None).expect("list")[0].id;
+    let shown = store.thread(thread).expect("read").expect("there");
+    assert_eq!(shown.mails[0].attachments[0].name, "notes 1.txt");
+    // A file cut short by a fetch that stopped is not the file kept.
+    let folder = plan.store.parent().expect("a folder").join("mail-files").join(shown.mails[0].id.to_string());
+    std::fs::create_dir_all(&folder).expect("folder");
+    std::fs::write(folder.join(".part-0-1-1"), "hel").expect("cut short");
+    let file = unifyterm_mail::attachment_file(std::slice::from_ref(&plan), shown.mails[0].id, 0).expect("fetched");
+    assert_eq!(std::fs::read_to_string(&file).expect("read"), "hello file");
+    let names: Vec<String> = std::fs::read_dir(&folder)
+        .expect("listed")
+        .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
+        .collect();
+    assert_eq!(
+        names.iter().filter(|name| name.starts_with(".part")).count(),
+        1,
+        "its own written whole and renamed: {names:?}"
+    );
+    fake.set_down(Down::Down);
+    let again = unifyterm_mail::attachment_file(std::slice::from_ref(&plan), shown.mails[0].id, 0).expect("kept");
+    assert_eq!(again, file, "the second time from this machine: the server is not asked");
+    assert!(
+        unifyterm_mail::attachment_file(std::slice::from_ref(&plan), shown.mails[0].id, 1).is_err(),
+        "no such file"
+    );
+    fake.set_down(Down::Up);
+    store.mark_unread(thread).expect("unread");
+    sync::once(&plan).expect("sync");
+    assert!(!fake.is_seen("INBOX", uid), "the server took \\Seen away");
+    assert_eq!(store.unread(None).expect("unread"), 1, "and it stays unread here");
+}

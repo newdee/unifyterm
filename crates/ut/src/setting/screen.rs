@@ -907,11 +907,11 @@ mod tests {
         let (_directory, mut screen) = opened("");
         typed(&mut screen, "/color");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/color   23 of 91");
+        assert_eq!(lines[1], "/color   23 of 92");
         assert!(lines.iter().any(|line| line == "[theme]") && !lines.iter().any(|line| line == "[font]"));
         typed(&mut screen, "zzz");
         let lines = text(&mut screen, 100, 30);
-        assert_eq!(lines[1], "/colorzzz   0 of 91");
+        assert_eq!(lines[1], "/colorzzz   0 of 92");
         assert_eq!(lines[lines.len() - 3], "no setting has that in its name or its help");
         assert_eq!(press(&mut screen, &[KeyCode::Enter, KeyCode::Enter]), Next::Stay, "Enter on nothing does nothing");
     }

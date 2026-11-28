@@ -1,5 +1,40 @@
 # 验收记录
 
+## 2026-11-28 · 0.9.4：邮件全键盘操作、附件、抄送和新邮件；全选；侧栏换键
+
+用户："现在邮箱界面只能鼠标点击吗？不能用按键操作吗？"，要一套类似 keepane dashboard 的按键：分区、NORMAL/INSERT 模式、选中邮件内容复制或引用、抄送、添加联系人时列出联系人、查看附件。HTML demo（`keys-demo.html`）看过后："html的demo可以，就这样做吧，做完发版"。同一轮里用户指出 Ctrl+Shift+A 开侧栏和"全选"冲突，选了 Ctrl+Shift+J。
+
+做了什么：
+
+- 四个区 [1] 邮箱和筛选、[2] 会话列表、[3] 会话、[4] 写信；1–4、Tab、h/l、鼠标点击切换；当前区有框；底部状态行显示模式、区和这个区的键，`?` 列出全部。键位见 README 的 "By keys"。
+- 写信：To/Cc 是联系人小块，输入时按往来次数列出联系人（`Store::contacts`，从所有邮件的 from/to/cc 统计，去掉自己的地址），↑↓ Enter 选；新邮件有主题，从当前显示的邮箱发出，自成一个会话（`send_new`）；回复可以改收件人（`send_answer_to`）。所有发信都先确认（Ctrl+Enter、Send、S、草稿的 Send）。
+- VISUAL 按字选、按行选，y 复制，`>` 引用进回复。U 标为未读并告诉服务器（`seen_told=2`，`-FLAGS (\Seen)`）。e 归档、D 丢草稿可以 u 撤销。
+- 附件：t 列出，Enter 用系统程序打开，s 存到 Downloads（不覆盖同名），p 在窗口里看图片或文本。第一次从服务器取（`UID FETCH BODY.PEEK[]`），之后用 `mail-files/` 里的。
+- 终端：Ctrl+Shift+A（macOS Cmd+A）全选，含历史；侧栏改为 Ctrl+Shift+J（Cmd+Shift+J）。设置项 92 个（`keys.select_all`），网站印章随之改为 92。
+
+定性：
+
+- 新功能，不是修 bug。中途发现的问题逐条定性：
+- 草稿 Edit（鼠标）不建立回复，To 为空发不出：共性（同一动作两条路径不一致），收敛为 `edit_draft` 内部先 `start_reply`，E 键和按钮共用。
+- 草稿的 Send 按钮直接发出，其他发信都先确认：共性，收敛为 `ask_send_draft`，S 键和按钮共用。
+- 存到 Downloads 用了发件人给的文件名：`../x`、`/etc/x` 会写到别处（安全问题）。共性：缓存那一处已经清理，这一处漏了；改为两处都用 `unifyterm_mail::safe_name`，并加测试（4 种越界名都留在目录内、同名不覆盖、空名）。
+- 附件缓存不是原子写：边界遗漏，改为先写 `.part-…` 再改名。测试只能证明临时文件不会被当成缓存、写完会改名；"中途停下不留半截文件"由先写后改名的写法保证，这一点是推断。
+- 回复发送中开始写的新信，发完会被清空：边界遗漏，改为只清掉发出去的那封（`Compose::same_mail`），有测试。
+- 只有一个邮箱时 [1] 的光标落在不显示的 All 上：边界遗漏，加 `box_at`。
+
+新 bug 风险评估：原来"在邮件界面直接打字就是回复"的行为没有了，改为 r 或点击回复框；NORMAL 不用的键不再被吞掉，交给窗口（Ctrl+Shift+M、Ctrl+Tab 照常）。添加邮箱的表单仍走原来的按键路径。发信、未读、附件都在 `fake_mailbox` 上实测过。
+
+验收（前 5 轮有发现，之后连续三轮干净）：
+
+1. 实机第 1、2 次：遮罩没铺满窗口（`inset_0` 改为 `top_0/left_0/size_full`）；写信时搜索仍抢输入（新增 `typing_search`，只在 [2] 的 INSERT 里）；换会话后旧回复还在；插入符单独折行。第 3 次：搜索框没有输入处理器；帮助卡片超出窗口。都改掉，不计数。其间两次失败是检查脚本的错：`{KEY:?}` 发的键码不对（给 shot.ps1 加了 SLASH、PERIOD、COMMA），点击坐标没扣标题栏 30 像素。这两次照规则不重计。
+2. 静态审读：草稿 Edit 不建立回复。不计数。
+3. 不变量：草稿 Send 不确认。不计数。实机核对：Send 按钮弹确认，Edit 带出 To=Alex Chen。
+4. 边界：Downloads 文件名越界。不计数。
+5. 并发和错误路径：附件非原子写；发送中开始的新信被清空。不计数。
+6. 不变量（干净）：发信函数 2 个，各只有 1 个调用方，都在确认之后；确认入口 4 个；`typed_mut` 2 个调用方都受 `takes_text` 约束；`handle_input` 3 处，都只在对应的输入框激活时注册。测试 375 通过 0 失败（config、mail、unifyterm、ut）。
+7. 端到端（干净）：实机发新信（c，To 选林晓，主题 keys test，Ctrl+Enter，y），列表出现新会话，Sent 2→3；回复 "second line"，Sent 3→4，To answer 12→11。此前一轮的 3 个变异（联系人不排除已选、VISUAL 少一个字、`server_seen` 不跳过 `seen_told=2`）都被测试抓到，文件按字节还原；全选后空行像素 23,23,22 → 60,59,56。
+8. 可复现（干净）：4 个 crate 的测试连跑 3 次，10 个套件的结果行哈希相同（`64-FD-15-DF-AB-D8`）；fmt、workspace clippy 0；docs-check、site-check、scripts-check 0 失败；隐私 0、CRLF 0。
+
 ## 2026-11-28 · 0.9.3：邮箱界面跟着窗口宽度排
 
 发布：CI 三个系统全绿；标签 `v0.9.3`；release 成功，Release 18 个文件。keepane 维护者在 #unifyterm-keepane 转达用户的要求（用户随后确认

@@ -20,7 +20,7 @@ use crate::keys::{self, Mods, MouseAction};
 use crate::recorder::Recorder;
 use crate::session::{CursorShape, Focus, Half, MouseTracking, Notice, PtyEvent, SelectBy, Session};
 use crate::theme::{Rgb, Theme};
-use crate::{Copy, Explain, Paste, boxdraw, powerline, shine};
+use crate::{Copy, Explain, Paste, SelectAll, boxdraw, powerline, shine};
 use std::time::{Duration, Instant};
 
 /// What is behind a tab's text.
@@ -1009,6 +1009,11 @@ impl TerminalView {
         self.copy_selection(cx);
     }
 
+    fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<'_, Self>) {
+        self.session.select_all();
+        cx.notify();
+    }
+
     fn paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<'_, Self>) {
         self.paste_clipboard(cx);
     }
@@ -1259,6 +1264,7 @@ impl Render for TerminalView {
             })
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(|view, _: &Explain, _, cx| view.explain(cx)))
             .on_key_down(cx.listener(Self::key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))

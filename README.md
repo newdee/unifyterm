@@ -72,7 +72,7 @@ From source: `cargo build --release` with Rust 1.93 or later; on Windows run `pw
 
 ## Keys
 
-On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first twelve, down to "Add a mailbox", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
+On macOS the window's own keys use Cmd, as the second column shows; the keys at the prompt are the same everywhere. The first thirteen, down to "Add a mailbox", are the keys until you give others: each is a setting in `[keys]` (below), and a change is the window's key at once. The keys of the list and the popups are fixed.
 
 | Key | macOS | What it does |
 |---|---|---|
@@ -82,7 +82,8 @@ On macOS the window's own keys use Cmd, as the second column shows; the keys at 
 | Ctrl-Shift-Tab | Ctrl-Shift-Tab | The tab before |
 | Ctrl-Shift-C | Cmd-C | Copy the selection |
 | Ctrl-Shift-V, Shift-Insert | Cmd-V | Paste |
-| Ctrl-Shift-A | Cmd-Shift-A | Show or hide the agents' sidebar |
+| Ctrl-Shift-A | Cmd-A | Select everything the tab holds, its history too |
+| Ctrl-Shift-J | Cmd-Shift-J | Show or hide the agents' sidebar |
 | Ctrl-Shift-B | Cmd-Shift-B | The row of tabs out of the way (`window.tab_bar = "auto-hide"`), or always there again: for this window, until the setting is changed |
 | F11, Alt-Enter | Cmd-Enter, Ctrl-Cmd-F | Full screen, over the taskbar; again to leave it. A program in the terminal no longer gets Alt-Enter |
 | Ctrl-Shift-E | Ctrl-Shift-E | Explain the command on the line |
@@ -124,6 +125,7 @@ UnifyTerm reads the file again whenever it changes, by `ut setting` or by an edi
 | `keys.previous_tab` | as above | The keys for the tab before |
 | `keys.copy` | as above | The keys that copy the selection |
 | `keys.paste` | as above | The keys that paste |
+| `keys.select_all` | as above | The keys that select everything the tab holds, its history too |
 | `keys.agents` | as above | The keys that show or hide the agents' sidebar |
 | `keys.tab_bar` | as above | The keys that put the row of tabs out of the way, or back |
 | `keys.full_screen` | as above | The keys for full screen, and out of it |
@@ -273,7 +275,18 @@ After a shell's start files have run, UnifyTerm's commands are put first in `PAT
 
 ### Mail
 
-Ctrl-Shift-M (Cmd-Shift-M on macOS) shows your mailboxes in the window, in place of the terminal; pressed again, the terminal is back, and so it is after a click on a tab. The mailboxes are named at the top left: All shows every mailbox's conversations together, each marked with its mailbox; a name shows only that one. Under them, All, Unread, To answer (the newest mail is someone else's) and Sent (the newest is yours, waiting for theirs). There is no separate inbox and sent folder: a conversation holds both. The conversations are on the left, newest first. On the right is the chosen one as bubbles: the other person's mails on the left, yours on the right, the mail they quote folded under a link. Type an answer at the foot and press Ctrl-Enter or Send. The colors are the theme's, and a theme's wallpaper shows behind the bubbles.
+Ctrl-Shift-M (Cmd-Shift-M on macOS) shows your mailboxes in the window, in place of the terminal; pressed again, the terminal is back, and so it is after a click on a tab. The mailboxes are named at the top left: All shows every mailbox's conversations together, each marked with its mailbox; a name shows only that one. Under them, All, Unread, To answer (the newest mail is someone else's) and Sent (the newest is yours, waiting for theirs). There is no separate inbox and sent folder: a conversation holds both. The conversations are on the left, newest first. On the right is the chosen one as bubbles: the other person's mails on the left, yours on the right, the mail they quote folded under a link. Write an answer at the foot (r, or a click there) and press Ctrl-Enter or Send. The colors are the theme's, and a theme's wallpaper shows behind the bubbles.
+
+**By keys.** The mail has four parts, each with keys of its own: [1] the mailboxes and filters, [2] the conversations, [3] the conversation shown, [4] the mail being written. 1 to 4, Tab, h and l go to them, and so does a click; the part the keys go to has a line round it. The line at the foot names the mode, the part and its keys; `?` shows every key. In NORMAL a key is a command: j and k move, g and G go to the first and the last, Ctrl-d and Ctrl-u move five at a time, f and F change the filter, `/` searches (typed at the foot; Enter keeps what it found, Esc takes it away), c writes a new mail, q or Esc is the terminal again.
+
+- [1]: Enter shows the mailbox, a adds one, s signs it in again, m changes it, x removes it (y to confirm).
+- [2]: Enter opens the conversation, e archives it (u brings it back), U makes it unread again, on the server too, r answers.
+- [3]: j and k go mail by mail, o shows the mail it quotes, y copies the mail, r answers, R answers everyone, `>` quotes the mail into the answer, t lists its files, S, E and D send, edit or drop an agent's draft (u brings a dropped one back). v selects words and V lines (VISUAL): h, l, w, b, j and k move the end, y copies, `>` quotes them into the answer, Esc leaves.
+- [4]: typing is here only (INSERT): i, Enter or a click starts it, Esc ends it with the words kept.
+
+**Writing.** An answer goes to the conversation's other person; R puts the others of its newest mail in Cc. To and Cc hold people: typing a name or an address lists the people your mailboxes have written with, most written with first; ↑↓ and Enter choose one, an address typed whole is taken as it is, and Backspace with nothing typed takes the last one away. Tab goes to To, Cc, the subject (a new mail has one) and the words. Ctrl-Enter or Send asks first, naming to whom it goes; y sends. A new mail goes from the mailbox shown (with All, the first) and starts a conversation of its own. An answer not sent goes when another conversation is shown; a new mail stays.
+
+**Files.** t in a conversation lists the files of the mail the keys are on. Enter opens one with the system's program, s saves it to Downloads (under a new name when that one is taken), p shows a picture or a text in the window. A file is fetched from the server the first time, and kept beside the mail (`mail-files/`) after.
 
 **Adding a mailbox.** Press `+` at the top left, or Ctrl-Alt-Shift-M; with no mailbox yet, the mail opens on the form. Type the address: UnifyTerm says which servers the domain uses and which way in is likely, and you may choose another: an authorization code or app password, a sign-in in the browser, servers by hand, or a program that prints the password. Choose Directly or Through a proxy. "Test and add" connects, logs in, finds the sent folder and logs in to SMTP, and says each step; only when all went is the mailbox written to the settings and the password (or the sign-in) kept in the system's keychain (Windows' Credential Manager, the macOS Keychain, the Secret Service on Linux). A step that fails says why, and nothing is kept. The right button on a mailbox's name signs it in again, changes it, or removes it (its settings, its kept password and the mail kept here; the server keeps its mail).
 
@@ -306,7 +319,7 @@ While a window is open, it reads each mailbox's inbox and sent folder, each mail
 
 When mail comes, ✉ in the row of tabs counts what is unread, and a note shows at the window's foot. `mail.on_new` names a program run for each new mail, with `{thread}`, `{from}`, `{subject}`, `{snippet}` and `{account}` (the mailbox's name) in its words and the mail as JSON on its input; no shell is between, so nothing a mail says is run as a command. `on_new = ["keepane", "send-message", "--to", "%3", "Mail {thread} from {from}: {subject}"]` tells an agent in keepane.
 
-**Agents write drafts; you send.** An agent reads the mailboxes through `ut mcp` (`mail_threads`, `mail_thread`, `mail_search`; each conversation says its mailbox) and keeps an answer with `mail_draft`, or with `ut mail draft`. The draft shows in its conversation in a dashed box, with Drop, Edit and Send. No tool sends: an answer goes out from the mailbox its conversation is in, when you press Send or Ctrl-Enter, or answer y to `ut mail send`. The tools give mails with a note that their words are other people's, to be read as data. An agent that can run commands could still send mail its own way (with curl, say): this keeps the agent's tools from sending; it cannot stop a program.
+**Agents write drafts; you send.** An agent reads the mailboxes through `ut mcp` (`mail_threads`, `mail_thread`, `mail_search`; each conversation says its mailbox) and keeps an answer with `mail_draft`, or with `ut mail draft`. The draft shows in its conversation in a dashed box, with Drop, Edit and Send. No tool sends: an answer goes out from the mailbox its conversation is in, when you press Send, Ctrl-Enter or S and then y, or answer y to `ut mail send`. The tools give mails with a note that their words are other people's, to be read as data. An agent that can run commands could still send mail its own way (with curl, say): this keeps the agent's tools from sending; it cannot stop a program.
 
 ## Environment variables
 
@@ -376,7 +389,7 @@ The variable named by `ai.api_key_env` holds the model service's key. `ut view` 
 |---|---|---|---|
 | Settings | `%APPDATA%\unifyterm\config.toml` | `~/Library/Application Support/unifyterm/config.toml` | `~/.config/unifyterm/config.toml` |
 | Your own themes | `%APPDATA%\unifyterm\themes` | `~/Library/Application Support/unifyterm/themes` | `~/.config/unifyterm/themes` |
-| History, mail (`mail.db`), log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
+| History, mail (`mail.db`, its files in `mail-files/`), log, links, command lists (`programs/`) | `%LOCALAPPDATA%\unifyterm` | `~/Library/Application Support/unifyterm` | `~/.local/share/unifyterm` |
 
 The history is one SQLite file, `history.db`; a copy works on every system. `update.json` beside it keeps what GitHub last said about the latest version (`updates.check`): once a day the window asks `api.github.com` for it, telling it only `unifyterm/VERSION`.
 

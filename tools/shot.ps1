@@ -97,7 +97,9 @@ public static class Win {
 [void][Win]::SetProcessDPIAware()
 
 $vk = @{ ENTER = 0x0D; ESC = 0x1B; TAB = 0x09; BACKSPACE = 0x08; UP = 0x26; DOWN = 0x28; LEFT = 0x25; RIGHT = 0x27
-         HOME = 0x24; END = 0x23; DELETE = 0x2E; PGUP = 0x21; PGDN = 0x22 }
+         HOME = 0x24; END = 0x23; DELETE = 0x2E; PGUP = 0x21; PGDN = 0x22
+         # The keys of punctuation, as a US keyboard has them: {KEY:SHIFT+SLASH} is ?, {KEY:SHIFT+PERIOD} is >.
+         SLASH = 0xBF; PERIOD = 0xBE; COMMA = 0xBC }
 1..12 | ForEach-Object { $vk["F$_"] = 0x6F + $_ }
 
 function Save-Shot([IntPtr]$h, [string]$path) {

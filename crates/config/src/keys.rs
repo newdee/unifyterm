@@ -119,7 +119,7 @@ const fn setting(name: &'static str, kind: Kind, says: &'static str) -> Key {
 const SEGMENT_PAINTS: Kind = Kind::Paints { least: 1, most: 2 };
 
 /// All of them, in the order they are shown.
-pub const KEYS: [Key; 91] = [
+pub const KEYS: [Key; 92] = [
     setting("font.family", Kind::Text, "The font."),
     setting("font.size", Kind::Number { least: 6.0, most: 72.0 }, "The font's size, in pixels."),
     setting("font.line_height", Kind::Number { least: 1.0, most: 2.0 }, "A line's height as a multiple of the size."),
@@ -161,6 +161,7 @@ pub const KEYS: [Key; 91] = [
     setting("keys.previous_tab", Kind::Keys, "The keys for the tab before."),
     setting("keys.copy", Kind::Keys, "The keys that copy the selection."),
     setting("keys.paste", Kind::Keys, "The keys that paste."),
+    setting("keys.select_all", Kind::Keys, "The keys that select everything the tab holds, its history too."),
     setting("keys.agents", Kind::Keys, "The keys that show or hide the agents' sidebar."),
     setting("keys.tab_bar", Kind::Keys, "The keys that put the row of tabs out of the way, or back."),
     setting("keys.full_screen", Kind::Keys, "The keys for full screen, and out of it."),

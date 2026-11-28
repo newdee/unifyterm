@@ -739,6 +739,15 @@ impl Screen {
         }
     }
 
+    /// Selects everything the terminal holds: its history and the screen, to the last cell.
+    pub(crate) fn select_all(&mut self) {
+        let last = Column(self.term.columns().saturating_sub(1));
+        let mut all =
+            Selection::new(SelectionType::Simple, Point::new(self.term.topmost_line(), Column(0)), Side::Left);
+        all.update(Point::new(self.term.bottommost_line(), last), Side::Right);
+        self.term.selection = Some(all);
+    }
+
     pub(crate) fn clear_selection(&mut self) {
         self.term.selection = None;
     }
@@ -1239,6 +1248,19 @@ pub(crate) mod tests {
         session.select(0, 0, Half::Left, SelectBy::Cell);
         session.select_to(1, 5, Half::Right);
         assert_eq!(session.selection().as_deref(), Some("hello world\nsecond"));
+        session.clear_selection();
+        assert_eq!(session.selection(), None);
+    }
+
+    #[test]
+    fn select_all_takes_the_history_too() {
+        // Three lines on screen, five written: the first two have scrolled into history.
+        let mut session = quiet(20, 3);
+        session.feed(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+        session.select_all();
+        let all = session.selection().expect("something selected");
+        let lines: Vec<&str> = all.lines().map(str::trim_end).filter(|line| !line.is_empty()).collect();
+        assert_eq!(lines, ["one", "two", "three", "four", "five"], "{all:?}");
         session.clear_selection();
         assert_eq!(session.selection(), None);
     }

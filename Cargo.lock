@@ -8081,7 +8081,7 @@ checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "unifyterm"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -8113,7 +8113,7 @@ dependencies = [
 
 [[package]]
 name = "unifyterm-assist"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "dirs 6.0.0",
  "serde",
@@ -8127,7 +8127,7 @@ dependencies = [
 
 [[package]]
 name = "unifyterm-config"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -8139,7 +8139,7 @@ dependencies = [
 
 [[package]]
 name = "unifyterm-history"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -8150,7 +8150,7 @@ dependencies = [
 
 [[package]]
 name = "unifyterm-mail"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -8173,7 +8173,7 @@ dependencies = [
 
 [[package]]
 name = "unifyterm-programs"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "log",
  "serde",
@@ -8273,7 +8273,7 @@ dependencies = [
 
 [[package]]
 name = "ut"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -119,6 +119,9 @@ const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long a write on a thread of its own (a sync, a send) waits for the other writers: the
 /// first syncs of several big mailboxes may hold the file in turn for a while.
 pub const BACKGROUND_WAIT: std::time::Duration = std::time::Duration::from_mins(1);
+/// `seen_told` of a mail made unread here: the server still has it `\Seen`, until it is told.
+/// (0: read here, the server not told; 1: the server agrees.)
+const UNSEEN_UNTOLD: i64 = 2;
 /// How many characters of a mail's first line a list shows.
 const SNIPPET_CHARS: usize = 80;
 
@@ -213,12 +216,25 @@ pub struct Thread {
     pub draft: Option<Draft>,
 }
 
-/// A mail the server knows is not seen, while it is seen here.
+/// A mail whose read state here the server has not been told of yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Untold {
     pub id: i64,
     pub folder: String,
     pub uid: u32,
+    /// Read here (the server is to mark it `\Seen`), or made unread here (to take `\Seen` away).
+    pub seen: bool,
+}
+
+/// Someone the mailboxes have written with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Contact {
+    /// The name a mail gave, when one did.
+    pub name: String,
+    pub addr: String,
+    /// How many mails they sent or were sent.
+    pub count: usize,
+    pub last_at_ms: i64,
 }
 
 /// What the sync last said, for the window to show.
@@ -685,18 +701,91 @@ impl Store {
         Ok(self.db.execute("UPDATE messages SET seen = 1 WHERE thread_id = ?1 AND seen = 0", [thread])?)
     }
 
-    /// Mails of the mailbox `account` read here that the server has not been told of.
+    /// Mails of the mailbox `account` read here, or made unread here, that the server has not been
+    /// told of.
     pub fn untold(&self, account: &str) -> Result<Vec<Untold>> {
         let mut list = self.db.prepare(
-            "SELECT id, folder, uid FROM messages
-             WHERE account = ?1 AND seen = 1 AND seen_told = 0 AND uid IS NOT NULL ORDER BY folder",
+            "SELECT id, folder, uid, seen FROM messages
+             WHERE account = ?1 AND uid IS NOT NULL
+               AND ((seen = 1 AND seen_told = 0) OR seen_told = ?2)
+             ORDER BY folder",
         )?;
-        let rows =
-            list.query_map([account], |row| Ok(Untold { id: row.get(0)?, folder: row.get(1)?, uid: row.get(2)? }))?;
+        let rows = list.query_map(params![account, UNSEEN_UNTOLD], |row| {
+            Ok(Untold { id: row.get(0)?, folder: row.get(1)?, uid: row.get(2)?, seen: row.get(3)? })
+        })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The server has been told these are read.
+    /// The conversation's newest mail from someone else is unread again, here and (at the next
+    /// sync) on the server.
+    pub fn mark_unread(&self, thread: i64) -> Result<()> {
+        self.db.execute(
+            "UPDATE messages SET seen = 0, seen_told = ?2 WHERE id = (
+                 SELECT id FROM messages WHERE thread_id = ?1 AND outgoing = 0 ORDER BY at DESC, id DESC LIMIT 1)",
+            params![thread, UNSEEN_UNTOLD],
+        )?;
+        Ok(())
+    }
+
+    /// Brings an archived conversation back to the inbox.
+    pub fn unarchive(&self, thread: i64) -> Result<()> {
+        self.db.execute("UPDATE threads SET archived = 0 WHERE id = ?1", [thread])?;
+        Ok(())
+    }
+
+    /// Where the server keeps a mail: its mailbox, folder, uid validity and uid; `None` for one
+    /// sent from here whose copy has not come back.
+    pub fn place(&self, mail: i64) -> Result<Option<(String, String, u32, u32)>> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT account, folder, uidvalidity, uid FROM messages WHERE id = ?1 AND uid IS NOT NULL",
+                [mail],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?)
+    }
+
+    /// The people the mailboxes have written with, most often and most lately first: from the
+    /// senders and the receivers of every mail kept, less the mailboxes' own addresses.
+    pub fn contacts(&self, own: &[String], limit: usize) -> Result<Vec<Contact>> {
+        let mut found: std::collections::HashMap<String, Contact> = std::collections::HashMap::new();
+        let mut note = |address: &Address, at: i64| {
+            let addr = address.addr.trim().to_lowercase();
+            if addr.is_empty() || own.contains(&addr) {
+                return;
+            }
+            let entry = found.entry(addr.clone()).or_insert_with(|| Contact {
+                name: String::new(),
+                addr,
+                count: 0,
+                last_at_ms: at,
+            });
+            entry.count += 1;
+            entry.last_at_ms = entry.last_at_ms.max(at);
+            if entry.name.is_empty() && !address.name.trim().is_empty() {
+                address.name.trim().clone_into(&mut entry.name);
+            }
+        };
+        let mut rows = self.db.prepare("SELECT from_name, from_addr, to_json, cc_json, at FROM messages")?;
+        let mut cursor = rows.query([])?;
+        while let Some(row) = cursor.next()? {
+            let at: i64 = row.get(4)?;
+            note(&Address::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?), at);
+            for column in [2, 3] {
+                let list: Vec<Address> = serde_json::from_str(&row.get::<_, String>(column)?)?;
+                for address in &list {
+                    note(address, at);
+                }
+            }
+        }
+        let mut contacts: Vec<Contact> = found.into_values().collect();
+        contacts.sort_by(|a, b| b.count.cmp(&a.count).then(b.last_at_ms.cmp(&a.last_at_ms)).then(a.addr.cmp(&b.addr)));
+        contacts.truncate(limit);
+        Ok(contacts)
+    }
+
+    /// The server has been told these are read, or unread.
     pub fn told(&self, ids: &[i64]) -> Result<()> {
         for id in ids {
             self.db.execute("UPDATE messages SET seen_told = 1 WHERE id = ?1", [id])?;
@@ -720,8 +809,8 @@ impl Store {
             tx.execute(
                 "UPDATE messages SET seen = ?4, seen_told = ?4
                  WHERE folder = ?1 AND uidvalidity = ?2 AND uid = ?3 AND outgoing = 0 AND NOT (seen = 1 AND seen_told = 0)
-                   AND account = ?5",
-                params![folder, uidvalidity, uid, on, account],
+                   AND seen_told != ?6 AND account = ?5",
+                params![folder, uidvalidity, uid, on, account, UNSEEN_UNTOLD],
             )?;
         }
         tx.commit()?;
@@ -1040,6 +1129,47 @@ mod tests {
                 assert_eq!(opener.join().expect("thread"), Ok(()), "every opener finds the tables made");
             }
         }
+    }
+
+    #[test]
+    fn unread_again_is_told_and_the_server_does_not_undo_it() {
+        let mut store = Store::in_memory().expect("store");
+        let thread = thread_of(add(&mut store, "INBOX", 1, &mail("a1", "lin@example.com", "x", &[], 1000)));
+        store.mark_seen(thread).expect("seen");
+        store.told(&store.untold(ME).expect("untold").iter().map(|mail| mail.id).collect::<Vec<_>>()).expect("told");
+        store.server_seen(ME, "INBOX", 7, &[1], &[1]).expect("the server: read");
+        assert_eq!(store.unread(None).expect("unread"), 0);
+        store.mark_unread(thread).expect("unread again");
+        assert_eq!(store.unread(None).expect("unread"), 1);
+        let untold = store.untold(ME).expect("untold");
+        assert_eq!((untold.len(), untold[0].seen), (1, false), "the server is to take \\Seen away");
+        store.server_seen(ME, "INBOX", 7, &[1], &[1]).expect("the server still says read");
+        assert_eq!(store.unread(None).expect("unread"), 1, "not undone before the server is told");
+        store.told(&[untold[0].id]).expect("told");
+        assert!(store.untold(ME).expect("untold").is_empty());
+        store.archive(thread).expect("archive");
+        assert!(store.threads(5, Filter::Inbox, None).expect("list").is_empty());
+        store.unarchive(thread).expect("back");
+        assert_eq!(store.threads(5, Filter::Inbox, None).expect("list").len(), 1);
+        let message = store.thread(thread).expect("read").expect("there").mails[0].id;
+        assert_eq!(store.place(message).expect("place"), Some((ME.to_owned(), "INBOX".to_owned(), 7, 1)));
+    }
+
+    #[test]
+    fn contacts_come_from_every_mail_less_the_mailboxes_own() {
+        let mut store = Store::in_memory().expect("store");
+        let mut first = mail("a1", "lin@example.com", "x", &[], 1000);
+        first.from = Some(Address::new("林晓", "Lin@Example.com"));
+        first.cc = vec![Address::new("Alex", "alex@example.com")];
+        add(&mut store, "INBOX", 1, &first);
+        add(&mut store, "INBOX", 2, &mail("a2", "lin@example.com", "y", &[], 3000));
+        add(&mut store, "INBOX", 3, &mail("a3", "ops@example.com", "z", &[], 2000));
+        let contacts = store.contacts(&[ME.to_owned()], 10).expect("contacts");
+        let addrs: Vec<&str> = contacts.iter().map(|contact| contact.addr.as_str()).collect();
+        assert_eq!(addrs, ["lin@example.com", "ops@example.com", "alex@example.com"], "most often first, then latest");
+        assert_eq!((contacts[0].name.as_str(), contacts[0].count, contacts[0].last_at_ms), ("林晓", 2, 3000));
+        assert!(!addrs.contains(&ME), "the mailbox's own address is no contact");
+        assert_eq!(store.contacts(&[ME.to_owned()], 1).expect("contacts").len(), 1);
     }
 
     #[test]
