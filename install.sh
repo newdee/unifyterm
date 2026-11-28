@@ -71,6 +71,11 @@ case "$target" in
       rm -rf "$HOME/Applications/UnifyTerm.app"
       cp -R "$from/UnifyTerm.app" "$HOME/Applications/"
       say "UnifyTerm.app is in ~/Applications"
+      # A UnifyTerm that is running is the old one: its app is gone, so the Dock shows it as a
+      # question mark until it is opened again. (macOS lets no terminal change an app in place.)
+      if pgrep -x unifyterm >/dev/null 2>&1; then
+        say "UnifyTerm is running: quit it and open it again for $tag (until then the Dock shows ? for it)"
+      fi
     fi
     ;;
   linux-*)
