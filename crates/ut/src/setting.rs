@@ -150,10 +150,16 @@ fn run(asked: Option<PathBuf>, ask: Ask, out: &mut impl Write) -> Result<i32> {
         Ask::Set(name, value) => {
             file.set(named(&name)?, &value)?;
             file.save()?;
+            for said in file.keys_given_way() {
+                writeln!(out, "{said}")?;
+            }
         }
         Ask::Reset(name) => {
             file.reset(named(&name)?)?;
             file.save()?;
+            for said in file.keys_given_way() {
+                writeln!(out, "{said}")?;
+            }
         }
         Ask::Screen => {
             // Keys are read from a terminal and the list is drawn on one: without both, the list is printed.

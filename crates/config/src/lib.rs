@@ -89,6 +89,10 @@ pub struct Config {
     pub agents: AgentsConfig,
     pub updates: UpdatesConfig,
     pub mail: MailConfig,
+    /// Default keys that gave way to a key the file gives another command
+    /// ([`KeysConfig::give_way`]), each said as the window's first tab says it.
+    #[serde(skip)]
+    pub keys_given_way: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -253,6 +257,63 @@ impl KeysConfig {
         ]
     }
 
+    /// Every command with its keys, to change them.
+    fn all_mut(&mut self) -> [(&'static str, &mut Vec<String>); 13] {
+        [
+            ("new_tab", &mut self.new_tab),
+            ("close_tab", &mut self.close_tab),
+            ("next_tab", &mut self.next_tab),
+            ("previous_tab", &mut self.previous_tab),
+            ("copy", &mut self.copy),
+            ("paste", &mut self.paste),
+            ("select_all", &mut self.select_all),
+            ("agents", &mut self.agents),
+            ("tab_bar", &mut self.tab_bar),
+            ("full_screen", &mut self.full_screen),
+            ("explain", &mut self.explain),
+            ("mail", &mut self.mail),
+            ("mail_add", &mut self.mail_add),
+        ]
+    }
+
+    /// A key the file gives a command (`written`: the commands `[keys]` names)
+    /// is taken from a command that has it only by default: what the person
+    /// wrote wins over what a later version added. Without this, a version that
+    /// gives a new command a default key the person had already given another
+    /// would find two commands with one key, and use none of the settings.
+    /// Says each key taken, and from which command.
+    fn give_way(&mut self, written: &[String]) -> Vec<String> {
+        let held: Vec<(&'static str, String)> = self
+            .all()
+            .into_iter()
+            .filter(|(name, _)| written.iter().any(|given| given == name))
+            .flat_map(|(name, keys)| keys.iter().map(move |key| (name, key.clone())))
+            .collect();
+        let mut said = Vec::new();
+        for (name, keys) in self.all_mut() {
+            if written.iter().any(|given| given == name) {
+                continue;
+            }
+            let mut taken = Vec::new();
+            keys.retain(|key| match held.iter().find(|(_, given)| given == key) {
+                Some((owner, _)) => {
+                    taken.push(format!("\"{key}\" is keys.{owner}'s"));
+                    false
+                }
+                None => true,
+            });
+            if taken.is_empty() {
+                continue;
+            }
+            let left = if keys.is_empty() {
+                format!("; keys.{name} has no key now (give it one in [keys])")
+            } else {
+                String::new()
+            };
+            said.push(format!("keys.{name}: {}, as your settings say{left}", taken.join(", ")));
+        }
+        said
+    }
     /// Every key is one the window may take, in the form it is kept
     /// ([`chord::chord`]), and no key is given to two commands.
     fn check(&self) -> Result<()> {
@@ -855,7 +916,14 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Self> {
-        let config: Self = toml::from_str(text)?;
+        let mut config: Self = toml::from_str(text)?;
+        let table: toml::Table = toml::from_str(text)?;
+        let written: Vec<String> = table
+            .get("keys")
+            .and_then(toml::Value::as_table)
+            .map(|keys| keys.keys().cloned().collect())
+            .unwrap_or_default();
+        config.keys_given_way = config.keys.give_way(&written);
         if !FONT_SIZES.contains(&config.font.size) {
             bail!("font.size is {}: it must be from {} to {}", config.font.size, FONT_SIZES.start(), FONT_SIZES.end());
         }
@@ -987,6 +1055,34 @@ mod tests {
         );
         assert!(said("[keys]\ncopy = [\"ctrl-alt-x\", \"ctrl-alt-x\"]").contains("keys.copy and keys.copy both have"));
         assert!(said("[keys]\nfrobnicate = [\"f9\"]").contains("unknown field"), "a command that is none");
+    }
+
+    #[test]
+    fn a_key_the_file_gives_takes_it_from_a_default_and_the_rest_of_the_file_stays() {
+        // As on a Mac after 0.9.4: agents had been given select all's new default (cmd-a there).
+        let select_all = KeysConfig::default().select_all;
+        let new = select_all.first().expect("select all has a default key").clone();
+        let text = format!("[keys]\nagents = [\"{new}\"]\n\n[mail]\naddress = \"me@example.com\"\n");
+        let config = Config::parse(&text).expect("the file is used, mailbox and all");
+        assert_eq!(config.keys.agents, std::slice::from_ref(&new), "the key the person wrote");
+        assert!(!config.keys.select_all.contains(&new), "the default gave it way");
+        assert_eq!(config.mail.address, "me@example.com", "the rest of the file is used");
+        assert_eq!(config.keys_given_way.len(), 1, "{:?}", config.keys_given_way);
+        let said = &config.keys_given_way[0];
+        assert!(said.starts_with(&format!("keys.select_all: \"{new}\" is keys.agents's")), "{said}");
+        assert_eq!(
+            said.contains("has no key now"),
+            select_all.len() == 1,
+            "said when the command is left with no key: {said}"
+        );
+        // What was right before is as it was.
+        assert!(Config::parse("").expect("defaults").keys_given_way.is_empty(), "no file: nothing given way");
+        let same = format!("[keys]\nselect_all = [\"{new}\"]");
+        assert!(Config::parse(&same).expect("its own default").keys_given_way.is_empty());
+        // Two keys the person wrote are still a mistake to name.
+        let both = format!("[keys]\nselect_all = [\"{new}\"]\nagents = [\"{new}\"]");
+        let refused = format!("{:#}", Config::parse(&both).expect_err("refused"));
+        assert!(refused.contains("both have"), "{refused}");
     }
 
     #[test]

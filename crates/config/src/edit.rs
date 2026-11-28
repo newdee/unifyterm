@@ -214,6 +214,13 @@ impl File {
         self.document.to_string() != self.saved
     }
 
+    /// The default keys the file now takes from their commands (a key it gives another command),
+    /// each said as the window says it: to tell the person what a change did besides itself.
+    #[must_use]
+    pub fn keys_given_way(&self) -> Vec<String> {
+        Config::parse(&self.text()).map(|config| config.keys_given_way).unwrap_or_default()
+    }
+
     /// The file's text as it will be saved.
     #[must_use]
     pub fn text(&self) -> String {
@@ -575,7 +582,6 @@ mod tests {
             ("theme.corners", "pointed", "one of round, small, square"),
             ("keys.agents", "ctrl-shft-g", "'shft' is not ctrl, alt, shift or cmd"),
             ("keys.agents", "g", "the shell needs that key"),
-            ("keys.agents", "ctrl-tab", "keys.next_tab and keys.agents both have"),
             ("theme.ansi", "#000000, #111111", "has 2 colors"),
             ("font.family", " ", "font.family is empty"),
             // Right for its kind, wrong for the settings as a whole: a provider needs a model.
@@ -596,6 +602,22 @@ mod tests {
             assert_eq!(file.text(), before, "{name} = {typed} left the file as it was");
         }
         assert!(!file.changed());
+    }
+
+    #[test]
+    fn a_key_given_takes_it_from_a_default_and_two_given_are_refused() {
+        let (_directory, mut file) = opened("[font]\nsize = 15\n");
+        assert!(file.keys_given_way().is_empty(), "nothing given yet");
+        // ctrl-tab is next_tab's by default: the key the person gives wins, and that is said.
+        file.set(named("keys.agents"), "ctrl-tab").expect("taken from a default");
+        let said = file.keys_given_way();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("keys.next_tab: \"ctrl-tab\" is keys.agents's"), "{}", said[0]);
+        // Both given by the person: a mistake, refused, the file as it was.
+        let before = file.text();
+        let error = format!("{:#}", file.set(named("keys.next_tab"), "ctrl-tab").expect_err("two given"));
+        assert!(error.contains("keys.next_tab and keys.agents both have"), "{error}");
+        assert_eq!(file.text(), before);
     }
 
     #[test]

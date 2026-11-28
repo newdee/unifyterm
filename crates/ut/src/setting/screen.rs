@@ -182,6 +182,9 @@ impl Screen {
         match self.file.save() {
             Ok(()) => {
                 self.before.push(was);
+                // What the change took from a default key besides, said with it.
+                let given = self.file.keys_given_way();
+                let what = if given.is_empty() { what } else { format!("{what} · {}", given.join(" · ")) };
                 self.said = Some((what, Look::Good));
             }
             Err(error) => {

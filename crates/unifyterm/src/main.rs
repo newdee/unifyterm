@@ -763,7 +763,12 @@ impl Workspace {
                 seen = [now[0], theme.as_deref().and_then(stamp)];
                 unsettled = young(&seen);
                 let alive = this.update(cx, |this, cx| match read {
-                    Ok(config) => this.use_settings(config, cx),
+                    Ok(config) => {
+                        for said in &config.keys_given_way {
+                            log::info!("settings: {said}");
+                        }
+                        this.use_settings(config, cx);
+                    }
                     Err(error) => log::warn!("settings: the changed file is not used: {error:#}"),
                 });
                 if alive.is_err() {
@@ -1711,8 +1716,14 @@ fn main() {
         .as_deref()
         .map(|path| SettingsFile { path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()), asked });
     let (config, mut notices) = match path.as_deref().map(Config::load) {
-        Some(Err(error)) => (Config::default(), vec![format!("settings not used: {error:#}")]),
-        Some(Ok(config)) => (config, Vec::new()),
+        // The file is not touched: put right, it is used again (your mailboxes are in it).
+        Some(Err(error)) => {
+            (Config::default(), vec![format!("settings not used (the file is kept as it is): {error:#}")])
+        }
+        Some(Ok(config)) => {
+            let said = config.keys_given_way.clone();
+            (config, said)
+        }
         None => (Config::default(), Vec::new()),
     };
     let themes = file.as_ref().map(|file| unifyterm_config::themes::directory(&file.path));
